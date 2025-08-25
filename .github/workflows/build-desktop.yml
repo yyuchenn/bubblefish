@@ -101,13 +101,18 @@ jobs:
       - name: Install Tauri CLI
         shell: pwsh
         run: |
-          # Check if Tauri CLI is already installed
+          # Check if cargo-tauri is installed and working
           try {
             $version = cargo tauri --version 2>&1
-            Write-Host "Tauri CLI is already installed: $version"
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Tauri CLI is already installed: $version"
+            } else {
+              Write-Host "Installing Tauri CLI..."
+              cargo install tauri-cli --force
+            }
           } catch {
             Write-Host "Installing Tauri CLI..."
-            cargo install tauri-cli
+            cargo install tauri-cli --force
           }
 
       - name: Install frontend dependencies
@@ -118,23 +123,74 @@ jobs:
       - name: Build all components (WASM + Desktop)
         run: python build.py build-all
 
-      - name: Rename Windows artifacts
-        run: |
-          # Rename MSI to remove language suffix
-          Get-ChildItem "target\release\bundle\msi\*.msi" | ForEach-Object {
-            $newName = $_.Name -replace '_en-US', ''
-            Rename-Item $_.FullName -NewName $newName
-          }
-          # List renamed files
-          Get-ChildItem "target\release\bundle\msi\*.msi"
+      - name: Sign Windows Executables
+        if: env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE != null
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         shell: pwsh
+        run: |
+          Write-Host "Starting code signing process..."
+          
+          # Find signtool.exe
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue | 
+                      Where-Object { $_.FullName -like "*x64*" } | 
+                      Select-Object -First 1
+          
+          if (-not $signtool) {
+            Write-Host "signtool.exe not found, trying alternative locations..."
+            $signtool = Get-ChildItem -Path "C:\Program Files\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue | 
+                        Where-Object { $_.FullName -like "*x64*" } | 
+                        Select-Object -First 1
+          }
+          
+          if (-not $signtool) {
+            Write-Host "Error: signtool.exe not found. Windows SDK might not be installed."
+            exit 1
+          }
+          
+          $signtoolPath = $signtool.FullName
+          Write-Host "Found signtool at: $signtoolPath"
+          
+          # Decode certificate from base64
+          try {
+            $certBytes = [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+            $certPath = "$env:TEMP\code-signing-cert.pfx"
+            [System.IO.File]::WriteAllBytes($certPath, $certBytes)
+            Write-Host "Certificate decoded successfully"
+          } catch {
+            Write-Host "Error decoding certificate: $_"
+            exit 1
+          }
+          
+          # Find all exe and msi files to sign
+          $filesToSign = @()
+          $filesToSign += Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
+          $filesToSign += Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          
+          if ($filesToSign.Count -eq 0) {
+            Write-Host "Warning: No files found to sign"
+          } else {
+            foreach ($file in $filesToSign) {
+              Write-Host "Signing: $($file.FullName)"
+              & "$signtoolPath" sign /f "$certPath" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /t http://timestamp.digicert.com /fd sha256 "$($file.FullName)"
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host "Warning: Failed to sign $($file.Name)"
+              } else {
+                Write-Host "Successfully signed: $($file.Name)"
+              }
+            }
+          }
+          
+          # Clean up certificate file
+          Remove-Item $certPath -Force
+          Write-Host "Code signing completed"
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: |
-            desktop/target/release/*.exe
             target/release/bundle/
           retention-days: 7
 
@@ -143,7 +199,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            desktop/target/release/*.exe
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
         env:
@@ -215,12 +270,12 @@ jobs:
 
       - name: Install Tauri CLI
         run: |
-          # Check if Tauri CLI is already installed
-          if cargo tauri --version &> /dev/null 2>&1; then
+          # Check if cargo-tauri is installed and working
+          if cargo tauri --version &> /dev/null; then
             echo "Tauri CLI is already installed: $(cargo tauri --version)"
           else
             echo "Installing Tauri CLI..."
-            cargo install tauri-cli
+            cargo install tauri-cli --force
           fi
 
       - name: Install frontend dependencies
