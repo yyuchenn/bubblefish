@@ -186,17 +186,6 @@ jobs:
           Remove-Item $certPath -Force
           Write-Host "Code signing completed"
 
-      - name: Rename Windows artifacts
-        run: |
-          # Rename MSI to remove language suffix
-          Get-ChildItem "target\release\bundle\msi\*.msi" | ForEach-Object {
-            $newName = $_.Name -replace '_en-US', ''
-            Rename-Item $_.FullName -NewName $newName
-          }
-          # List renamed files
-          Get-ChildItem "target\release\bundle\msi\*.msi"
-        shell: pwsh
-
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
