@@ -1,0 +1,15 @@
+[workspace]
+members = ["core", "desktop"]
+resolver = "2"
+
+
+[profile.release]
+# WASM优化配置
+opt-level = "s"     # 优化大小（s = size, z = 最小体积）
+lto = true          # 链接时优化
+codegen-units = 1   # 单代码生成单元，更好的优化
+strip = true        # 移除调试符号，减小体积
+
+[profile.release.package.bubblefish-core]
+# 特别为core包启用更多优化
+opt-level = 3

@@ -1,0 +1,67 @@
+[package]
+name = "bubblefish-core"
+authors = ["yyuchenn"]
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# 核心业务逻辑依赖
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = "1.0"
+once_cell = "1.19"
+paste = "1.0"
+base64 = "0.21"
+lazy_static = { version = "1.4", optional = true }
+uuid = { version = "1.11", features = ["v4", "serde", "js"] }
+tar = "0.4"
+flate2 = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+# 图片处理依赖 - 现在是核心功能
+image = { version = "0.25" }
+rayon = { version = "1.8" }
+md-5 = "0.10"
+
+# WASM 相关依赖
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+web-sys = { version = "0.3", features = [
+    "console", "Window", "CustomEvent", "CustomEventInit", "Event", 
+    "IdbFactory", "IdbDatabase", "IdbObjectStore", "IdbTransaction", "IdbRequest", "IdbKeyRange", "IdbOpenDbRequest",
+    "DomStringList", "Response"
+], optional = true }
+console_error_panic_hook = { version = "0.1", optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+wasm-bindgen-rayon = { version = "1.2", optional = true }
+
+# Tauri 相关依赖
+tauri = { version = "2", features = ["macos-private-api"], optional = true }
+
+# 图像处理优化
+fast_image_resize = { version = "4.0", features = ["image"] }
+
+# 异步运行时和executor
+tokio = { version = "1.0", features = ["rt", "rt-multi-thread"], optional = true }
+futures = { version = "0.3", optional = true }
+
+[features]
+default = []
+wasm = ["wasm-bindgen", "wasm-bindgen-futures", "js-sys", "web-sys", "console_error_panic_hook", "serde-wasm-bindgen", "wasm-bindgen-rayon", "lazy_static"]
+tauri = ["dep:tauri", "futures"]
+
+[profile.dev]
+debug = true
+debug-assertions = true
+overflow-checks = true
+opt-level = 0
+
+[profile.release]
+debug = false
+debug-assertions = false
+overflow-checks = false
+opt-level = "z"  # 为WASM优化文件大小
+

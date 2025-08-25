@@ -1,0 +1,216 @@
+@import 'tailwindcss';
+
+/* Theme Color Variables */
+:root {
+	/* Default fruit theme colors as fallback to match JavaScript default */
+	--color-background: #fef7ed;
+	--color-surface: #fff7ed;
+	--color-surface-variant: #fed7aa;
+
+	--color-on-background: #431407;
+	--color-on-surface: #7c2d12;
+	--color-on-surface-variant: #9a3412;
+
+	--color-primary: #ff6b35;
+	--color-primary-rgb: 255, 107, 53;
+	--color-on-primary: #ffffff;
+	--color-primary-container: #ffedd5;
+	--color-on-primary-container: #c2410c;
+
+	--color-secondary: #e11d48;
+	--color-secondary-rgb: 225, 29, 72;
+	--color-on-secondary: #ffffff;
+	--color-secondary-container: #fecdd3;
+	--color-on-secondary-container: #be123c;
+
+	--color-error: #dc2626;
+	--color-on-error: #ffffff;
+	--color-error-container: #fecaca;
+	--color-on-error-container: #991b1b;
+
+	--color-outline: #fed7aa;
+	--color-outline-variant: #fdba74;
+
+	--color-hover: rgba(255, 107, 53, 0.1);
+	--color-pressed: rgba(255, 107, 53, 0.2);
+	--color-focus: rgba(225, 29, 72, 0.1);
+	--color-disabled: rgba(120, 45, 18, 0.38);
+}
+
+/* Animations */
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+		transform: translateY(-2px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+/* Range Slider Styles (can't be replaced with Tailwind) */
+.slider-thumb::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: var(--color-primary);
+	cursor: pointer;
+	border: 2px solid white;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+.slider-thumb::-moz-range-thumb {
+	width: 18px;
+	height: 18px;
+	border-radius: 50%;
+	background: var(--color-primary);
+	cursor: pointer;
+	border: 2px solid white;
+	box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+	border: none;
+}
+.slider-thumb:focus {
+	outline: none;
+}
+
+/* Themed Tailwind Utilities */
+@layer utilities {
+	/* Background utilities */
+	.bg-theme-background {
+		background-color: var(--color-background);
+	}
+	.bg-theme-surface {
+		background-color: var(--color-surface);
+	}
+	.bg-theme-surface-variant {
+		background-color: var(--color-surface-variant);
+	}
+	.bg-theme-primary {
+		background-color: var(--color-primary);
+	}
+	.bg-theme-primary-container {
+		background-color: var(--color-primary-container);
+	}
+	.bg-theme-secondary {
+		background-color: var(--color-secondary);
+	}
+	.bg-theme-secondary-container {
+		background-color: var(--color-secondary-container);
+	}
+	.bg-theme-error {
+		background-color: var(--color-error);
+	}
+	.bg-theme-error-container {
+		background-color: var(--color-error-container);
+	}
+
+	/* Hover background utilities */
+	.hover\:bg-theme-secondary-container:hover {
+		background-color: var(--color-secondary-container);
+	}
+	.hover\:bg-theme-primary-container:hover {
+		background-color: var(--color-primary-container);
+	}
+	.hover\:bg-theme-surface-variant:hover {
+		background-color: var(--color-surface-variant);
+	}
+	.hover\:bg-theme-error:hover {
+		background-color: var(--color-error);
+	}
+
+	/* Hover background utilities with opacity */
+	.hover\:bg-theme-secondary-container\/50:hover {
+		background-color: var(--color-hover);
+	}
+
+	/* Text color utilities */
+	.text-theme-on-background {
+		color: var(--color-on-background);
+	}
+	.text-theme-on-surface {
+		color: var(--color-on-surface);
+	}
+	.text-theme-on-surface-variant {
+		color: var(--color-on-surface-variant);
+	}
+	.text-theme-primary {
+		color: var(--color-primary);
+	}
+	.text-theme-on-primary {
+		color: var(--color-on-primary);
+	}
+	.text-theme-on-primary-container {
+		color: var(--color-on-primary-container);
+	}
+	.text-theme-secondary {
+		color: var(--color-secondary);
+	}
+	.text-theme-on-secondary {
+		color: var(--color-on-secondary);
+	}
+	.text-theme-on-secondary-container {
+		color: var(--color-on-secondary-container);
+	}
+	.text-theme-error {
+		color: var(--color-error);
+	}
+	.text-theme-on-error {
+		color: var(--color-on-error);
+	}
+	.text-theme-on-error-container {
+		color: var(--color-on-error-container);
+	}
+
+	/* Hover text color utilities */
+	.hover\:text-theme-on-primary-container:hover {
+		color: var(--color-on-primary-container);
+	}
+	.hover\:text-theme-on-error:hover {
+		color: var(--color-on-error);
+	}
+
+	/* Border utilities */
+	.border-theme-outline {
+		border-color: var(--color-outline);
+	}
+	.border-theme-outline-variant {
+		border-color: var(--color-outline-variant);
+	}
+	.border-theme-primary {
+		border-color: var(--color-primary);
+	}
+
+	/* Interactive state utilities */
+	.hover-theme:hover {
+		background-color: var(--color-hover);
+	}
+	.hover-theme-primary:hover {
+		background-color: var(--color-primary);
+	}
+	.pressed-theme:active {
+		background-color: var(--color-pressed);
+	}
+	.focus-theme:focus {
+		background-color: var(--color-focus);
+	}
+	.disabled-theme:disabled {
+		color: var(--color-disabled);
+		cursor: not-allowed;
+	}
+
+	/* Glass effect utilities for title bars */
+	.glass-effect {
+		backdrop-filter: blur(20px);
+		-webkit-backdrop-filter: blur(20px);
+	}
+
+	.glass-light {
+		background: rgba(255, 255, 255, 0.8);
+	}
+
+	.glass-dark {
+		background: rgba(0, 0, 0, 0.2);
+	}
+}

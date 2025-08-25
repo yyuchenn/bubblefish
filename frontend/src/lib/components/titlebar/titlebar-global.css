@@ -1,0 +1,16 @@
+/* Global styles for TitleBar component */
+/* Override global drag region for specific elements */
+body.tauri main * {
+	-webkit-app-region: no-drag;
+}
+
+.tauri-title-bar,
+[data-tauri-title-bar],
+.window-controls {
+	display: none !important;
+	visibility: hidden !important;
+}
+
+[data-tauri-drag-region] {
+	-webkit-app-region: drag !important;
+}

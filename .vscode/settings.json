@@ -1,0 +1,10 @@
+{
+    "eslint.workingDirectories": [
+        "frontend"
+    ],
+    "eslint.validate": [
+        "javascript",
+        "typescriptreact",
+        "svelte",
+    ],
+}

@@ -1,0 +1,87 @@
+### Node.js ###
+node_modules
+
+### Output ###
+.output
+.vercel
+.netlify
+.wrangler
+frontend/.svelte-kit
+frontend/build
+desktop/target
+wasm/pkg
+wasm/target
+
+### Env ###
+.env
+.env.*
+!.env.example
+!.env.test
+
+### Vite ###
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+
+### Svelte ###
+package
+.svelte-kit/
+
+### Rust ###
+**/target/
+**/*.rs.bk
+Cargo.lock
+
+### Tauri ###
+desktop/gen/schemas/
+
+### WASM ###
+wasm/pkg/
+frontend/src/lib/wasm-pkg/
+
+### Yarn ###
+.yarn/*
+!.yarn/releases
+!.yarn/patches
+!.yarn/plugins
+!.yarn/sdks
+!.yarn/versions
+
+### OS ###
+# macOS
+.DS_Store
+Thumbs.db
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+.AppleDB
+.AppleDesktop
+Network Trash Folder
+Temporary Items
+.apdisk
+*.icloud
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.cab
+*.msi
+*.msix
+*.msm
+*.msp
+*.lnk
+
+# AI Code Gen
+.claude

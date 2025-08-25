@@ -1,0 +1,71 @@
+# Headers configuration for Cloudflare Pages
+# This file should be placed in the build output directory
+
+/*
+  # Security headers
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  X-XSS-Protection: 1; mode=block
+  Referrer-Policy: strict-origin-when-cross-origin
+  # Required for SharedArrayBuffer and WASM threads
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+  Cross-Origin-Resource-Policy: cross-origin
+  # Cache control for static assets
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.wasm
+  # WASM specific headers
+  Content-Type: application/wasm
+  Cross-Origin-Resource-Policy: cross-origin
+  # Strong caching for WASM files
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.js
+  # JavaScript files
+  Content-Type: application/javascript; charset=utf-8
+  # Cache JS files
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.css
+  # CSS files
+  Content-Type: text/css; charset=utf-8
+  # Cache CSS files
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.html
+  # HTML files - no cache for dynamic content
+  Content-Type: text/html; charset=utf-8
+  Cache-Control: no-cache, no-store, must-revalidate
+
+/index.html
+  # Main entry point - no cache
+  Content-Type: text/html; charset=utf-8
+  Cache-Control: no-cache, no-store, must-revalidate
+  # Required for SharedArrayBuffer and WASM threads
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: require-corp
+
+# Service Worker
+/sw.js
+  Content-Type: application/javascript; charset=utf-8
+  Cache-Control: no-cache, no-store, must-revalidate
+  Service-Worker-Allowed: /
+
+# Manifest
+/manifest.json
+  Content-Type: application/manifest+json; charset=utf-8
+  Cache-Control: public, max-age=86400
+
+# Images
+/*.png
+  Content-Type: image/png
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.jpg
+  Content-Type: image/jpeg
+  Cache-Control: public, max-age=31536000, immutable
+
+/*.ico
+  Content-Type: image/x-icon
+  Cache-Control: public, max-age=31536000, immutable
