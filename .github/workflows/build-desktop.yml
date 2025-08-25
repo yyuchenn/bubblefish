@@ -132,6 +132,26 @@ jobs:
         run: |
           Write-Host "Starting code signing process..."
           
+          # Find signtool.exe
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue | 
+                      Where-Object { $_.FullName -like "*x64*" } | 
+                      Select-Object -First 1
+          
+          if (-not $signtool) {
+            Write-Host "signtool.exe not found, trying alternative locations..."
+            $signtool = Get-ChildItem -Path "C:\Program Files\Windows Kits\10\bin" -Recurse -Filter "signtool.exe" -ErrorAction SilentlyContinue | 
+                        Where-Object { $_.FullName -like "*x64*" } | 
+                        Select-Object -First 1
+          }
+          
+          if (-not $signtool) {
+            Write-Host "Error: signtool.exe not found. Windows SDK might not be installed."
+            exit 1
+          }
+          
+          $signtoolPath = $signtool.FullName
+          Write-Host "Found signtool at: $signtoolPath"
+          
           # Decode certificate from base64
           try {
             $certBytes = [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
@@ -153,7 +173,7 @@ jobs:
           } else {
             foreach ($file in $filesToSign) {
               Write-Host "Signing: $($file.FullName)"
-              & signtool sign /f "$certPath" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /t http://timestamp.digicert.com /fd sha256 "$($file.FullName)"
+              & "$signtoolPath" sign /f "$certPath" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /t http://timestamp.digicert.com /fd sha256 "$($file.FullName)"
               if ($LASTEXITCODE -ne 0) {
                 Write-Host "Warning: Failed to sign $($file.Name)"
               } else {
