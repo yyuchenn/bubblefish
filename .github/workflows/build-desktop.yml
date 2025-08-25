@@ -3,7 +3,6 @@ name: Build Desktop Applications
 on:
   push:
     branches:
-      - main
       - 'preview_*'
   pull_request:
     branches:
@@ -21,6 +20,10 @@ on:
           - macos-only
   release:
     types: [created]
+
+permissions:
+  contents: write
+  packages: write
 
 env:
   NODE_VERSION: '20'
@@ -196,13 +199,13 @@ jobs:
 
       - name: Upload to Release (if release)
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   build-macos:
     name: Build for macOS
@@ -286,24 +289,37 @@ jobs:
       - name: Build all components (WASM + Desktop)
         run: python3 build.py build-all
 
+      - name: Package macOS app for release
+        if: github.event_name == 'release'
+        run: |
+          # Find and compress .app bundles for release
+          for app in target/release/bundle/macos/*.app; do
+            if [ -d "$app" ]; then
+              app_name=$(basename "$app")
+              tar -czf "target/release/bundle/macos/${app_name}.tar.gz" -C "target/release/bundle/macos" "$app_name"
+              echo "Created ${app_name}.tar.gz"
+            fi
+          done
+
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:
           name: macos-build
           path: |
             target/release/bundle/macos/*.app
+            target/release/bundle/macos/*.app.tar.gz
             target/release/bundle/dmg/*.dmg
           retention-days: 7
 
       - name: Upload to Release (if release)
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             target/release/bundle/dmg/*.dmg
             target/release/bundle/macos/*.app.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
 
   create-release-summary:
     name: Create Release Summary
@@ -403,10 +419,10 @@ jobs:
 
       - name: Add summary to release (if release)
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             build-summary.md
             checksums.md5
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
