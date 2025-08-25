@@ -103,7 +103,7 @@ jobs:
         run: |
           # Check if Tauri CLI is already installed
           try {
-            $version = cargo tauri --version 2>&1
+            $version = tauri --version 2>&1
             Write-Host "Tauri CLI is already installed: $version"
           } catch {
             Write-Host "Installing Tauri CLI..."
@@ -216,8 +216,8 @@ jobs:
       - name: Install Tauri CLI
         run: |
           # Check if Tauri CLI is already installed
-          if cargo tauri --version &> /dev/null 2>&1; then
-            echo "Tauri CLI is already installed: $(cargo tauri --version)"
+          if tauri --version &> /dev/null 2>&1; then
+            echo "Tauri CLI is already installed: $(tauri --version)"
           else
             echo "Installing Tauri CLI..."
             cargo install tauri-cli
