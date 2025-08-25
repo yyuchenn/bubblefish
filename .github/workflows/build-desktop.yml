@@ -118,6 +118,49 @@ jobs:
       - name: Build all components (WASM + Desktop)
         run: python build.py build-all
 
+      - name: Sign Windows Executables
+        if: env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE != null
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        shell: pwsh
+        run: |
+          Write-Host "Starting code signing process..."
+          
+          # Decode certificate from base64
+          try {
+            $certBytes = [System.Convert]::FromBase64String($env:WINDOWS_CERTIFICATE)
+            $certPath = "$env:TEMP\code-signing-cert.pfx"
+            [System.IO.File]::WriteAllBytes($certPath, $certBytes)
+            Write-Host "Certificate decoded successfully"
+          } catch {
+            Write-Host "Error decoding certificate: $_"
+            exit 1
+          }
+          
+          # Find all exe and msi files to sign
+          $filesToSign = @()
+          $filesToSign += Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
+          $filesToSign += Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          
+          if ($filesToSign.Count -eq 0) {
+            Write-Host "Warning: No files found to sign"
+          } else {
+            foreach ($file in $filesToSign) {
+              Write-Host "Signing: $($file.FullName)"
+              & signtool sign /f "$certPath" /p "$env:WINDOWS_CERTIFICATE_PASSWORD" /t http://timestamp.digicert.com /fd sha256 "$($file.FullName)"
+              if ($LASTEXITCODE -ne 0) {
+                Write-Host "Warning: Failed to sign $($file.Name)"
+              } else {
+                Write-Host "Successfully signed: $($file.Name)"
+              }
+            }
+          }
+          
+          # Clean up certificate file
+          Remove-Item $certPath -Force
+          Write-Host "Code signing completed"
+
       - name: Rename Windows artifacts
         run: |
           # Rename MSI to remove language suffix
@@ -134,7 +177,6 @@ jobs:
         with:
           name: windows-build
           path: |
-            desktop/target/release/*.exe
             target/release/bundle/
           retention-days: 7
 
@@ -143,7 +185,6 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            desktop/target/release/*.exe
             target/release/bundle/msi/*.msi
             target/release/bundle/nsis/*.exe
         env:
