@@ -101,19 +101,18 @@ jobs:
       - name: Install Tauri CLI
         shell: pwsh
         run: |
-          # Check if Tauri CLI is already installed
-          $tauriPath = "$env:CARGO_HOME\bin\cargo-tauri.exe"
-          if (Test-Path $tauriPath) {
-            try {
-              $version = & tauri --version 2>&1
+          # Check if cargo-tauri is installed and working
+          try {
+            $version = cargo tauri --version 2>&1
+            if ($LASTEXITCODE -eq 0) {
               Write-Host "Tauri CLI is already installed: $version"
-            } catch {
-              Write-Host "Tauri CLI binary exists but may need reinstalling..."
+            } else {
+              Write-Host "Installing Tauri CLI..."
               cargo install tauri-cli --force
             }
-          } else {
+          } catch {
             Write-Host "Installing Tauri CLI..."
-            cargo install tauri-cli
+            cargo install tauri-cli --force
           }
 
       - name: Install frontend dependencies
@@ -262,17 +261,12 @@ jobs:
 
       - name: Install Tauri CLI
         run: |
-          # Check if Tauri CLI is already installed
-          if [ -f "$HOME/.cargo/bin/cargo-tauri" ]; then
-            if tauri --version &> /dev/null 2>&1; then
-              echo "Tauri CLI is already installed: $(tauri --version)"
-            else
-              echo "Tauri CLI binary exists but may need reinstalling..."
-              cargo install tauri-cli --force
-            fi
+          # Check if cargo-tauri is installed and working
+          if cargo tauri --version &> /dev/null; then
+            echo "Tauri CLI is already installed: $(cargo tauri --version)"
           else
             echo "Installing Tauri CLI..."
-            cargo install tauri-cli
+            cargo install tauri-cli --force
           fi
 
       - name: Install frontend dependencies
