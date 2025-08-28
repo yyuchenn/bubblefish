@@ -64,6 +64,7 @@ class BuildScript:
         self.frontend_dir = self.root_dir / "frontend"
         self.desktop_dir = self.root_dir / "desktop"
         self.core_dir = self.root_dir / "core"
+        self.plugins_dir = self.root_dir / "plugins"
         
         # 统一的构建输出目录
         self.build_dir = self.root_dir / "target" / "build"
@@ -850,6 +851,119 @@ class BuildScript:
             "-s", "python build.py wasm-dev"
         ])
 
+    def plugin_build(self, plugin_name: str = None, dev: bool = False) -> bool:
+        """Build plugin(s) as WASM modules"""
+        mode = "development" if dev else "production"
+        
+        if plugin_name:
+            # Build specific plugin
+            log_info(f"Building plugin '{plugin_name}' ({mode})...")
+            plugin_dir = self.plugins_dir / plugin_name
+            
+            if not (plugin_dir / "Cargo.toml").exists():
+                log_error(f"Plugin '{plugin_name}' not found at {plugin_dir}")
+                return False
+            
+            return self.build_single_plugin(plugin_dir, plugin_name, dev)
+        else:
+            # Build all plugins
+            log_info(f"Building all plugins ({mode})...")
+            success = True
+            
+            for plugin_path in self.plugins_dir.iterdir():
+                if plugin_path.is_dir() and (plugin_path / "Cargo.toml").exists():
+                    if plugin_path.name == "plugin-sdk":
+                        continue  # Skip SDK
+                    
+                    if not self.build_single_plugin(plugin_path, plugin_path.name, dev):
+                        success = False
+            
+            return success
+    
+    def build_single_plugin(self, plugin_dir: Path, plugin_name: str, dev: bool = False) -> bool:
+        """Build a single plugin"""
+        log_step(f"Building plugin: {plugin_name}")
+        
+        # Use --no-opt to avoid wasm-opt issues
+        cmd = ["wasm-pack", "build", "--target", "web", "--out-dir", "pkg", "--no-opt"]
+        
+        if dev:
+            cmd.append("--dev")
+        
+        if not self.run_command(cmd, cwd=plugin_dir):
+            return False
+        
+        
+        log_success(f"Plugin '{plugin_name}' built successfully")
+        return True
+    
+    def copy_plugin_files(self, plugin_dir: Path, plugin_name: str) -> bool:
+        """Copy plugin files to frontend static directory"""
+        log_info(f"Copying plugin files for {plugin_name}...")
+        
+        plugin_pkg_dir = plugin_dir / "pkg"
+        if not plugin_pkg_dir.exists():
+            log_warning(f"Plugin package directory not found: {plugin_pkg_dir}")
+            return False
+        
+        # Create plugin directory in frontend/static/plugins
+        frontend_plugin_dir = self.frontend_dir / "static" / "plugins" / plugin_name / "pkg"
+        frontend_plugin_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy essential files
+        for file_pattern in ["*.wasm", "*.js", "*.d.ts", "package.json"]:
+            import glob
+            source_files = glob.glob(str(plugin_pkg_dir / file_pattern))
+            for source_file in source_files:
+                source_path = Path(source_file)
+                dest_path = frontend_plugin_dir / source_path.name
+                shutil.copy2(source_path, dest_path)
+                log_info(f"Copied {source_path.name}")
+        
+        return True
+    
+    def plugin_dev(self) -> bool:
+        """Build plugins in development mode"""
+        return self.plugin_build(dev=True)
+    
+    def plugin_clean(self) -> bool:
+        """Clean plugin build artifacts"""
+        log_info("Cleaning plugin build artifacts...")
+        
+        # Clean all plugin pkg directories
+        for plugin_path in self.plugins_dir.iterdir():
+            if plugin_path.is_dir():
+                pkg_dir = plugin_path / "pkg"
+                if pkg_dir.exists():
+                    log_step(f"Removing {pkg_dir}")
+                    shutil.rmtree(pkg_dir, ignore_errors=True)
+        
+        
+        log_success("Plugin artifacts cleaned")
+        return True
+    
+    def plugin_list(self) -> bool:
+        """List available plugins"""
+        log_info("Available plugins:")
+        
+        plugin_count = 0
+        for plugin_path in self.plugins_dir.iterdir():
+            if plugin_path.is_dir() and (plugin_path / "Cargo.toml").exists():
+                if plugin_path.name == "plugin-sdk":
+                    continue
+                
+                plugin_count += 1
+                built = (plugin_path / "pkg").exists()
+                status = "✓ Built" if built else "✗ Not built"
+                log_info(f"  - {plugin_path.name} [{status}]")
+        
+        if plugin_count == 0:
+            log_info("  No plugins found")
+        else:
+            log_success(f"Total: {plugin_count} plugin(s)")
+        
+        return True
+
 def main():
     parser = argparse.ArgumentParser(
         description="Bubblefish Development Build Script",
@@ -874,6 +988,12 @@ Available commands:
     wasm-build    Build WASM (production)
     wasm-dev      Build WASM (development)
 
+  🔌 Plugin Development:
+    plugin-build  Build plugin(s) as WASM modules
+    plugin-dev    Build plugins (development)
+    plugin-list   List available plugins
+    plugin-clean  Clean plugin build artifacts
+
   🛠️ Development Tools:
     watch         Auto-rebuild WASM on changes
     test          Run all tests
@@ -892,6 +1012,7 @@ Available commands:
     )
     
     parser.add_argument("command", nargs="?", default="help", help="Command to run")
+    parser.add_argument("--plugin", help="Specific plugin name for plugin commands")
     parser.add_argument("--release", action="store_true", help="Build in release mode")
     parser.add_argument("--debug", action="store_true", help="Build in debug mode")
     
@@ -912,6 +1033,12 @@ Available commands:
         # Desktop development
         "desktop-dev": build_script.desktop_dev,
         "desktop-build": lambda: build_script.desktop_build(release=not args.debug),
+        
+        # Plugin commands
+        "plugin-build": lambda: build_script.plugin_build(plugin_name=args.plugin, dev=False),
+        "plugin-dev": lambda: build_script.plugin_build(plugin_name=args.plugin, dev=True),
+        "plugin-list": build_script.plugin_list,
+        "plugin-clean": build_script.plugin_clean,
         
         # Combined commands
         "build-all": build_script.build_all,

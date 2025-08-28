@@ -10,6 +10,7 @@ pub mod api;
 pub mod service;
 pub mod storage;
 pub mod common;
+pub mod plugin;
 
 // 重新导出bindings模块的所有内容
 pub use bindings::*;
