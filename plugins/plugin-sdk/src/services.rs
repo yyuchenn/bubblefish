@@ -10,21 +10,12 @@ pub trait ServiceProxy {
 #[derive(Clone)]
 pub struct PluginContext {
     pub plugin_id: String,
-    pub permissions: Vec<String>,
 }
 
 impl PluginContext {
     pub fn new(plugin_id: String) -> Self {
         Self {
             plugin_id,
-            permissions: Vec::new(),
-        }
-    }
-
-    pub fn with_permissions(plugin_id: String, permissions: Vec<String>) -> Self {
-        Self {
-            plugin_id,
-            permissions,
         }
     }
 

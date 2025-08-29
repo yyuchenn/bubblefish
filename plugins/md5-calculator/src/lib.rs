@@ -21,12 +21,6 @@ impl MD5CalculatorPlugin {
                 version: "1.0.0".to_string(),
                 description: "Calculate and log MD5 hash of images when switching".to_string(),
                 author: "Bubblefish".to_string(),
-                required_permissions: vec![
-                    "ServiceAccess:images:get_image".to_string(),
-                    "ServiceAccess:images:get_image_data".to_string(),
-                    "EventSubscribe:ImageSelected".to_string(),
-                    "DataRead:Images".to_string(),
-                ],
                 subscribed_events: vec![
                     "ImageSelected".to_string(),
                     "ProjectOpened".to_string(),

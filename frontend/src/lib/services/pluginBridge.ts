@@ -494,20 +494,6 @@ class PluginBridge {
         });
     }
 
-    /**
-     * 获取当前权限
-     */
-    getAvailablePermissions(): string[] {
-        return [
-            'ServiceAccess:markers:*',
-            'ServiceAccess:project:*',
-            'ServiceAccess:images:*',
-            'ServiceAccess:stats:*',
-            'EventSubscribeAll',
-            'DataFullAccess',
-            'PluginCommunication',
-        ];
-    }
 }
 
 export const pluginBridge = new PluginBridge();

@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 
 interface PluginInstance {
-    init(plugin_id: string, permissions: string[]): void;
+    init(plugin_id: string): void;
     on_event(event: any): void;
     on_message(from: string, message: any): void;
     activate(): void;
@@ -16,7 +16,7 @@ interface PluginInstance {
 class PluginWorker {
     private plugins: Map<string, PluginInstance> = new Map();
 
-    async loadPlugin(pluginId: string, wasmUrl: string, permissions: string[], sharedBuffer?: SharedArrayBuffer) {
+    async loadPlugin(pluginId: string, wasmUrl: string, sharedBuffer?: SharedArrayBuffer) {
         try {
             
             // Dynamic import of the plugin module
@@ -48,9 +48,9 @@ class PluginWorker {
             
             instance.init_shared_buffer(sharedBuffer);
             
-            // NOW initialize the plugin with permissions
+            // NOW initialize the plugin
             // The SharedArrayBuffer channel is ready for service calls
-            instance.init(pluginId, permissions);
+            instance.init(pluginId);
             
             // Store current instance for global access
             (self as any).currentPluginInstance = instance;
@@ -151,7 +151,7 @@ self.addEventListener('message', async (event) => {
     
     switch (type) {
         case 'LOAD_PLUGIN':
-            await worker.loadPlugin(data.pluginId, data.wasmUrl, data.permissions || [], data.sharedBuffer);
+            await worker.loadPlugin(data.pluginId, data.wasmUrl, data.sharedBuffer);
             break;
             
         case 'UNLOAD_PLUGIN':

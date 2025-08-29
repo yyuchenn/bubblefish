@@ -22,14 +22,6 @@ impl EnhancedMarkerLogger {
                 version: "1.0.0".to_string(),
                 description: "一个插件示例。它将选中的标记的内容输出到控制台。".to_string(),
                 author: "yyuchenn".to_string(),
-                required_permissions: vec![
-                    "ServiceAccess:markers:*".to_string(),
-                    "ServiceAccess:project:get_current".to_string(),
-                    "ServiceAccess:images:get_image".to_string(),
-                    "ServiceAccess:stats:get_stats".to_string(),
-                    "EventSubscribeAll".to_string(),
-                    "DataRead:All".to_string(),
-                ],
                 subscribed_events: vec![
                     "MarkerSelected".to_string(),
                     "MarkerDeselected".to_string(),
@@ -68,7 +60,6 @@ impl Plugin for EnhancedMarkerLogger {
         self.services = Some(services.clone());
         
         self.log("success", "Plugin initialized with enhanced capabilities!");
-        self.log("info", &format!("Permissions granted: {:?}", self.metadata.required_permissions));
         
         // 尝试获取当前项目信息
         if let Some(services) = &self.services {

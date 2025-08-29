@@ -16,7 +16,6 @@ pub struct PluginMetadata {
     pub version: String,
     pub description: String,
     pub author: String,
-    pub required_permissions: Vec<String>,
     pub subscribed_events: Vec<String>,
 }
 
@@ -68,15 +67,10 @@ macro_rules! export_plugin {
                 }
             }
             
-            pub fn init(&mut self, plugin_id: String, permissions: Vec<JsValue>) -> Result<(), JsValue> {
+            pub fn init(&mut self, plugin_id: String) -> Result<(), JsValue> {
                 use $crate::{Plugin, PluginContext, ServiceProxyManager};
                 
-                let permissions: Vec<String> = permissions
-                    .into_iter()
-                    .filter_map(|v| v.as_string())
-                    .collect();
-                
-                let context = PluginContext::with_permissions(plugin_id, permissions);
+                let context = PluginContext::new(plugin_id);
                 let services = ServiceProxyManager::new(context.clone());
                 
                 self.context = Some(context.clone());

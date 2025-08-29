@@ -7,7 +7,6 @@ export interface PluginMetadata {
     version: string;
     description: string;
     author: string;
-    required_permissions: string[];
     subscribed_events: string[];
 }
 
@@ -99,12 +98,9 @@ class PluginService {
         }
     }
 
-    async loadPlugin(pluginId: string, wasmUrl?: string, permissions?: string[]): Promise<void> {
+    async loadPlugin(pluginId: string, wasmUrl?: string): Promise<void> {
         try {
             const url = wasmUrl || `/plugins/${pluginId}/pkg/${pluginId.replace(/-/g, '_')}_plugin.js`;
-            
-            // Get permissions from bridge if not provided
-            const grantedPermissions = permissions || pluginBridge.getAvailablePermissions();
             
             // Create a worker for this plugin
             const worker = new Worker('/src/lib/workers/pluginWorker.ts', { type: 'module' });
@@ -130,7 +126,6 @@ class PluginService {
                 type: 'LOAD_PLUGIN',
                 pluginId,
                 wasmUrl: url,
-                permissions: grantedPermissions,
                 sharedBuffer
             });
 
@@ -157,7 +152,6 @@ class PluginService {
                         this.savePluginState();
                         
                         console.log(`[PluginService] Plugin ${pluginId} loaded successfully`);
-                        console.log(`  Permissions: ${metadata.required_permissions}`);
                         console.log(`  Events: ${metadata.subscribed_events}`);
                         
                         resolve();
