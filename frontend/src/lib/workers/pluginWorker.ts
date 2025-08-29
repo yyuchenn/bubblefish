@@ -12,14 +12,12 @@ interface PluginInstance {
     send_message(to: string, message: any): void;
 }
 
+
 class PluginWorker {
     private plugins: Map<string, PluginInstance> = new Map();
-    private serviceCallHandlers: Map<number, (result: any, error?: any) => void> = new Map();
-    private serviceCallId = 0;
 
-    async loadPlugin(pluginId: string, wasmUrl: string, permissions: string[]) {
+    async loadPlugin(pluginId: string, wasmUrl: string, permissions: string[], sharedBuffer?: SharedArrayBuffer) {
         try {
-            console.log(`[Worker] Loading enhanced plugin ${pluginId} from ${wasmUrl}`);
             
             // Dynamic import of the plugin module
             const moduleUrl = wasmUrl.replace('_bg.wasm', '.js');
@@ -38,33 +36,27 @@ class PluginWorker {
 
             const instance = new PluginWrapper();
             
-            // Initialize the plugin with permissions
+            // Initialize SharedArrayBuffer FIRST (before plugin.init)
+            // This is required so service calls during init() will work
+            if (!sharedBuffer) {
+                throw new Error('SharedArrayBuffer is required but not provided');
+            }
+            
+            if (!instance.init_shared_buffer) {
+                throw new Error('Plugin does not support SharedArrayBuffer');
+            }
+            
+            instance.init_shared_buffer(sharedBuffer);
+            
+            // NOW initialize the plugin with permissions
+            // The SharedArrayBuffer channel is ready for service calls
             instance.init(pluginId, permissions);
             
-            // Intercept service calls
-            instance.call_service = (service: string, method: string, params: any) => {
-                // Send service call request to main thread
-                const callId = this.serviceCallId++;
-                
-                return new Promise((resolve, reject) => {
-                    this.serviceCallHandlers.set(callId, (result, error) => {
-                        if (error) {
-                            reject(error);
-                        } else {
-                            resolve(result);
-                        }
-                    });
-                    
-                    self.postMessage({
-                        type: 'SERVICE_CALL',
-                        pluginId,
-                        callId,
-                        service,
-                        method,
-                        params
-                    });
-                });
-            };
+            // Store current instance for global access
+            (self as any).currentPluginInstance = instance;
+            
+            // Don't override call_service when SharedArrayBuffer is available
+            // The plugin will use synchronous SharedArrayBuffer communication instead
             
             // Store the instance
             this.plugins.set(pluginId, instance);
@@ -80,8 +72,6 @@ class PluginWorker {
                 pluginId,
                 metadata
             });
-
-            console.log(`[Worker] Plugin ${pluginId} loaded successfully`);
         } catch (error) {
             console.error(`[Worker] Failed to load plugin ${pluginId}:`, error);
             self.postMessage({
@@ -127,13 +117,6 @@ class PluginWorker {
         }
     }
 
-    handleServiceCallResponse(callId: number, result: any, error?: any) {
-        const handler = this.serviceCallHandlers.get(callId);
-        if (handler) {
-            handler(result, error);
-            this.serviceCallHandlers.delete(callId);
-        }
-    }
 
     activatePlugin(pluginId: string) {
         const plugin = this.plugins.get(pluginId);
@@ -168,7 +151,7 @@ self.addEventListener('message', async (event) => {
     
     switch (type) {
         case 'LOAD_PLUGIN':
-            await worker.loadPlugin(data.pluginId, data.wasmUrl, data.permissions || []);
+            await worker.loadPlugin(data.pluginId, data.wasmUrl, data.permissions || [], data.sharedBuffer);
             break;
             
         case 'UNLOAD_PLUGIN':
@@ -183,9 +166,6 @@ self.addEventListener('message', async (event) => {
             worker.dispatchMessage(data.from, data.to, data.message);
             break;
             
-        case 'SERVICE_CALL_RESPONSE':
-            worker.handleServiceCallResponse(data.callId, data.result, data.error);
-            break;
             
         case 'ACTIVATE_PLUGIN':
             worker.activatePlugin(data.pluginId);

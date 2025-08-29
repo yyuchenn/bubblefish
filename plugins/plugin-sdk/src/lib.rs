@@ -3,9 +3,11 @@ use serde_json::Value;
 
 pub mod services;
 pub mod events;
+pub mod shared_buffer;
 
 pub use services::*;
 pub use events::*;
+pub use shared_buffer::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginMetadata {
@@ -81,6 +83,16 @@ macro_rules! export_plugin {
                 self.services = Some(services.clone());
                 
                 self.plugin.init(context, services).map_err(|e| JsValue::from_str(&e))
+            }
+            
+            pub fn init_shared_buffer(&self, buffer: JsValue) -> Result<(), JsValue> {
+                use js_sys::SharedArrayBuffer;
+                
+                let shared_buffer = buffer.dyn_into::<SharedArrayBuffer>()
+                    .map_err(|_| JsValue::from_str("SharedArrayBuffer is required but not provided"))?;
+                    
+                $crate::shared_buffer::init_shared_channel(shared_buffer);
+                Ok(())
             }
             
             pub fn on_event(&mut self, event_js: JsValue) -> Result<(), JsValue> {

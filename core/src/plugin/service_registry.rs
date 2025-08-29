@@ -84,7 +84,8 @@ pub struct ServiceInfo {
 // 为各个Service实现ServiceInterface的适配器
 pub mod adapters {
     use super::*;
-    use crate::service::{marker, project};
+    use crate::service::{marker, project, image};
+    use crate::storage::traits::Storage;
     
     /// Marker Service适配器
     pub struct MarkerServiceAdapter {
@@ -363,6 +364,142 @@ pub mod adapters {
 
         fn name(&self) -> &'static str {
             "project"
+        }
+    }
+
+    /// Image Service适配器
+    pub struct ImageServiceAdapter {
+        service: Arc<image::ImageService>,
+    }
+
+    impl ImageServiceAdapter {
+        pub fn new(service: Arc<image::ImageService>) -> Self {
+            Self { service }
+        }
+    }
+
+    impl ServiceInterface for ImageServiceAdapter {
+        fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+            match method {
+                "get_all_images" => {
+                    let project_id = params["project_id"]
+                        .as_u64()
+                        .ok_or("project_id required")? as u32;
+                    
+                    // Get all images for the project
+                    let image_ids = crate::storage::project::get_project_image_ids_storage(
+                        crate::common::ProjectId::from(project_id)
+                    ).map_err(|e| format!("Failed to get project images: {}", e))?;
+                    
+                    let mut images = Vec::new();
+                    for image_id in image_ids {
+                        if let Some(image) = self.service.get_image(u32::from(image_id)) {
+                            images.push(image);
+                        }
+                    }
+                    
+                    Ok(serde_json::to_value(images).unwrap_or(serde_json::json!([])))
+                }
+                "get_image" => {
+                    let image_id = params["image_id"]
+                        .as_u64()
+                        .ok_or("image_id required")? as u32;
+                    
+                    let image_dto = self.service.get_image(image_id);
+                    Ok(serde_json::to_value(image_dto).unwrap_or(serde_json::json!(null)))
+                }
+                "get_image_data" => {
+                    let image_id = params["image_id"]
+                        .as_u64()
+                        .ok_or("image_id required")? as u32;
+                    
+                    // Get image from storage
+                    let storage = crate::storage::state::APP_STATE.images
+                        .read()
+                        .map_err(|e| format!("Failed to read images: {}", e))?;
+                    
+                    if let Some(image) = storage.get(&crate::common::ImageId::from(image_id)) {
+                        // Return based on the image data type
+                        match &image.data {
+                            crate::storage::image_data::ImageData::FilePath(path) => {
+                                Ok(serde_json::json!({
+                                    "type": "FilePath",
+                                    "path": path.to_string_lossy()
+                                }))
+                            }
+                            crate::storage::image_data::ImageData::Binary { data, format } => {
+                                Ok(serde_json::json!({
+                                    "type": "Binary",
+                                    "data": data.as_ref(),
+                                    "format": format.extension()
+                                }))
+                            }
+                            crate::storage::image_data::ImageData::SharedBuffer { .. } => {
+                                // For shared buffer, we need to read the actual data
+                                match image.data.read_data() {
+                                    Ok(data) => Ok(serde_json::json!({
+                                        "type": "Binary",
+                                        "data": data,
+                                        "format": image.data.get_format().map(|f| f.extension()).unwrap_or("png")
+                                    })),
+                                    Err(e) => Err(format!("Failed to read shared buffer: {}", e))
+                                }
+                            }
+                        }
+                    } else {
+                        Err(format!("Image {} not found", image_id))
+                    }
+                }
+                _ => Err(format!("Unknown method: {}", method))
+            }
+        }
+
+        fn list_methods(&self) -> Vec<MethodInfo> {
+            vec![
+                MethodInfo {
+                    name: "get_all_images".to_string(),
+                    description: "Get all images for a project".to_string(),
+                    params: vec![
+                        ParamInfo {
+                            name: "project_id".to_string(),
+                            param_type: "string".to_string(),
+                            required: true,
+                            description: "Project ID".to_string(),
+                        }
+                    ],
+                    returns: "Image[]".to_string(),
+                },
+                MethodInfo {
+                    name: "get_image".to_string(),
+                    description: "Get a specific image by ID".to_string(),
+                    params: vec![
+                        ParamInfo {
+                            name: "image_id".to_string(),
+                            param_type: "string".to_string(),
+                            required: true,
+                            description: "Image ID".to_string(),
+                        }
+                    ],
+                    returns: "Image".to_string(),
+                },
+                MethodInfo {
+                    name: "get_image_data".to_string(),
+                    description: "Get image data (file path or binary)".to_string(),
+                    params: vec![
+                        ParamInfo {
+                            name: "image_id".to_string(),
+                            param_type: "string".to_string(),
+                            required: true,
+                            description: "Image ID".to_string(),
+                        }
+                    ],
+                    returns: "ImageData".to_string(),
+                },
+            ]
+        }
+
+        fn name(&self) -> &'static str {
+            "images"
         }
     }
 }

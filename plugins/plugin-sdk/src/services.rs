@@ -30,14 +30,8 @@ impl PluginContext {
 
     /// 调用Core服务
     pub fn call_service(&self, service: &str, method: &str, params: Value) -> Result<Value, String> {
-        // 这里需要通过WASM边界调用Core服务
-        // 实际实现会通过JS桥接到Core WASM
-        web_sys::console::log_1(&format!(
-            "[Plugin {}] Calling {}.{} with params: {:?}",
-            self.plugin_id, service, method, params
-        ).into());
-        
-        Ok(json!({"mock": "response"}))
+        crate::shared_buffer::call_service_sync(service, method, &params)
+            .map_err(|e| format!("Service call failed: {}", e))
     }
 }
 
@@ -180,6 +174,56 @@ impl ImageServiceProxy {
         Ok(serde_json::from_value(result).map_err(|e| e.to_string())?)
     }
 
+    pub fn get_image_data(&self, image_id: &str) -> Result<ImageData, String> {
+        let result = self.context.call_service(
+            "images",
+            "get_image_data",
+            json!({ "image_id": image_id })
+        )?;
+        
+        Ok(serde_json::from_value(result).map_err(|e| e.to_string())?)
+    }
+    
+    /// 获取图像的二进制数据
+    /// 对于FilePath类型，会通过Core API读取文件内容
+    /// 对于Binary类型，直接返回数据
+    pub fn get_image_binary(&self, image_id: &str) -> Result<Vec<u8>, String> {
+        let image_data = self.get_image_data(image_id)?;
+        
+        match image_data {
+            ImageData::FilePath { path: _ } => {
+                // 在桌面端，通过文件服务读取文件内容
+                // 传递image_id，让服务端通过Core API获取数据
+                self.read_image_file(image_id)
+            }
+            ImageData::Binary { data, .. } => {
+                // 在Web端，直接返回二进制数据
+                Ok(data)
+            }
+        }
+    }
+    
+    /// 通过文件服务读取图片文件内容
+    fn read_image_file(&self, image_id: &str) -> Result<Vec<u8>, String> {
+        let params = json!({
+            "image_id": image_id
+        });
+        
+        // 调用文件服务读取文件，传递image_id
+        let result = self.context.call_service("files", "read_binary", params)?;
+        
+        // 解析返回的二进制数据
+        if let Some(data) = result.as_array() {
+            let bytes: Vec<u8> = data.iter()
+                .filter_map(|v| v.as_u64())
+                .map(|v| v as u8)
+                .collect();
+            Ok(bytes)
+        } else {
+            Err("Failed to parse file data".to_string())
+        }
+    }
+
     pub fn add_image(&self, data: AddImageRequest) -> Result<Image, String> {
         let result = self.context.call_service(
             "images",
@@ -268,6 +312,13 @@ pub struct Image {
     pub name: String,
     pub width: u32,
     pub height: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ImageData {
+    FilePath { path: String },
+    Binary { data: Vec<u8>, format: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

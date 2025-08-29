@@ -3,6 +3,7 @@ import { get } from 'svelte/store';
 import { markerStore } from '../stores/markerStore';
 import { projectStore } from '../stores/projectStore';
 import { imageStore } from '../stores/imageStore';
+import { isTauri } from '../core/tauri';
 
 export interface ServiceCallRequest {
     pluginId: string;
@@ -170,9 +171,88 @@ class PluginBridge {
                 }
                 
                 case 'get_image': {
+                    console.log('[PluginBridge] get_image called with params:', params);
                     const images = get(imageStore).images;
-                    const image = images.find(i => i.id === params.image_id);
-                    return image || null;
+                    console.log('[PluginBridge] Available images:', images);
+                    
+                    // Convert image_id to number if it's a string
+                    const imageId = typeof params.image_id === 'string' 
+                        ? parseInt(params.image_id, 10) 
+                        : params.image_id;
+                    console.log('[PluginBridge] Looking for image with id:', imageId);
+                    
+                    const image = images.find(i => i.id === imageId);
+                    console.log('[PluginBridge] Found image:', image);
+                    
+                    if (!image) {
+                        console.log('[PluginBridge] Image not found, returning null');
+                        return null;
+                    }
+                    
+                    // Convert to plugin-compatible format
+                    const result = {
+                        id: image.id.toString(),
+                        name: image.name || `Image ${image.id}`,
+                        path: '',  // Will be filled if needed
+                        width: image.width || 0,
+                        height: image.height || 0
+                    };
+                    console.log('[PluginBridge] Returning formatted image:', result);
+                    return result;
+                }
+                
+                case 'get_image_data': {
+                    const { image_id } = params;
+                    
+                    // Convert image_id to number if it's a string
+                    const imageId = typeof image_id === 'string' 
+                        ? parseInt(image_id, 10) 
+                        : image_id;
+                    
+                    if (isTauri()) {
+                        // Desktop: 返回文件路径，避免大数据复制
+                        const filePath = await coreAPI.getImageFilePath(imageId);
+                        if (!filePath) {
+                            throw new Error(`No file path available for image ${imageId} in desktop mode`);
+                        }
+                        
+                        return {
+                            type: 'FilePath',
+                            path: filePath
+                        };
+                    } else {
+                        // Web: 返回二进制数据
+                        const imageData = await coreAPI.getImageBinaryData(imageId);
+                        if (!imageData) {
+                            throw new Error(`Failed to get binary data for image ${imageId} in web mode`);
+                        }
+                        
+                        // The imageData is already a Uint8Array
+                        const dataArray = imageData instanceof Uint8Array ? imageData : new Uint8Array(imageData);
+                        
+                        // Determine format from data signature
+                        let format = 'png'; // default
+                        if (dataArray.length > 4) {
+                            // Check PNG signature
+                            if (dataArray[0] === 0x89 && dataArray[1] === 0x50) {
+                                format = 'png';
+                            }
+                            // Check JPEG signature
+                            else if (dataArray[0] === 0xFF && dataArray[1] === 0xD8) {
+                                format = 'jpeg';
+                            }
+                            // Check WebP signature
+                            else if (dataArray[0] === 0x52 && dataArray[1] === 0x49) {
+                                format = 'webp';
+                            }
+                        }
+                        
+                        return {
+                            type: 'Binary',
+                            data: Array.from(dataArray),
+                            format: format
+                        };
+                    }
                 }
                 
                 case 'add_image': {
@@ -220,6 +300,55 @@ class PluginBridge {
                 
                 default:
                     throw new Error(`Unknown stats method: ${method}`);
+            }
+        });
+
+        // Files服务 - 用于桌面端文件读取
+        this.serviceHandlers.set('files', async (method: string, params: any) => {
+            switch (method) {
+                case 'read_binary': {
+                    const { path, image_id } = params;
+                    
+                    if (!isTauri()) {
+                        throw new Error('File service is only available in desktop environment');
+                    }
+                    
+                    // 如果提供了image_id，直接通过Core API获取图片数据
+                    if (image_id !== undefined) {
+                        const imageId = typeof image_id === 'string' 
+                            ? parseInt(image_id, 10) 
+                            : image_id;
+                        
+                        const imageData = await coreAPI.getImageBinaryData(imageId);
+                        if (!imageData) {
+                            throw new Error(`Failed to get binary data for image ${imageId}`);
+                        }
+                        
+                        return Array.from(imageData);
+                    }
+                    
+                    // 否则尝试读取文件（但这通常不应该发生）
+                    throw new Error('File reading requires image_id parameter');
+                }
+                
+                case 'exists': {
+                    const { path } = params;
+                    
+                    if (!isTauri()) {
+                        throw new Error('File service is only available in desktop environment');
+                    }
+                    
+                    // 在Tauri环境下，使用window.__TAURI__.fs API
+                    const tauri = (window as any).__TAURI__;
+                    if (!tauri || !tauri.fs || !tauri.fs.exists) {
+                        throw new Error('Tauri fs API not available');
+                    }
+                    
+                    return await tauri.fs.exists(path);
+                }
+                
+                default:
+                    throw new Error(`Unknown files method: ${method}`);
             }
         });
     }
@@ -270,14 +399,18 @@ class PluginBridge {
             }
         });
 
+        let previousImageId: number | null = null;
         imageStore.subscribe((state) => {
-            if (state.currentImageId !== null) {
-                const image = state.images.find(i => i.id === state.currentImageId);
-                this.dispatchToPlugins({
-                    type: 'ImageSelected',
-                    image_id: state.currentImageId,
-                    image: image || null
-                });
+            if (state.currentImageId !== previousImageId) {
+                if (state.currentImageId !== null) {
+                    const image = state.images.find(i => i.id === state.currentImageId);
+                    this.dispatchToPlugins({
+                        type: 'ImageSelected',
+                        image_id: state.currentImageId.toString(),
+                        image: image || null
+                    });
+                }
+                previousImageId = state.currentImageId;
             }
         });
 

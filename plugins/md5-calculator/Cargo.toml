@@ -1,19 +1,20 @@
 [package]
-name = "marker-logger-plugin"
+name = "md5-calculator-plugin"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
 bubblefish-plugin-sdk = { path = "../plugin-sdk" }
-wasm-bindgen = "0.2"
-js-sys = "0.3"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde-wasm-bindgen = "0.6"
-web-sys = { version = "0.3", features = ["console"] }
-
-[lib]
-crate-type = ["cdylib"]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+web-sys = "0.3"
+md5 = "0.7"
 
 [profile.release]
 opt-level = "z"

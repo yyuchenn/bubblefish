@@ -113,12 +113,25 @@ class PluginService {
             this.workers.set(pluginId, worker);
             this.serviceCallHandlers.set(worker, new Map());
             
+            // Create SharedArrayBuffer (required)
+            if (typeof SharedArrayBuffer === 'undefined') {
+                throw new Error('SharedArrayBuffer is not supported in this environment. Please ensure CORS headers are properly configured.');
+            }
+            
+            // Import and initialize SharedBufferHandler
+            const { sharedBufferHandler } = await import('./sharedBufferHandler');
+            const sharedBuffer = sharedBufferHandler.getBuffer();
+            
+            // Start monitoring requests if not already started
+            sharedBufferHandler.start();
+            
             // Initialize the plugin in the worker
             worker.postMessage({
                 type: 'LOAD_PLUGIN',
                 pluginId,
                 wasmUrl: url,
-                permissions: grantedPermissions
+                permissions: grantedPermissions,
+                sharedBuffer
             });
 
             // Wait for plugin to load
