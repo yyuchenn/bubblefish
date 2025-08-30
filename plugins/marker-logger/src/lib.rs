@@ -45,7 +45,15 @@ impl EnhancedMarkerLogger {
             _ => "📝",
         };
         
-        web_sys::console::log_1(&format!("[MarkerLogger] {} {}", prefix, message).into());
+        #[cfg(feature = "wasm")]
+        {
+            web_sys::console::log_1(&format!("[MarkerLogger] {} {}", prefix, message).into());
+        }
+        
+        #[cfg(feature = "native")]
+        {
+            println!("[MarkerLogger] {} {}", prefix, message);
+        }
     }
 
     fn update_stat(&mut self, key: &str) {

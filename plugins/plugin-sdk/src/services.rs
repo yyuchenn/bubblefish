@@ -21,8 +21,21 @@ impl PluginContext {
 
     /// 调用Core服务
     pub fn call_service(&self, service: &str, method: &str, params: Value) -> Result<Value, String> {
-        crate::shared_buffer::call_service_sync(service, method, &params)
-            .map_err(|e| format!("Service call failed: {}", e))
+        #[cfg(feature = "wasm")]
+        {
+            crate::shared_buffer::call_service_sync(service, method, &params)
+                .map_err(|e| format!("Service call failed: {}", e))
+        }
+        
+        #[cfg(feature = "native")]
+        {
+            crate::native::call_service_native(&self.plugin_id, service, method, params)
+        }
+        
+        #[cfg(not(any(feature = "wasm", feature = "native")))]
+        {
+            Err("No platform feature enabled".to_string())
+        }
     }
 }
 
@@ -196,6 +209,18 @@ impl ImageServiceProxy {
     
     /// 通过文件服务读取图片文件内容
     fn read_image_file(&self, image_id: &str) -> Result<Vec<u8>, String> {
+        // 先尝试获取文件路径，用于native平台
+        #[cfg(feature = "native")]
+        {
+            // 在native平台，先获取图片数据以拿到文件路径
+            let image_data = self.get_image_data(image_id)?;
+            if let ImageData::FilePath { path } = image_data {
+                // 直接使用native方法读取文件
+                return crate::native::read_image_file_native(&path);
+            }
+        }
+        
+        // WASM平台或者fallback方案
         let params = json!({
             "image_id": image_id
         });

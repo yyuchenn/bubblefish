@@ -44,9 +44,9 @@
 	
 	async function togglePlugin(plugin: PluginInfo) {
 		if (plugin.enabled) {
-			pluginService.disablePlugin(plugin.metadata.id);
+			await pluginService.disablePlugin(plugin.metadata.id);
 		} else {
-			pluginService.enablePlugin(plugin.metadata.id);
+			await pluginService.enablePlugin(plugin.metadata.id);
 		}
 	}
 	

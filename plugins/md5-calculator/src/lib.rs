@@ -39,7 +39,15 @@ impl MD5CalculatorPlugin {
             _ => "📝",
         };
         
-        web_sys::console::log_1(&format!("[MD5Calculator] {} {}", prefix, message).into());
+        #[cfg(feature = "wasm")]
+        {
+            web_sys::console::log_1(&format!("[MD5Calculator] {} {}", prefix, message).into());
+        }
+        
+        #[cfg(feature = "native")]
+        {
+            println!("[MD5Calculator] {} {}", prefix, message);
+        }
     }
 
     fn calculate_md5(&self, data: &[u8]) -> String {

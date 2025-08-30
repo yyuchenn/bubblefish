@@ -3,6 +3,9 @@ use tauri::{Manager, Emitter, WebviewUrl, WebviewWindowBuilder};
 use tauri::TitleBarStyle;
 use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItemBuilder, CheckMenuItemBuilder};
 
+mod plugin_loader;
+use plugin_loader::{init_plugin_loader, get_plugin_loader, PluginMetadata};
+
 
 // 使用 bubblefish_core 的通用绑定
 // 这会自动生成所有必要的 Tauri 命令和回调设置
@@ -234,6 +237,75 @@ async fn get_app_info() -> Result<String, String> {
     Ok("Bubblefish Desktop App v0.1.0".to_string())
 }
 
+// 插件管理命令
+#[tauri::command]
+async fn load_native_plugin(plugin_path: String) -> Result<PluginMetadata, String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.load_plugin(&plugin_path)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn unload_native_plugin(plugin_id: String) -> Result<(), String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.unload_plugin(&plugin_id)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn dispatch_event_to_plugin(plugin_id: String, event: serde_json::Value) -> Result<(), String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.dispatch_event(&plugin_id, &event)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn call_plugin_service(
+    plugin_id: String,
+    service: String,
+    method: String,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.call_plugin_service(&plugin_id, &service, &method, &params)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn enable_native_plugin(plugin_id: String, enabled: bool) -> Result<(), String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.set_plugin_enabled(&plugin_id, enabled)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn list_native_plugins() -> Result<Vec<PluginMetadata>, String> {
+    if let Some(loader) = get_plugin_loader() {
+        Ok(loader.list_plugins())
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn send_message_to_plugin(to: String, from: String, message: serde_json::Value) -> Result<(), String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.send_message(&to, &from, &message)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -267,6 +339,9 @@ pub fn run() {
           "tauri".to_string(),
           Box::new(event_emitter)
       );
+      
+      // 初始化插件加载器
+      init_plugin_loader(app.handle().clone());
 
       // 创建主窗口，根据操作系统使用不同的标题栏样式
       let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
@@ -314,7 +389,14 @@ pub fn run() {
         get_app_info,
         update_menu_checked_state,
         update_menu_enabled_state,
-        update_menu_text
+        update_menu_text,
+        load_native_plugin,
+        unload_native_plugin,
+        dispatch_event_to_plugin,
+        call_plugin_service,
+        enable_native_plugin,
+        list_native_plugins,
+        send_message_to_plugin
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
