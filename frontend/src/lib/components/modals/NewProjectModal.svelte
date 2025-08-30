@@ -45,13 +45,27 @@
 	let error = $state('');
 	
 	// Drag and drop state
-	let draggedIndex = $state<number | null>(null);
-	let draggedElement = $state<HTMLElement | null>(null);
-	let draggedClone = $state<HTMLElement | null>(null);
-	let pointerStartX = $state(0);
-	let pointerStartY = $state(0);
-	let elementStartX = $state(0);
-	let elementStartY = $state(0);
+	let draggedIndex: number | null = null;
+	let draggedElement: HTMLElement | null = null;
+	let draggedClone: HTMLElement | null = null;
+	let pointerStartX = 0;
+	let pointerStartY = 0;
+	let elementStartX = 0;
+	let elementStartY = 0;
+	let activePointerId: number | null = null;
+	
+	// Track the original order and if order has changed
+	let originalIndex: number | null = null;
+	let originalFiles: ImageFile[] | null = null;
+	// Temporary order during dragging
+	let tempDragOrder = $state<ImageFile[] | null>(null);
+	
+	// Display files: use temp order during drag, otherwise use selectedFiles
+	let displayFiles = $derived(tempDragOrder || selectedFiles);
+	
+	// Auto-scroll references and state
+	let scrollContainer: HTMLElement | null = $state(null);
+	let autoScrollInterval: number | null = null;
 	
 	// Cache for preview URLs to avoid recreating them
 	const previewUrlCache = $state(new Map<ImageFile, string>());
@@ -59,6 +73,8 @@
 	function handleFilesSelected(files: ImageFile[]) {
 		// Append new files to existing ones instead of replacing
 		selectedFiles = [...selectedFiles, ...files];
+		// Clear temp drag order when new files are added
+		tempDragOrder = null;
 		error = '';
 	}
 
@@ -159,21 +175,34 @@
 	
 	// Sort files by name
 	function sortFilesByName() {
-		selectedFiles = [...selectedFiles].sort((a, b) => 
+		const sortedFiles = [...displayFiles].sort((a, b) => 
 			a.name.localeCompare(b.name, 'zh-CN', { numeric: true })
 		);
+		
+		// Check if order actually changed
+		const originalNames = displayFiles.map(f => f.name);
+		const sortedNames = sortedFiles.map(f => f.name);
+		
+		// Compare arrays to see if order changed
+		const orderChanged = originalNames.some((name, index) => name !== sortedNames[index]);
+		
+		if (orderChanged) {
+			selectedFiles = sortedFiles;
+			tempDragOrder = null;
+		}
 	}
 	
 	// Remove a file from the list
 	function removeFile(index: number) {
-		const fileToRemove = selectedFiles[index];
+		const fileToRemove = displayFiles[index];
 		// Clean up preview URL if it's a blob URL
 		const cachedUrl = previewUrlCache.get(fileToRemove);
 		if (cachedUrl && cachedUrl.startsWith('blob:')) {
 			URL.revokeObjectURL(cachedUrl);
 			previewUrlCache.delete(fileToRemove);
 		}
-		selectedFiles = selectedFiles.filter((_, i) => i !== index);
+		selectedFiles = selectedFiles.filter(f => f !== fileToRemove);
+		tempDragOrder = null;
 	}
 	
 	// Handle pointer down for drag start
@@ -185,8 +214,16 @@
 		}
 		
 		const target = event.currentTarget as HTMLElement;
+		
+		// Clean up any existing drag state first
+		cleanupDragState();
+		
 		draggedIndex = index;
+		originalIndex = index;  // Store the original index
+		originalFiles = [...selectedFiles];  // Store the original order
+		tempDragOrder = [...selectedFiles];  // Initialize temp order for dragging
 		draggedElement = target.parentElement as HTMLElement;
+		activePointerId = event.pointerId;
 		
 		// Create a clone for visual feedback
 		draggedClone = draggedElement.cloneNode(true) as HTMLElement;
@@ -213,17 +250,25 @@
 		// Add opacity to original element
 		draggedElement.style.opacity = '0.3';
 		
-		// Capture pointer for this element
-		target.setPointerCapture(event.pointerId);
+		// Add global listeners to handle pointer events
+		document.addEventListener('pointermove', handleGlobalPointerMove);
+		document.addEventListener('pointerup', handleGlobalPointerUp);
+		document.addEventListener('pointercancel', handleGlobalPointerUp);
 		
 		// Prevent text selection
 		event.preventDefault();
 	}
 	
-	// Handle pointer move for dragging
-	function handlePointerMove(event: PointerEvent) {
+	// Handle global pointer move for dragging
+	function handleGlobalPointerMove(event: PointerEvent) {
+		// Only handle events for our active pointer
+		if (event.pointerId !== activePointerId) return;
+		
 		// Disable dragging when uploading
-		if (isUploading) return;
+		if (isUploading) {
+			cleanupDragState();
+			return;
+		}
 		
 		if (draggedClone && draggedIndex !== null) {
 			const deltaX = event.clientX - pointerStartX;
@@ -232,45 +277,131 @@
 			draggedClone.style.left = (elementStartX + deltaX) + 'px';
 			draggedClone.style.top = (elementStartY + deltaY) + 'px';
 			
+			// Auto-scroll logic
+			handleAutoScroll(event.clientY);
+			
 			// Find the element under the pointer (excluding the clone)
 			draggedClone.style.pointerEvents = 'none';
 			const elementBelow = document.elementFromPoint(event.clientX, event.clientY);
 			
 			if (elementBelow) {
 				const itemBelow = elementBelow.closest('[data-sortable-item]');
-				if (itemBelow && itemBelow !== draggedElement) {
+				if (itemBelow) {
 					const itemBelowIndex = parseInt(itemBelow.getAttribute('data-index') || '0');
 					
-					if (itemBelowIndex !== draggedIndex) {
-						// Reorder the array
-						const newFiles = [...selectedFiles];
-						const [removed] = newFiles.splice(draggedIndex, 1);
-						newFiles.splice(itemBelowIndex, 0, removed);
-						selectedFiles = newFiles;
+					if (itemBelowIndex !== draggedIndex && tempDragOrder) {
+						// Update temp order locally (not in store)
+						const newTempOrder = [...tempDragOrder];
+						const [removed] = newTempOrder.splice(draggedIndex, 1);
+						newTempOrder.splice(itemBelowIndex, 0, removed);
+						tempDragOrder = newTempOrder;
+						
+						// Track the new index
 						draggedIndex = itemBelowIndex;
+						// Note: draggedElement reference is kept but DOM element may change
 					}
 				}
 			}
 		}
 	}
 	
-	// Handle pointer up for drag end
-	function handlePointerUp(event: PointerEvent) {
-		if (draggedClone) {
-			document.body.removeChild(draggedClone);
+	// Handle global pointer up for drag end
+	function handleGlobalPointerUp(event: PointerEvent) {
+		// Only handle events for our active pointer
+		if (event.pointerId !== activePointerId) return;
+		
+		// Check if order actually changed
+		if (originalIndex !== null && draggedIndex !== null && originalIndex !== draggedIndex && originalFiles) {
+			// Calculate the final reordered array
+			const finalFiles = [...originalFiles];
+			const [movedItem] = finalFiles.splice(originalIndex, 1);
+			finalFiles.splice(draggedIndex, 0, movedItem);
+			
+			// Update the selected files with the new order
+			selectedFiles = finalFiles;
+		}
+		// If order hasn't changed, do nothing (UI is already correct)
+		
+		cleanupDragState();
+	}
+	
+	// Handle auto-scroll during drag
+	function handleAutoScroll(pointerY: number) {
+		if (!scrollContainer) return;
+		
+		const rect = scrollContainer.getBoundingClientRect();
+		const scrollZoneSize = 50; // Size of the auto-scroll zone
+		const scrollSpeed = 5; // Pixels to scroll per frame
+		
+		// Clear existing interval
+		if (autoScrollInterval) {
+			clearInterval(autoScrollInterval);
+			autoScrollInterval = null;
+		}
+		
+		// Check if pointer is in top scroll zone
+		if (pointerY < rect.top + scrollZoneSize) {
+			const intensity = 1 - (pointerY - rect.top) / scrollZoneSize;
+			autoScrollInterval = window.setInterval(() => {
+				if (scrollContainer) {
+					scrollContainer.scrollTop -= scrollSpeed * (1 + intensity * 2);
+				}
+			}, 16); // ~60fps
+		}
+		// Check if pointer is in bottom scroll zone
+		else if (pointerY > rect.bottom - scrollZoneSize) {
+			const intensity = 1 - (rect.bottom - pointerY) / scrollZoneSize;
+			autoScrollInterval = window.setInterval(() => {
+				if (scrollContainer) {
+					scrollContainer.scrollTop += scrollSpeed * (1 + intensity * 2);
+				}
+			}, 16); // ~60fps
+		}
+	}
+	
+	// Stop auto-scroll
+	function stopAutoScroll() {
+		if (autoScrollInterval) {
+			clearInterval(autoScrollInterval);
+			autoScrollInterval = null;
+		}
+	}
+	
+	// Clean up drag state
+	function cleanupDragState() {
+		// Remove global event listeners
+		document.removeEventListener('pointermove', handleGlobalPointerMove);
+		document.removeEventListener('pointerup', handleGlobalPointerUp);
+		document.removeEventListener('pointercancel', handleGlobalPointerUp);
+		
+		// Remove clone
+		if (draggedClone && draggedClone.parentNode) {
+			try {
+				document.body.removeChild(draggedClone);
+			} catch (_e) {
+				// Ignore if already removed
+			}
 			draggedClone = null;
 		}
 		
-		if (draggedElement) {
-			draggedElement.style.opacity = '1';
-			draggedElement = null;
+		// Reset element opacity - find element by index since DOM may have changed
+		if (draggedIndex !== null && scrollContainer) {
+			const items = scrollContainer.querySelectorAll('[data-sortable-item]');
+			items.forEach(item => {
+				(item as HTMLElement).style.opacity = '1';
+			});
 		}
+		draggedElement = null;
 		
+		// Reset drag index and tracking variables
 		draggedIndex = null;
+		originalIndex = null;
+		originalFiles = null;
+		tempDragOrder = null;  // Clear temp order to use selectedFiles again
+		activePointerId = null;
 		
-		// Release pointer capture
-		const target = event.currentTarget as HTMLElement;
-		target.releasePointerCapture(event.pointerId);
+		// Stop auto-scroll
+		stopAutoScroll();
 	}
 	
 	// Get image preview URL with caching
@@ -300,6 +431,10 @@
 	// Clean up blob URLs when component is destroyed
 	$effect(() => {
 		return () => {
+			// Clean up any active drag state when component unmounts
+			cleanupDragState();
+			// Make sure to stop auto-scroll
+			stopAutoScroll();
 			// Clean up all blob URLs
 			for (const [, url] of previewUrlCache.entries()) {
 				if (url.startsWith('blob:')) {
@@ -346,7 +481,7 @@
 				<div class="mt-4">
 					<div class="flex items-center justify-between mb-2">
 						<div class="text-sm text-theme-on-surface-variant">
-							已选择 {selectedFiles.length} 个文件{#if !isUploading}（拖拽排序）{/if}
+							已选择 {displayFiles.length} 个文件{#if !isUploading}（拖拽排序）{/if}
 						</div>
 						<button
 							type="button"
@@ -358,9 +493,9 @@
 						</button>
 					</div>
 					
-					<div class="max-h-64 overflow-y-auto border border-theme-outline rounded p-2 bg-theme-surface {isUploading ? 'opacity-60' : ''}">
+					<div bind:this={scrollContainer} class="max-h-64 overflow-y-auto border border-theme-outline rounded p-2 bg-theme-surface {isUploading ? 'opacity-60' : ''}">
 						<div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 lg:grid-cols-8 gap-1.5">
-							{#each selectedFiles as file, index (file)}
+							{#each displayFiles as file, index (file)}
 								<div 
 									data-sortable-item
 									data-index={index}
@@ -369,9 +504,6 @@
 									<div 
 										class={isUploading ? 'pointer-events-none' : 'touch-none'}
 										onpointerdown={(e) => handlePointerDown(e, index)}
-										onpointermove={handlePointerMove}
-										onpointerup={handlePointerUp}
-										onpointercancel={handlePointerUp}
 									>
 										<!-- Thumbnail -->
 										<div class="w-full aspect-square bg-theme-surface rounded mb-1 overflow-hidden flex items-center justify-center">
