@@ -13,8 +13,10 @@
 	const dispatch = createEventDispatcher();
 	
 	let fileInput: HTMLInputElement;
+	let dropZone: HTMLElement;
 	let isDragging = false;
 	let isInTauri = false;
+	let unlistenDragDrop: (() => void) | null = null;
 	
 	onMount(() => {
 		isInTauri = platformService.isTauri();
@@ -23,6 +25,14 @@
 		if (isInTauri) {
 			setupTauriFileDrop();
 		}
+		
+		// 清理函数
+		return () => {
+			if (unlistenDragDrop) {
+				unlistenDragDrop();
+				unlistenDragDrop = null;
+			}
+		};
 	});
 	
 	// 设置Tauri文件拖拽监听器
@@ -36,7 +46,13 @@
 			const unlisten = await webview.onDragDropEvent((event) => {
 				if (disabled) return;
 				
+				// 检查组件是否在DOM中可见
+				if (!dropZone || !dropZone.offsetParent) return;
+				
 				if (event.payload.type === 'drop') {
+					// 立即重置拖拽状态，无论如何都要重置
+					isDragging = false;
+					
 					const paths = event.payload.paths;
 					
 					if (fileType === 'image') {
@@ -64,6 +80,9 @@
 						
 						if (files.length > 0) {
 							dispatch('filesSelected', multiple ? files : files.slice(0, 1));
+						} else {
+							// 如果没有有效的图片文件，显示错误
+							dispatch('error', '请选择有效的图片文件 (PNG, JPG, JPEG, GIF, BMP, WebP)');
 						}
 					} else if (fileType === 'project') {
 						if (paths.length > 0) {
@@ -98,19 +117,19 @@
 						}
 					}
 				} else if (event.payload.type === 'over') {
-					isDragging = true;
+					// 只有在组件可见时才设置拖拽状态
+					if (dropZone && dropZone.offsetParent) {
+						isDragging = true;
+					}
 				} else if (event.payload.type === 'leave') {
 					isDragging = false;
 				}
 			});
 			
-			// 清理函数
-			return () => {
-				unlisten();
-			};
+			// 保存清理函数
+			unlistenDragDrop = unlisten;
 		} catch (error) {
 			console.error('Failed to setup Tauri file drop:', error);
-			return () => {};
 		}
 	}
 	
@@ -270,6 +289,7 @@
 <div class="space-y-4">
 	<!-- 文件选择区域 -->
 	<div
+		bind:this={dropZone}
 		role="button"
 		tabindex="0"
 		aria-label="选择或拖拽文件"
