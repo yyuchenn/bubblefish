@@ -36,8 +36,12 @@ async function initWasmInWorker(): Promise<boolean> {
 		// 使用URL import导入WASM二进制文件
 		const wasmUrl = new URL('../wasm-pkg/bubblefish_core_bg.wasm', import.meta.url);
 
-		// 使用新格式调用初始化函数
-		await module.default({ module_or_path: wasmUrl });
+		// 使用fetch加载WASM，这样可以被Service Worker拦截并缓存
+		const wasmResponse = await fetch(wasmUrl.href);
+		const wasmBytes = await wasmResponse.arrayBuffer();
+
+		// 使用ArrayBuffer初始化WASM模块
+		await module.default({ module_or_path: wasmBytes });
 
 		wasmModule = module as unknown as WasmModule;
 
