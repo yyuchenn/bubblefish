@@ -49,11 +49,14 @@ export default defineConfig({
 				lang: 'zh-CN'
 			},
 			workbox: {
-				globPatterns: ['**/*.{js,css,html,png,jpg,jpeg,svg,gif,webp,woff,woff2,ttf,eot,ico}'],
-				maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB to accommodate WASM files
+				// 确保 HTML 和 WASM 文件被预缓存
+				globPatterns: ['**/*.{js,css,html,png,jpg,jpeg,svg,gif,webp,woff,woff2,ttf,eot,ico,webmanifest,wasm}'],
+				maximumFileSizeToCacheInBytes: 20 * 1024 * 1024, // 20MB to accommodate WASM files
 				skipWaiting: true,
 				clientsClaim: true,
 				cleanupOutdatedCaches: true,
+				// 单页应用只需要简单的导航回退
+				navigateFallback: 'index.html',
 				runtimeCaching: [
 					// 缓存图片资源
 					{
