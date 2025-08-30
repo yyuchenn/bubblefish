@@ -40,8 +40,9 @@ async function initWasmInWorker(): Promise<boolean> {
 		const wasmResponse = await fetch(wasmUrl.href);
 		const wasmBytes = await wasmResponse.arrayBuffer();
 
-		// 使用ArrayBuffer初始化WASM模块
-		await module.default({ module_or_path: wasmBytes });
+		// 使用initSync同步初始化，避免再次fetch
+		const compiledModule = await WebAssembly.compile(wasmBytes);
+		module.initSync({ module: compiledModule });
 
 		wasmModule = module as unknown as WasmModule;
 
