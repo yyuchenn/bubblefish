@@ -9,6 +9,7 @@ export default defineConfig({
 		sveltekit(),
 		VitePWA({
 			registerType: 'autoUpdate',
+			injectRegister: 'auto',
 			includeAssets: ['favicon.ico', 'favicon-16.png', 'favicon-32.png', 'icon-192.png', 'icon-512.png', 'placeholder.jpg', 'logo.png'],
 			manifest: {
 				name: 'BubbleFish',
@@ -104,7 +105,9 @@ export default defineConfig({
 			},
 			devOptions: {
 				enabled: false
-			}
+			},
+			// Ensure service worker is generated for production
+			strategies: 'generateSW'
 		}),
 		// 自定义插件来处理 WASM 相关的 CORS 头部
 		{
