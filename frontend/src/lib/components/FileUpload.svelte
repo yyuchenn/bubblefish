@@ -73,7 +73,8 @@
 					
 					if (fileType === 'image') {
 						const files = paths.map((path: string) => {
-							const fileName = path.split('/').pop() || path.split('\\').pop() || 'Unknown';
+							// 正确处理Windows和Unix路径
+							const fileName = path.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 							const lowerPath = path.toLowerCase();
 							if (
 								lowerPath.endsWith('.png') ||
@@ -103,7 +104,8 @@
 					} else if (fileType === 'project') {
 						if (paths.length > 0) {
 							const path = paths[0];
-							const fileName = path.split('/').pop() || path.split('\\').pop() || 'Unknown';
+							// 正确处理Windows和Unix路径
+							const fileName = path.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 							const ext = fileName.split('.').pop()?.toLowerCase();
 							
 							if (['txt', 'lp', 'bf'].includes(ext || '')) {
@@ -118,7 +120,8 @@
 					} else {
 						// 通用文件处理
 						const files = paths.map((path: string) => {
-							const fileName = path.split('/').pop() || path.split('\\').pop() || 'Unknown';
+							// 正确处理Windows和Unix路径
+							const fileName = path.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 							return {
 								path,
 								name: fileName,
@@ -256,7 +259,8 @@
 						const filePaths = await invoke<string[] | null>('open_multiple_image_files_dialog');
 						if (filePaths && filePaths.length > 0) {
 							const files = filePaths.map(path => {
-								const fileName = path.split('/').pop() || path.split('\\').pop() || 'Unknown';
+								// 正确处理Windows和Unix路径
+								const fileName = path.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 								return {
 									path,
 									name: fileName,
@@ -270,7 +274,8 @@
 					} else {
 						const filePath = await invoke<string | null>('open_image_file_dialog');
 						if (filePath) {
-							const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
+							// 正确处理Windows和Unix路径
+							const fileName = filePath.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 							onFilesSelected?.( [{
 								path: filePath,
 								name: fileName,
@@ -283,7 +288,8 @@
 				} else if (fileType === 'project') {
 					const filePath = await platformService.openProjectFileDialog();
 					if (filePath) {
-						const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
+						// 正确处理Windows和Unix路径
+						const fileName = filePath.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 						onFileSelected?.( {
 							path: filePath,
 							fileName
