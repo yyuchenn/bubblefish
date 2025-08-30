@@ -7,6 +7,7 @@
 	import NewProjectModal from './NewProjectModal.svelte';
 	import OpenProjectModal from './OpenProjectModal.svelte';
 	import SnapshotModal from './SnapshotModal.svelte';
+	import SettingsModal from './SettingsModal.svelte';
 
 	async function handleNewProjectSuccess(detail: { projectId: number; projectName: string; imageCount: number }) {
 		const { projectId, projectName, imageCount } = detail;
@@ -65,4 +66,6 @@
 	/>
 {:else if $modalStore.activeModal === 'snapshot'}
 	<SnapshotModal onClose={() => modalStore.hideModal()} />
+{:else if $modalStore.activeModal === 'settings'}
+	<SettingsModal visible={true} onClose={() => modalStore.hideModal()} />
 {/if}
