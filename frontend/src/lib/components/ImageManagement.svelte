@@ -66,8 +66,8 @@
 		}
 	}
 	
-	function handleFilesSelected(event: CustomEvent<ImageFile[]>) {
-		selectedFiles = [...selectedFiles, ...event.detail];
+	function handleFilesSelected(files: ImageFile[]) {
+		selectedFiles = [...selectedFiles, ...files];
 		error = '';
 	}
 	
@@ -464,7 +464,7 @@
 			
 			<!-- 文件选择 -->
 			<FileUpload 
-				on:filesSelected={handleFilesSelected}
+				onFilesSelected={handleFilesSelected}
 				accept="image/*"
 				multiple={true}
 				disabled={isUploading}

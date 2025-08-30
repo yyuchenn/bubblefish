@@ -1,14 +1,21 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { projectService } from '$lib/services/projectService';
 	import { platformService } from '$lib/services/platformService';
 	import Modal from './Modal.svelte';
 	import FileUpload from '../FileUpload.svelte';
 	import type { OpeningProjectInfo, ImageFile, ImageFormat } from '$lib/types';
 
-	export let visible: boolean = false;
-	export let onSuccess: (detail: { projectId: number; projectName: string; imageCount: number }) => void = () => {};
-	export let onCancel: () => void = () => {};
+	interface Props {
+		visible?: boolean;
+		onSuccess?: (detail: { projectId: number; projectName: string; imageCount: number }) => void;
+		onCancel?: () => void;
+	}
+
+	let { 
+		visible = false,
+		onSuccess,
+		onCancel
+	}: Props = $props();
 
 	function getImageFormat(mimeType: string): ImageFormat {
 		switch (mimeType) {
@@ -31,26 +38,26 @@
 
 	// 状态管理
 	type Step = 'upload-project' | 'upload-images' | 'finalizing';
-	let currentStep: Step = 'upload-project';
+	let currentStep = $state<Step>('upload-project');
 	
 	// 项目文件相关
-	let projectFile: File | null = null;
-	let projectFilePath: string | null = null; // Tauri环境下的文件路径
-	let projectName: string = '';
+	let projectFile = $state<File | null>(null);
+	let projectFilePath = $state<string | null>(null); // Tauri环境下的文件路径
+	let projectName = $state('');
 	
 	// 项目相关
-	let tempProjectId: number | null = null;
-	let projectInfo: OpeningProjectInfo | null = null;
+	let tempProjectId = $state<number | null>(null);
+	let projectInfo = $state<OpeningProjectInfo | null>(null);
 	
 	// 图片加载相关
-	let selectedImages: ImageFile[] = [];
-	let isUploading = false;
-	let uploadProgress = 0;
+	let selectedImages = $state<ImageFile[]>([]);
+	let isUploading = $state(false);
+	let uploadProgress = $state(0);
 	
 	// 错误处理
-	let error: string = '';
+	let error = $state('');
 
-	onMount(() => {
+	$effect(() => {
 		return () => {
 			// 组件卸载时清理临时项目
 			if (tempProjectId && currentStep !== 'finalizing') {
@@ -59,9 +66,7 @@
 		};
 	});
 
-	function handleProjectFileSelected(event: CustomEvent<{file?: File, path?: string, fileName?: string}>) {
-		const detail = event.detail;
-		
+	function handleProjectFileSelected(detail: {file?: File, path?: string, fileName?: string}) {
 		if (detail.file) {
 			// Web环境
 			projectFile = detail.file;
@@ -75,8 +80,8 @@
 		error = '';
 	}
 	
-	function handleProjectFileError(event: CustomEvent<string>) {
-		error = event.detail;
+	function handleProjectFileError(message: string) {
+		error = message;
 	}
 
 	async function handleParseProjectFile() {
@@ -144,8 +149,8 @@
 		}
 	}
 
-	function handleImagesSelected(event: CustomEvent<ImageFile[]>) {
-		selectedImages = event.detail;
+	function handleImagesSelected(files: ImageFile[]) {
+		selectedImages = files;
 		error = '';
 	}
 
@@ -245,7 +250,7 @@
 			const success = await projectService.finalizeOpeningProject(tempProjectId);
 
 			if (success) {
-				onSuccess({
+				onSuccess?.({
 					projectId: tempProjectId,
 					projectName: projectInfo?.projectName || projectName,
 					imageCount: projectInfo?.uploadedImages.length || 0
@@ -264,12 +269,12 @@
 		if (tempProjectId && currentStep !== 'finalizing') {
 			projectService.deleteOpeningProject(tempProjectId);
 		}
-		onCancel();
+		onCancel?.();
 	}
 
-	$: canFinalize = projectInfo?.isComplete || false;
-	$: pendingCount = projectInfo?.pendingImages.length || 0;
-	$: uploadedCount = projectInfo?.uploadedImages.length || 0;
+	const canFinalize = $derived(projectInfo?.isComplete || false);
+	const pendingCount = $derived(projectInfo?.pendingImages.length || 0);
+	const uploadedCount = $derived(projectInfo?.uploadedImages.length || 0);
 </script>
 
 <Modal {visible} onClose={handleCancel}>
@@ -287,8 +292,8 @@
 				selectedFile={projectFile}
 				selectedFilePath={projectFilePath}
 				showSelectedFile={true}
-				on:fileSelected={handleProjectFileSelected}
-				on:error={handleProjectFileError}
+				onFileSelected={handleProjectFileSelected}
+				onError={handleProjectFileError}
 			/>
 
 			{#if error}
@@ -301,13 +306,13 @@
 		<div class="flex justify-end gap-3 pt-4 border-t border-theme-outline">
 			<button 
 				class="bg-theme-surface-variant text-theme-on-surface-variant hover:bg-theme-surface-container hover:text-theme-on-surface rounded px-6 py-2 text-sm font-medium transition-colors"
-				on:click={handleCancel}
+				onclick={handleCancel}
 			>
 				取消
 			</button>
 			<button 
 				class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container"
-				on:click={handleParseProjectFile}
+				onclick={handleParseProjectFile}
 				disabled={!projectFilePath && !projectFile}
 			>
 				下一步
@@ -341,7 +346,7 @@
 					</p>
 					
 					<FileUpload 
-						on:filesSelected={handleImagesSelected}
+						onFilesSelected={handleImagesSelected}
 						accept="image/*"
 						multiple={true}
 						disabled={isUploading}
@@ -401,7 +406,7 @@
 		<div class="flex justify-end gap-3 pt-4 border-t border-theme-outline">
 			<button 
 				class="bg-theme-surface-variant text-theme-on-surface-variant rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-surface-container enabled:hover:text-theme-on-surface"
-				on:click={handleCancel} 
+				onclick={handleCancel} 
 				disabled={isUploading}
 			>
 				取消
@@ -409,7 +414,7 @@
 			{#if !canFinalize}
 				<button 
 					class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container"
-					on:click={handleUploadImages}
+					onclick={handleUploadImages}
 					disabled={isUploading || selectedImages.length === 0}
 				>
 					{isUploading ? '加载中...' : '加载图片'}
@@ -417,7 +422,7 @@
 			{:else}
 				<button 
 					class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container"
-					on:click={handleFinalizeProject}
+					onclick={handleFinalizeProject}
 					disabled={isUploading}
 				>
 					创建项目

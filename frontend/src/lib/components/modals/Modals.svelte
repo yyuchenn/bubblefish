@@ -8,8 +8,8 @@
 	import OpenProjectModal from './OpenProjectModal.svelte';
 	import SnapshotModal from './SnapshotModal.svelte';
 
-	async function handleNewProjectSuccess(event: CustomEvent) {
-		const { projectId, projectName, imageCount } = event.detail;
+	async function handleNewProjectSuccess(detail: { projectId: number; projectName: string; imageCount: number }) {
+		const { projectId, projectName, imageCount } = detail;
 		console.log(`✅ 项目创建成功: ${projectName}, 图片数量: ${imageCount}`);
 		// 刷新项目列表
 		await projectService.loadProjects();
@@ -38,8 +38,8 @@
 	<NewProjectModal
 		visible={true}
 		defaultName={$modalStore.modalData.defaultName || ''}
-		on:success={handleNewProjectSuccess}
-		on:cancel={() => modalStore.hideModal()}
+		onSuccess={handleNewProjectSuccess}
+		onCancel={() => modalStore.hideModal()}
 	/>
 {:else if $modalStore.activeModal === 'openProject'}
 	<OpenProjectModal

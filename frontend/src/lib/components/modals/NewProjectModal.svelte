@@ -1,14 +1,22 @@
 <script lang="ts">
-	import { createEventDispatcher, onDestroy } from 'svelte';
 	import { projectService } from '$lib/services/projectService';
 	import Modal from './Modal.svelte';
 	import FileUpload from '../FileUpload.svelte';
 	import type { ImageFile, ImageFormat } from '$lib/types';
 
-	export let visible: boolean = false;
-	export let defaultName: string = '';
+	interface Props {
+		visible?: boolean;
+		defaultName?: string;
+		onSuccess?: (data: { projectId: number; projectName: string; imageCount: number }) => void;
+		onCancel?: () => void;
+	}
 
-	const dispatch = createEventDispatcher();
+	let { 
+		visible = false, 
+		defaultName = '',
+		onSuccess,
+		onCancel
+	}: Props = $props();
 
 	function getImageFormat(mimeType: string): ImageFormat {
 		switch (mimeType) {
@@ -29,28 +37,28 @@
 		}
 	}
 
-	let projectName = defaultName;
-	let selectedFiles: ImageFile[] = [];
-	let isUploading = false;
-	let uploadProgress = 0;
-	let tempProjectId: number | null = null;
-	let error: string = '';
+	let projectName = $state(defaultName);
+	let selectedFiles = $state<ImageFile[]>([]);
+	let isUploading = $state(false);
+	let uploadProgress = $state(0);
+	let tempProjectId = $state<number | null>(null);
+	let error = $state('');
 	
 	// Drag and drop state
-	let draggedIndex: number | null = null;
-	let draggedElement: HTMLElement | null = null;
-	let draggedClone: HTMLElement | null = null;
-	let pointerStartX = 0;
-	let pointerStartY = 0;
-	let elementStartX = 0;
-	let elementStartY = 0;
+	let draggedIndex = $state<number | null>(null);
+	let draggedElement = $state<HTMLElement | null>(null);
+	let draggedClone = $state<HTMLElement | null>(null);
+	let pointerStartX = $state(0);
+	let pointerStartY = $state(0);
+	let elementStartX = $state(0);
+	let elementStartY = $state(0);
 	
 	// Cache for preview URLs to avoid recreating them
-	let previewUrlCache = new Map<ImageFile, string>();
+	const previewUrlCache = $state(new Map<ImageFile, string>());
 
-	function handleFilesSelected(event: CustomEvent<ImageFile[]>) {
+	function handleFilesSelected(files: ImageFile[]) {
 		// Append new files to existing ones instead of replacing
-		selectedFiles = [...selectedFiles, ...event.detail];
+		selectedFiles = [...selectedFiles, ...files];
 		error = '';
 	}
 
@@ -124,7 +132,7 @@
 			const finalized = await projectService.finalizeOpeningProject(tempProjectId);
 			
 			if (finalized) {
-				dispatch('success', {
+				onSuccess?.({
 					projectId: tempProjectId,
 					projectName,
 					imageCount: successCount
@@ -146,7 +154,7 @@
 	}
 
 	function handleCancel() {
-		dispatch('cancel');
+		onCancel?.();
 	}
 	
 	// Sort files by name
@@ -290,14 +298,16 @@
 	}
 	
 	// Clean up blob URLs when component is destroyed
-	onDestroy(() => {
-		// Clean up all blob URLs
-		for (const [, url] of previewUrlCache.entries()) {
-			if (url.startsWith('blob:')) {
-				URL.revokeObjectURL(url);
+	$effect(() => {
+		return () => {
+			// Clean up all blob URLs
+			for (const [, url] of previewUrlCache.entries()) {
+				if (url.startsWith('blob:')) {
+					URL.revokeObjectURL(url);
+				}
 			}
-		}
-		previewUrlCache.clear();
+			previewUrlCache.clear();
+		};
 	});
 </script>
 
@@ -324,7 +334,7 @@
 			<div class="block mb-1.5 text-sm font-medium text-theme-on-surface-variant" id="file-upload-label">选择图片</div>
 			<div aria-labelledby="file-upload-label">
 				<FileUpload 
-					on:filesSelected={handleFilesSelected}
+					onFilesSelected={handleFilesSelected}
 					accept="image/*"
 					multiple={true}
 					disabled={isUploading}
@@ -341,7 +351,7 @@
 						<button
 							type="button"
 							class="px-3 py-1 text-xs bg-theme-surface-variant text-theme-on-surface-variant rounded hover:bg-theme-surface-container transition-colors"
-							on:click={sortFilesByName}
+							onclick={sortFilesByName}
 							disabled={isUploading}
 						>
 							按文件名排序
@@ -357,11 +367,11 @@
 									class="relative group bg-theme-surface-variant rounded p-1 select-none {isUploading ? 'cursor-not-allowed' : 'cursor-move'}"
 								>
 									<div 
-										class="{isUploading ? 'pointer-events-none' : 'touch-none'}"
-										on:pointerdown={(e) => handlePointerDown(e, index)}
-										on:pointermove={handlePointerMove}
-										on:pointerup={handlePointerUp}
-										on:pointercancel={handlePointerUp}
+										class={isUploading ? 'pointer-events-none' : 'touch-none'}
+										onpointerdown={(e) => handlePointerDown(e, index)}
+										onpointermove={handlePointerMove}
+										onpointerup={handlePointerUp}
+										onpointercancel={handlePointerUp}
 									>
 										<!-- Thumbnail -->
 										<div class="w-full aspect-square bg-theme-surface rounded mb-1 overflow-hidden flex items-center justify-center">
@@ -391,7 +401,7 @@
 									<button
 										type="button"
 										class="absolute top-0.5 right-0.5 w-4 h-4 bg-theme-error text-theme-on-error rounded-full items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 transition-opacity hidden group-hover:flex"
-										on:click={() => removeFile(index)}
+										onclick={() => removeFile(index)}
 										disabled={isUploading}
 										title="移除图片"
 									>
@@ -424,14 +434,14 @@
 	<div class="flex justify-end gap-3 pt-4 border-t border-theme-outline">
 		<button 
 			class="bg-theme-surface-variant text-theme-on-surface-variant rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-surface-container enabled:hover:text-theme-on-surface"
-			on:click={handleCancel} 
+			onclick={handleCancel} 
 			disabled={isUploading}
 		>
 			取消
 		</button>
 		<button 
 			class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container"
-			on:click={handleCreateProject} 
+			onclick={handleCreateProject} 
 			disabled={isUploading || !projectName.trim() || selectedFiles.length === 0}
 		>
 			{isUploading ? '创建中...' : '创建项目'}
