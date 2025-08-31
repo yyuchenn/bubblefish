@@ -92,11 +92,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node-
 
-      - name: Build web application
-        run: python build.py web-build
-      
-      - name: Build plugins for web
-        run: python build.py plugin-build
+      - name: Build web application with plugins
+        run: python build.py web-build-all
 
       - name: Copy deployment headers
         run: cp deploy/cloudflare/_headers frontend/build/_headers

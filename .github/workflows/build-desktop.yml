@@ -133,13 +133,13 @@ jobs:
           cd frontend
           yarn install
 
-      - name: Build all components without plugins (WASM + Desktop)
+      - name: Build desktop without plugins
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins'
-        run: python build.py build-all
+        run: python build.py desktop-build
       
-      - name: Build all components with plugins (WASM + Desktop + Plugins)
+      - name: Build desktop with native plugins
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
-        run: python build.py build-all-bundled
+        run: python build.py desktop-build-all
 
       - name: Sign Windows Executables
         if: env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE != null
@@ -325,13 +325,13 @@ jobs:
           cd frontend
           yarn install
 
-      - name: Build all components without plugins (WASM + Desktop)
+      - name: Build desktop without plugins
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins'
-        run: python3 build.py build-all
+        run: python3 build.py desktop-build
       
-      - name: Build all components with plugins (WASM + Desktop + Plugins)
+      - name: Build desktop with native plugins
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
-        run: python3 build.py build-all-bundled
+        run: python3 build.py desktop-build-all
 
       - name: Package macOS app for release
         if: github.event_name == 'release'

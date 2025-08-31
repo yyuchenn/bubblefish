@@ -452,11 +452,11 @@ class BuildScript:
         return self.frontend_dev()
 
     def web_build(self) -> bool:
-        """Build web application for production"""
+        """Build web application for production (includes WASM core)"""
         log_info("Building complete web application...")
         
         # 构建 WASM (生产版)
-        log_info("Step 1/2: Building WASM for production...")
+        log_info("Step 1/2: Building WASM core for production...")
         if not self.wasm_build(dev=False):
             return False
         
@@ -550,9 +550,9 @@ class BuildScript:
             log_success("Frontend server stopped.")
 
     def desktop_build(self, release: bool = True, with_plugins: bool = False) -> bool:
-        """Build desktop application with or without plugins"""
+        """Build desktop application with or without native plugins"""
         mode = "release" if release else "debug"
-        variant = "with plugins" if with_plugins else "without plugins"
+        variant = "with native plugins" if with_plugins else "without plugins"
         log_info(f"Building desktop application ({mode}, {variant})...")
         
         if not self.frontend_install_deps():
@@ -560,8 +560,13 @@ class BuildScript:
             
         if not self.install_tauri_cli():
             return False
+        
+        # Build WASM core (always needed for desktop)
+        log_info("Building WASM core for desktop...")
+        if not self.wasm_build(dev=False):
+            return False
             
-        log_info("Building frontend first...")
+        log_info("Building frontend...")
         if not self.frontend_build():
             return False
         
@@ -636,21 +641,25 @@ class BuildScript:
 
     # ===== Combined Commands =====
 
-    def build_all(self, with_plugins: bool = False) -> bool:
-        """Build all components (web + desktop)"""
-        variant = "with plugins" if with_plugins else "without plugins"
-        log_info(f"Building all components ({variant})...")
+    def desktop_build_all(self) -> bool:
+        """Build desktop application with all native plugins"""
+        log_info("Building desktop application with all native plugins...")
         
-        # Build web with plugins
-        if not self.web_build():
-            return False
+        # Build with all plugins included
+        return self.desktop_build(release=True, with_plugins=True)
+    
+    def web_build_all(self, with_plugins: bool = True) -> bool:
+        """Build web application with WASM plugins"""
+        log_info("Building web application with plugins...")
         
+        # Build WASM plugins first
         if with_plugins:
-            log_info("Building plugins for web...")
+            log_info("Building WASM plugins...")
             if not self.plugin_build():
-                log_warning("Web plugin build failed")
-                
-        return self.desktop_build(with_plugins=with_plugins)
+                log_warning("WASM plugin build failed")
+        
+        # Build web application
+        return self.web_build()
 
     # ===== Utility Commands =====
 
@@ -1215,21 +1224,20 @@ Available commands:
     setup         Complete development environment setup
 
   🌐 Web Development:
-    web-dev       Start web development (WASM + Frontend)
-    web-build     Build web application
-    frontend-dev  Frontend dev server only
-    frontend-build Frontend build only
+    web-dev         Start web development (WASM + Frontend)
+    web-build       Build web application (core only)
+    web-build-all   Build web with WASM plugins
+    frontend-dev    Frontend dev server only
+    frontend-build  Frontend build only
 
   🪟 Desktop Development:
-    desktop-dev          Start desktop development (auto)
-    desktop-build        Build desktop application (use --with-plugins to include)
-    desktop-build-bundled Build desktop with plugins included
+    desktop-dev           Start desktop development (auto)
+    desktop-build         Build desktop app (use --with-plugins to include native plugins)
+    desktop-build-all     Build desktop with all native plugins included
 
-  🔨 Building:
-    build-all            Build everything (use --with-plugins for bundled)
-    build-all-bundled    Build everything with plugins included
-    wasm-build           Build WASM (production)
-    wasm-dev             Build WASM (development)
+  🔨 Core Building:
+    wasm-build           Build WASM core (production)
+    wasm-dev             Build WASM core (development)
 
   🔌 Plugin Development:
     plugin-build         Build plugin(s) as WASM modules
@@ -1272,6 +1280,7 @@ Available commands:
         # Web development
         "web-dev": build_script.web_dev,
         "web-build": build_script.web_build,
+        "web-build-all": lambda: build_script.web_build_all(with_plugins=True),
         "frontend-dev": build_script.frontend_dev,
         "frontend-build": build_script.frontend_build,
         "wasm-build": lambda: build_script.wasm_build(dev=False),
@@ -1280,7 +1289,6 @@ Available commands:
         # Desktop development
         "desktop-dev": build_script.desktop_dev,
         "desktop-build": lambda: build_script.desktop_build(release=not args.debug, with_plugins=args.with_plugins),
-        "desktop-build-bundled": lambda: build_script.desktop_build(release=not args.debug, with_plugins=True),
         
         # Plugin commands
         "plugin-build": lambda: build_script.plugin_build(plugin_name=args.plugin, dev=False, native=False),
@@ -1291,8 +1299,7 @@ Available commands:
         "plugin-clean": build_script.plugin_clean,
         
         # Combined commands
-        "build-all": lambda: build_script.build_all(with_plugins=args.with_plugins),
-        "build-all-bundled": lambda: build_script.build_all(with_plugins=True),
+        "desktop-build-all": build_script.desktop_build_all,
         
         # Utility commands
         "setup": build_script.setup,

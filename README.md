@@ -26,21 +26,18 @@ python build.py desktop-dev # 桌面端调试
 
 ```python
 # Web端构建
-python build.py web-build           # 构建Web应用
-python build.py plugin-build        # 构建WASM插件
+python build.py web-build           # 构建Web应用（仅核心）
+python build.py web-build-all       # 构建Web应用（含WASM插件）
 
 # 桌面端构建（两种版本）
 python build.py desktop-build       # 标准版（不含插件）
-python build.py desktop-build-bundled # 捆绑版（包含插件）
-
-# 组合构建
-python build.py build-all           # 构建所有（标准版）
-python build.py build-all-bundled   # 构建所有（捆绑版）
+python build.py desktop-build-all   # 完整版（包含原生插件）
 
 # 插件开发
-python build.py plugin-build        # 构建WASM插件
-python build.py plugin-build-native # 构建原生插件
+python build.py plugin-build        # 构建WASM插件（用于Web）
+python build.py plugin-build-native # 构建原生插件（用于桌面）
 python build.py plugin-list         # 列出所有插件
+python build.py plugin-clean        # 清理插件构建产物
 ```
 
 ### 项目结构
@@ -59,7 +56,7 @@ bubblefish/
 │   │   ├── lib.rs              # 主应用逻辑
 │   │   └── plugin_loader.rs    # 原生插件加载器
 │   ├── tauri.conf.json         # 标准版配置
-│   └── tauri.bundled.conf.json # 捆绑版配置（含插件）
+│   ├── tauri.bundled.conf.json # 含插件版配置
 ├── frontend/                   # 前端界面（SvelteKit）
 │   ├── src/
 │   │   ├── lib/
