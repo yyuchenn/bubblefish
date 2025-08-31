@@ -170,7 +170,7 @@
 		<div class="px-6 py-4 border-b border-theme-outline flex items-center justify-between">
 			<h2 class="text-xl font-semibold text-theme-on-surface">快照</h2>
 			<button
-				class="p-1 rounded-lg hover:bg-theme-surface-variant transition-colors text-theme-on-surface-variant"
+				class="p-1 rounded-lg hover:bg-theme-surface-variant hover:shadow-md transition-all text-theme-on-surface-variant"
 				onclick={onClose}
 				aria-label="关闭"
 			>
@@ -242,7 +242,7 @@
 							</div>
 							<div class="flex gap-2 ml-4">
 								<button
-									class="p-2 rounded-lg hover:bg-theme-surface-variant transition-colors text-theme-on-surface-variant hover:text-theme-on-surface"
+									class="p-2 rounded-lg text-theme-on-surface-variant transition-all disabled:cursor-not-allowed enabled:hover:bg-theme-surface-variant enabled:hover:text-theme-on-surface enabled:hover:shadow-md"
 									onclick={() => downloadSnapshot(snapshot)}
 									disabled={downloading}
 									title="下载快照"
@@ -258,7 +258,7 @@
 									</svg>
 								</button>
 								<button
-									class="p-2 rounded-lg hover:bg-red-50 transition-colors text-theme-on-surface-variant hover:text-red-600"
+									class="p-2 rounded-lg hover:bg-red-50 hover:shadow-md transition-all text-theme-on-surface-variant hover:text-red-600"
 									onclick={() => deleteSnapshot(snapshot)}
 									title="删除快照"
 									aria-label="删除快照"
@@ -282,14 +282,14 @@
 		<!-- Footer -->
 		<div class="px-6 py-4 border-t border-theme-outline flex justify-between gap-4">
 			<button
-				class="px-4 py-2 text-sm font-medium bg-theme-surface-variant text-theme-on-surface rounded-lg hover:bg-theme-surface-variant/80 transition-colors"
+				class="px-4 py-2 text-sm font-medium bg-theme-surface-variant text-theme-on-surface rounded-lg hover:bg-theme-surface-variant/80 hover:shadow-md transition-all"
 				onclick={onClose}
 			>
 				关闭
 			</button>
 			{#if snapshots.length > 0}
 				<button
-					class="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+					class="px-4 py-2 text-sm font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 hover:shadow-md transition-all"
 					onclick={clearAllSnapshots}
 				>
 					清空所有快照

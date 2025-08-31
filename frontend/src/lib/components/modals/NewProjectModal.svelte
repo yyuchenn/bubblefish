@@ -485,7 +485,7 @@
 						</div>
 						<button
 							type="button"
-							class="px-3 py-1 text-xs bg-theme-surface-variant text-theme-on-surface-variant rounded hover:bg-theme-surface-container transition-colors"
+							class="px-3 py-1 text-xs bg-theme-surface-variant text-theme-on-surface-variant rounded transition-all disabled:cursor-not-allowed enabled:hover:bg-theme-surface-container enabled:hover:shadow-md"
 							onclick={sortFilesByName}
 							disabled={isUploading}
 						>
@@ -565,14 +565,14 @@
 
 	<div class="flex justify-end gap-3 pt-4 border-t border-theme-outline">
 		<button 
-			class="bg-theme-surface-variant text-theme-on-surface-variant rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-surface-container enabled:hover:text-theme-on-surface"
+			class="bg-theme-surface-variant text-theme-on-surface-variant rounded px-6 py-2 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-surface-container enabled:hover:text-theme-on-surface enabled:hover:shadow-md"
 			onclick={handleCancel} 
 			disabled={isUploading}
 		>
 			取消
 		</button>
 		<button 
-			class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container"
+			class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container enabled:hover:shadow-md"
 			onclick={handleCreateProject} 
 			disabled={isUploading || !projectName.trim() || selectedFiles.length === 0}
 		>
