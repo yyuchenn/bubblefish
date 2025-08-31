@@ -3,6 +3,7 @@ name: Build Desktop Applications
 on:
   push:
     branches:
+      - main
       - 'preview_*'
   pull_request:
     branches:

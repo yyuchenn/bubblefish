@@ -8,7 +8,7 @@
 	} = $props<{
 		visible?: boolean;
 		onClose?: () => void;
-		children?: () => void;
+		children?: any;
 	}>();
 
 	function close() {

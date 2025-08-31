@@ -1,15 +1,15 @@
 <script lang="ts">
-	import { currentTheme, switchToNextTheme } from '$lib/services/themeService';
 	import { sidebarState, layoutActions } from '$lib/services/layoutService';
+	import { modalStore } from '$lib/stores/modalStore';
 
 	// 按钮点击事件处理
 	function handleButtonClick(buttonType: 'images' | 'dictionary' | 'projectSettings') {
 		layoutActions.toggleLeftSidebarType(buttonType);
 	}
 
-	// 主题切换处理
-	function handleThemeSwitch() {
-		switchToNextTheme();
+	// 设置按钮处理
+	function handleSettingsClick() {
+		modalStore.showModal('settings');
 	}
 
 	// SVG 图标属性
@@ -80,33 +80,16 @@
 	<!-- 分隔符 -->
 	<div class="flex-1"></div>
 
-	<!-- 主题切换按钮 -->
+	<!-- 设置按钮 -->
 	<button
 		class="hover:bg-theme-primary-container text-theme-on-surface hover:text-theme-on-primary-container flex h-12 w-full items-center justify-center bg-transparent transition-colors"
-		onclick={handleThemeSwitch}
-		title="切换主题 ({$currentTheme?.name || 'light'})"
-		aria-label="切换主题"
+		onclick={handleSettingsClick}
+		title="设置"
+		aria-label="设置"
 	>
-		{#if $currentTheme?.name === 'light'}
-			<!-- 太阳图标 -->
-			<svg width={iconSize} height={iconSize} viewBox={iconViewBox} fill="currentColor">
-				<path d="M12 18c-3.3 0-6-2.7-6-6s2.7-6 6-6 6 2.7 6 6-2.7 6-6 6zm0-10c-2.2 0-4 1.8-4 4s1.8 4 4 4 4-1.8 4-4-1.8-4-4-4zM12 4V2c0-.6-.4-1-1-1s-1 .4-1 1v2c0 .6.4 1 1 1s1-.4 1-1zm0 18v-2c0-.6-.4-1-1-1s-1 .4-1 1v2c0 .6.4 1 1 1s1-.4 1-1zM5.99 6.99c-.3-.3-.77-.3-1.06 0-.29.29-.29.77 0 1.06l1.06 1.06c.15.15.34.22.53.22s.38-.07.53-.22c.29-.29.29-.77 0-1.06L5.99 6.99zM17.66 19.66c-.15-.15-.34-.22-.53-.22s-.38.07-.53.22l-1.06 1.06c-.29.29-.29.77 0 1.06.15.15.34.22.53.22s.38-.07.53-.22l1.06-1.06c.29-.29.29-.77 0-1.06zM2 13h2c.6 0 1-.4 1-1s-.4-1-1-1H2c-.6 0-1 .4-1 1s.4 1 1 1zm18 0h2c.6 0 1-.4 1-1s-.4-1-1-1h-2c-.6 0-1 .4-1 1s.4 1 1 1zM6.34 19.66l-1.06-1.06c-.29-.29-.77-.29-1.06 0-.29.29-.29.77 0 1.06l1.06 1.06c.15.15.34.22.53.22s.38-.07.53-.22c.29-.29.29-.77 0-1.06zM19.01 7.05l-1.06-1.06c-.29-.29-.77-.29-1.06 0-.29.29-.29.77 0 1.06l1.06 1.06c.15.15.34.22.53.22s.38-.07.53-.22c.29-.29.29-.77 0-1.06z"/>
-			</svg>
-		{:else if $currentTheme?.name === 'dark'}
-			<!-- 月亮图标 -->
-			<svg width={iconSize} height={iconSize} viewBox={iconViewBox} fill="currentColor">
-				<path d="M12.1 22c-4.8 0-8.8-3.7-9.1-8.5-.2-2.4.4-4.8 1.8-6.7 1.4-1.9 3.4-3.1 5.7-3.5.6-.1 1.1.4 1.1 1 0 .4-.2.7-.5.9-.8.4-1.5 1-2 1.8-.5.8-.8 1.6-.8 2.5 0 2.2 1.8 4 4 4 .9 0 1.7-.3 2.5-.8.8-.5 1.4-1.2 1.8-2 .2-.3.5-.5.9-.5.6 0 1.1.5 1 1.1-.4 2.3-1.6 4.3-3.5 5.7-1.9 1.4-4.3 2-6.7 1.8-.1 0-.1 0-.2 0z"/>
-			</svg>
-		{:else if $currentTheme?.name === 'vscode'}
-			<!-- 显示器图标 -->
-			<svg width={iconSize} height={iconSize} viewBox={iconViewBox} fill="currentColor">
-				<path d="M21 3H3c-1.1 0-2 .9-2 2v11c0 1.1.9 2 2 2h6l-2 3v1h8v-1l-2-3h6c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 13H3V5h18v11z"/>
-			</svg>
-		{:else}
-			<!-- 默认调色板图标 -->
-			<svg width={iconSize} height={iconSize} viewBox={iconViewBox} fill="currentColor">
-				<path d="M12 2C6.49 2 2 6.49 2 12s4.49 10 10 10c1.38 0 2.5-1.12 2.5-2.5 0-.61-.23-1.15-.59-1.56-.36-.41-.59-.95-.59-1.56 0-1.38 1.12-2.5 2.5-2.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 8 6.5 8 8 8.67 8 9.5 7.33 11 6.5 11zm3-4C8.67 7 8 6.33 8 5.5S8.67 4 9.5 4s1.5.67 1.5 1.5S10.33 7 9.5 7zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 4 14.5 4 16 4.67 16 5.5 15.33 7 14.5 7zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 8 17.5 8s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>
-			</svg>
-		{/if}
+		<!-- 设置图标 -->
+		<svg width={iconSize} height={iconSize} viewBox={iconViewBox} fill="currentColor">
+			<path d="M19.14 12.94c.04-.3.06-.61.06-.94c0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94L2.86 14.52c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6s3.6 1.62 3.6 3.6s-1.62 3.6-3.6 3.6z"/>
+		</svg>
 	</button>
 </div>

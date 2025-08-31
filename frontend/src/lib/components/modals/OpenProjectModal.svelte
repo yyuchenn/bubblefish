@@ -1,14 +1,21 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { projectService } from '$lib/services/projectService';
 	import { platformService } from '$lib/services/platformService';
 	import Modal from './Modal.svelte';
 	import FileUpload from '../FileUpload.svelte';
 	import type { OpeningProjectInfo, ImageFile, ImageFormat } from '$lib/types';
 
-	export let visible: boolean = false;
-	export let onSuccess: (detail: { projectId: number; projectName: string; imageCount: number }) => void = () => {};
-	export let onCancel: () => void = () => {};
+	interface Props {
+		visible?: boolean;
+		onSuccess?: (detail: { projectId: number; projectName: string; imageCount: number }) => void;
+		onCancel?: () => void;
+	}
+
+	let { 
+		visible = false,
+		onSuccess,
+		onCancel
+	}: Props = $props();
 
 	function getImageFormat(mimeType: string): ImageFormat {
 		switch (mimeType) {
@@ -30,27 +37,32 @@
 	}
 
 	// 状态管理
-	type Step = 'upload-project' | 'upload-images' | 'finalizing';
-	let currentStep: Step = 'upload-project';
+	type Step = 'upload-project' | 'auto-scanning' | 'upload-images' | 'finalizing';
+	let currentStep = $state<Step>('upload-project');
 	
 	// 项目文件相关
-	let projectFile: File | null = null;
-	let projectFilePath: string | null = null; // Tauri环境下的文件路径
-	let projectName: string = '';
+	let projectFile = $state<File | null>(null);
+	let projectFilePath = $state<string | null>(null); // Tauri环境下的文件路径
+	let projectName = $state('');
+	let enableAutoScan = $state(true); // 是否启用自动扫描
 	
 	// 项目相关
-	let tempProjectId: number | null = null;
-	let projectInfo: OpeningProjectInfo | null = null;
+	let tempProjectId = $state<number | null>(null);
+	let projectInfo = $state<OpeningProjectInfo | null>(null);
 	
 	// 图片加载相关
-	let selectedImages: ImageFile[] = [];
-	let isUploading = false;
-	let uploadProgress = 0;
+	let selectedImages = $state<ImageFile[]>([]);
+	let isUploading = $state(false);
+	let uploadProgress = $state(0);
+	let autoDetectedImages = $state<string[]>([]);
+	let isAutoScanning = $state(false);
+	let isAutoUploading = $state(false);
+	let autoUploadProgress = $state(0);
 	
 	// 错误处理
-	let error: string = '';
+	let error = $state('');
 
-	onMount(() => {
+	$effect(() => {
 		return () => {
 			// 组件卸载时清理临时项目
 			if (tempProjectId && currentStep !== 'finalizing') {
@@ -59,9 +71,7 @@
 		};
 	});
 
-	function handleProjectFileSelected(event: CustomEvent<{file?: File, path?: string, fileName?: string}>) {
-		const detail = event.detail;
-		
+	function handleProjectFileSelected(detail: {file?: File, path?: string, fileName?: string}) {
 		if (detail.file) {
 			// Web环境
 			projectFile = detail.file;
@@ -75,8 +85,8 @@
 		error = '';
 	}
 	
-	function handleProjectFileError(event: CustomEvent<string>) {
-		error = event.detail;
+	function handleProjectFileError(message: string) {
+		error = message;
 	}
 
 	async function handleParseProjectFile() {
@@ -130,9 +140,16 @@
 				throw new Error('获取项目信息失败');
 			}
 
-			// 进入图片加载步骤
-			currentStep = 'upload-images';
-			selectedImages = []; // 重置选择的图片
+			// 如果是 Tauri 环境且启用了自动扫描且有待加载图片，先尝试自动扫描
+			if (platformService.isTauri() && projectFilePath && enableAutoScan && projectInfo.pendingImages.length > 0) {
+				// 进入自动扫描步骤
+				currentStep = 'auto-scanning';
+				await handleAutoScanAndUpload();
+			} else {
+				// 直接进入手动上传步骤
+				currentStep = 'upload-images';
+				selectedImages = []; // 重置选择的图片
+			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : '解析项目文件失败';
 			
@@ -144,8 +161,89 @@
 		}
 	}
 
-	function handleImagesSelected(event: CustomEvent<ImageFile[]>) {
-		selectedImages = event.detail;
+	async function handleAutoScanAndUpload() {
+		if (!platformService.isTauri() || !projectFilePath || !projectInfo || !tempProjectId) {
+			currentStep = 'upload-images';
+			return;
+		}
+
+		isAutoScanning = true;
+		error = '';
+
+		try {
+			// 获取项目文件所在目录
+			const directoryPath = projectFilePath.substring(0, projectFilePath.lastIndexOf('/'));
+			
+			// 扫描目录中的图片文件
+			const { tauriAPI } = await import('$lib/core/tauri');
+			autoDetectedImages = await tauriAPI.scanDirectoryForImages(
+				directoryPath,
+				projectInfo.pendingImages
+			);
+
+			isAutoScanning = false;
+
+			if (autoDetectedImages.length > 0) {
+				// 开始自动上传
+				isAutoUploading = true;
+				autoUploadProgress = 0;
+
+				let uploadedCount = 0;
+				const totalImages = autoDetectedImages.length;
+
+				for (let i = 0; i < autoDetectedImages.length; i++) {
+					const imagePath = autoDetectedImages[i];
+					autoUploadProgress = ((i + 1) / totalImages) * 100;
+
+					try {
+						console.log(`📁 自动上传图片: ${imagePath}`);
+						const imageId = await projectService.addImageFromPath(
+							tempProjectId,
+							imagePath
+						);
+
+						if (imageId) {
+							uploadedCount++;
+						}
+					} catch (err) {
+						console.error(`自动上传图片 ${imagePath} 失败:`, err);
+					}
+				}
+
+				// 刷新项目图片列表
+				await projectService.flushOpeningProjectImages(tempProjectId);
+
+				// 重新获取项目信息
+				projectInfo = await projectService.getOpeningProjectInfo(tempProjectId) as OpeningProjectInfo | null;
+
+				isAutoUploading = false;
+				autoUploadProgress = 0;
+
+				if (uploadedCount > 0) {
+					console.log(`✅ 自动上传完成，成功加载 ${uploadedCount} 张图片`);
+				}
+			}
+
+			// 检查是否所有图片都已加载
+			if (projectInfo?.isComplete) {
+				// 自动进入完成阶段
+				await handleFinalizeProject();
+			} else {
+				// 还有未加载的图片，进入手动上传步骤
+				currentStep = 'upload-images';
+				selectedImages = [];
+			}
+		} catch (err) {
+			isAutoScanning = false;
+			isAutoUploading = false;
+			error = err instanceof Error ? err.message : '自动扫描图片失败';
+			// 继续到手动上传步骤
+			currentStep = 'upload-images';
+		}
+	}
+
+	function handleImagesSelected(files: ImageFile[]) {
+		selectedImages = files;
 		error = '';
 	}
 
@@ -245,7 +343,7 @@
 			const success = await projectService.finalizeOpeningProject(tempProjectId);
 
 			if (success) {
-				onSuccess({
+				onSuccess?.({
 					projectId: tempProjectId,
 					projectName: projectInfo?.projectName || projectName,
 					imageCount: projectInfo?.uploadedImages.length || 0
@@ -264,12 +362,12 @@
 		if (tempProjectId && currentStep !== 'finalizing') {
 			projectService.deleteOpeningProject(tempProjectId);
 		}
-		onCancel();
+		onCancel?.();
 	}
 
-	$: canFinalize = projectInfo?.isComplete || false;
-	$: pendingCount = projectInfo?.pendingImages.length || 0;
-	$: uploadedCount = projectInfo?.uploadedImages.length || 0;
+	const canFinalize = $derived(projectInfo?.isComplete || false);
+	const pendingCount = $derived(projectInfo?.pendingImages.length || 0);
+	const uploadedCount = $derived(projectInfo?.uploadedImages.length || 0);
 </script>
 
 <Modal {visible} onClose={handleCancel}>
@@ -287,9 +385,27 @@
 				selectedFile={projectFile}
 				selectedFilePath={projectFilePath}
 				showSelectedFile={true}
-				on:fileSelected={handleProjectFileSelected}
-				on:error={handleProjectFileError}
+				onFileSelected={handleProjectFileSelected}
+				onError={handleProjectFileError}
 			/>
+
+			{#if platformService.isTauri() && projectFilePath}
+				<div class="mt-4 p-3 bg-theme-surface-variant rounded-lg">
+					<label class="flex items-center gap-3 cursor-pointer">
+						<input
+							type="checkbox"
+							bind:checked={enableAutoScan}
+							class="w-4 h-4 rounded border-theme-outline text-theme-primary focus:ring-2 focus:ring-theme-primary focus:ring-offset-0 cursor-pointer"
+						/>
+						<span class="text-sm text-theme-on-surface-variant select-none">
+							自动扫描并添加项目文件同目录下的图片
+						</span>
+					</label>
+					<p class="text-xs text-theme-on-surface-variant mt-2 ml-7">
+						启用后将自动查找并添加项目所需的图片文件
+					</p>
+				</div>
+			{/if}
 
 			{#if error}
 				<div class="p-2 mb-3 bg-theme-error-container border border-theme-error rounded">
@@ -300,18 +416,48 @@
 
 		<div class="flex justify-end gap-3 pt-4 border-t border-theme-outline">
 			<button 
-				class="bg-theme-surface-variant text-theme-on-surface-variant hover:bg-theme-surface-container hover:text-theme-on-surface rounded px-6 py-2 text-sm font-medium transition-colors"
-				on:click={handleCancel}
+				class="bg-theme-surface-variant text-theme-on-surface-variant rounded px-6 py-2 text-sm font-medium transition-all hover:bg-theme-surface-container hover:text-theme-on-surface hover:shadow-md"
+				onclick={handleCancel}
 			>
 				取消
 			</button>
 			<button 
-				class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container"
-				on:click={handleParseProjectFile}
+				class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container enabled:hover:shadow-md"
+				onclick={handleParseProjectFile}
 				disabled={!projectFilePath && !projectFile}
 			>
 				下一步
 			</button>
+		</div>
+	{:else if currentStep === 'auto-scanning'}
+		<div class="mb-5 min-w-[400px]">
+			<div class="flex flex-col items-center justify-center py-10">
+				{#if isAutoScanning}
+					<div class="w-10 h-10 border-3 border-theme-outline border-t-theme-primary rounded-full animate-spin"></div>
+					<p class="mt-4 text-theme-on-surface-variant text-sm">正在扫描项目目录中的图片...</p>
+				{:else if isAutoUploading}
+					<div class="w-full">
+						<p class="text-theme-on-surface mb-3 text-center">正在自动上传检测到的图片</p>
+						<div class="h-2 bg-theme-surface-variant rounded-full overflow-hidden">
+							<div class="h-full bg-theme-primary transition-all duration-300" style="width: {autoUploadProgress}%"></div>
+						</div>
+						<p class="text-xs text-theme-on-surface-variant text-center mt-2">{Math.round(autoUploadProgress)}%</p>
+					</div>
+				{:else}
+					<p class="text-theme-on-surface-variant">处理中...</p>
+				{/if}
+			</div>
+			
+			{#if autoDetectedImages.length > 0 && !isAutoScanning}
+				<div class="mt-4 p-3 bg-theme-surface-variant rounded-md">
+					<p class="text-sm text-theme-on-surface mb-2">检测到 {autoDetectedImages.length} 张图片：</p>
+					<ul class="text-xs text-theme-on-surface-variant max-h-32 overflow-y-auto">
+						{#each autoDetectedImages as imagePath}
+							<li class="truncate" title={imagePath}>{imagePath.split('/').pop()}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
 		</div>
 	{:else if currentStep === 'upload-images'}
 		<div class="mb-5 min-w-[400px]">
@@ -341,7 +487,7 @@
 					</p>
 					
 					<FileUpload 
-						on:filesSelected={handleImagesSelected}
+						onFilesSelected={handleImagesSelected}
 						accept="image/*"
 						multiple={true}
 						disabled={isUploading}
@@ -400,24 +546,24 @@
 
 		<div class="flex justify-end gap-3 pt-4 border-t border-theme-outline">
 			<button 
-				class="bg-theme-surface-variant text-theme-on-surface-variant rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-surface-container enabled:hover:text-theme-on-surface"
-				on:click={handleCancel} 
+				class="bg-theme-surface-variant text-theme-on-surface-variant rounded px-6 py-2 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-surface-container enabled:hover:text-theme-on-surface enabled:hover:shadow-md"
+				onclick={handleCancel} 
 				disabled={isUploading}
 			>
 				取消
 			</button>
 			{#if !canFinalize}
 				<button 
-					class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container"
-					on:click={handleUploadImages}
+					class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container enabled:hover:shadow-md"
+					onclick={handleUploadImages}
 					disabled={isUploading || selectedImages.length === 0}
 				>
 					{isUploading ? '加载中...' : '加载图片'}
 				</button>
 			{:else}
 				<button 
-					class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container"
-					on:click={handleFinalizeProject}
+					class="bg-theme-primary text-theme-on-primary rounded px-6 py-2 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-primary-container enabled:hover:text-theme-on-primary-container enabled:hover:shadow-md"
+					onclick={handleFinalizeProject}
 					disabled={isUploading}
 				>
 					创建项目

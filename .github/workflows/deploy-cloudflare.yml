@@ -3,6 +3,7 @@ name: Deploy to Cloudflare Pages
 on:
   push:
     branches:
+      - main
       - 'preview_*'
   pull_request:
     branches:
@@ -101,7 +102,7 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: pages deploy frontend/build --project-name=bubblefish --branch=${{ github.event_name == 'release' && 'main' || (github.ref == 'refs/heads/main' && 'main' || github.head_ref || github.ref_name) }} --commit-dirty=true
+          command: pages deploy frontend/build --project-name=bubblefish --branch=${{ github.event_name == 'release' && 'main' || (github.ref == 'refs/heads/main' && 'preview' || github.head_ref || github.ref_name) }} --commit-dirty=true
 
       - name: Comment PR with deployment URL
         if: github.event_name == 'pull_request'

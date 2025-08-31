@@ -1,6 +1,6 @@
 import { writable, get } from 'svelte/store';
 
-export type ModalType = 'newProject' | 'openProject' | 'about' | 'license' | 'confirm' | 'snapshot' | null;
+export type ModalType = 'newProject' | 'openProject' | 'about' | 'license' | 'confirm' | 'snapshot' | 'settings' | null;
 
 export interface ModalData {
 	defaultName?: string;

@@ -1,20 +1,38 @@
 <script lang="ts">
-	import { createEventDispatcher, onMount } from 'svelte';
+	import { onMount } from 'svelte';
 	import { platformService } from '$lib/services/platformService';
 	
-	export let accept: string = '*';
-	export let multiple: boolean = false;
-	export let disabled: boolean = false;
-	export let fileType: 'image' | 'project' | 'any' = 'any';
-	export let selectedFile: File | null = null;
-	export let selectedFilePath: string | null = null;
-	export let showSelectedFile: boolean = false;
+	interface Props {
+		accept?: string;
+		multiple?: boolean;
+		disabled?: boolean;
+		fileType?: 'image' | 'project' | 'any';
+		selectedFile?: File | null;
+		selectedFilePath?: string | null;
+		showSelectedFile?: boolean;
+		onFilesSelected?: (files: any) => void;
+		onFileSelected?: (file: any) => void;
+		onError?: (message: string) => void;
+	}
 	
-	const dispatch = createEventDispatcher();
+	let {
+		accept = '*',
+		multiple = false,
+		disabled = false,
+		fileType = 'any',
+		selectedFile = null,
+		selectedFilePath = null,
+		showSelectedFile = false,
+		onFilesSelected,
+		onFileSelected,
+		onError
+	}: Props = $props();
 	
 	let fileInput: HTMLInputElement;
-	let isDragging = false;
-	let isInTauri = false;
+	let dropZone: HTMLElement;
+	let isDragging = $state(false);
+	let isInTauri = $state(false);
+	let unlistenDragDrop: (() => void) | null = null;
 	
 	onMount(() => {
 		isInTauri = platformService.isTauri();
@@ -23,6 +41,14 @@
 		if (isInTauri) {
 			setupTauriFileDrop();
 		}
+		
+		// 清理函数
+		return () => {
+			if (unlistenDragDrop) {
+				unlistenDragDrop();
+				unlistenDragDrop = null;
+			}
+		};
 	});
 	
 	// 设置Tauri文件拖拽监听器
@@ -36,12 +62,19 @@
 			const unlisten = await webview.onDragDropEvent((event) => {
 				if (disabled) return;
 				
+				// 检查组件是否在DOM中可见
+				if (!dropZone || !dropZone.offsetParent) return;
+				
 				if (event.payload.type === 'drop') {
+					// 立即重置拖拽状态，无论如何都要重置
+					isDragging = false;
+					
 					const paths = event.payload.paths;
 					
 					if (fileType === 'image') {
 						const files = paths.map((path: string) => {
-							const fileName = path.split('/').pop() || path.split('\\').pop() || 'Unknown';
+							// 正确处理Windows和Unix路径
+							const fileName = path.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 							const lowerPath = path.toLowerCase();
 							if (
 								lowerPath.endsWith('.png') ||
@@ -63,27 +96,32 @@
 						}).filter((f: any) => f !== null);
 						
 						if (files.length > 0) {
-							dispatch('filesSelected', multiple ? files : files.slice(0, 1));
+							onFilesSelected?.( multiple ? files : files.slice(0, 1));
+						} else {
+							// 如果没有有效的图片文件，显示错误
+							onError?.(  '请选择有效的图片文件 (PNG, JPG, JPEG, GIF, BMP, WebP)');
 						}
 					} else if (fileType === 'project') {
 						if (paths.length > 0) {
 							const path = paths[0];
-							const fileName = path.split('/').pop() || path.split('\\').pop() || 'Unknown';
+							// 正确处理Windows和Unix路径
+							const fileName = path.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 							const ext = fileName.split('.').pop()?.toLowerCase();
 							
 							if (['txt', 'lp', 'bf'].includes(ext || '')) {
-								dispatch('fileSelected', {
+								onFileSelected?.( {
 									path,
 									fileName
 								});
 							} else {
-								dispatch('error', '请选择有效的项目文件 (.txt, .lp 或 .bf)');
+								onError?.(  '请选择有效的项目文件 (.txt, .lp 或 .bf)');
 							}
 						}
 					} else {
 						// 通用文件处理
 						const files = paths.map((path: string) => {
-							const fileName = path.split('/').pop() || path.split('\\').pop() || 'Unknown';
+							// 正确处理Windows和Unix路径
+							const fileName = path.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 							return {
 								path,
 								name: fileName,
@@ -94,23 +132,23 @@
 						});
 						
 						if (files.length > 0) {
-							dispatch('filesSelected', multiple ? files : files.slice(0, 1));
+							onFilesSelected?.( multiple ? files : files.slice(0, 1));
 						}
 					}
 				} else if (event.payload.type === 'over') {
-					isDragging = true;
+					// 只有在组件可见时才设置拖拽状态
+					if (dropZone && dropZone.offsetParent) {
+						isDragging = true;
+					}
 				} else if (event.payload.type === 'leave') {
 					isDragging = false;
 				}
 			});
 			
-			// 清理函数
-			return () => {
-				unlisten();
-			};
+			// 保存清理函数
+			unlistenDragDrop = unlisten;
 		} catch (error) {
 			console.error('Failed to setup Tauri file drop:', error);
-			return () => {};
 		}
 	}
 	
@@ -122,11 +160,11 @@
 				const ext = file.name.split('.').pop()?.toLowerCase();
 				
 				if (!['txt', 'lp', 'bf'].includes(ext || '')) {
-					dispatch('error', '请选择有效的项目文件 (.txt, .lp 或 .bf)');
+					onError?.(  '请选择有效的项目文件 (.txt, .lp 或 .bf)');
 					return;
 				}
 				
-				dispatch('fileSelected', { file });
+				onFileSelected?.( { file });
 			} else {
 				processFiles(input.files);
 			}
@@ -149,11 +187,11 @@
 				const ext = file.name.split('.').pop()?.toLowerCase();
 				
 				if (!['txt', 'lp', 'bf'].includes(ext || '')) {
-					dispatch('error', '请选择有效的项目文件 (.txt, .lp 或 .bf)');
+					onError?.(  '请选择有效的项目文件 (.txt, .lp 或 .bf)');
 					return;
 				}
 				
-				dispatch('fileSelected', { file });
+				onFileSelected?.( { file });
 			} else {
 				processFiles(files);
 			}
@@ -177,14 +215,34 @@
 	}
 	
 	function processFiles(fileList: FileList) {
-		const files = Array.from(fileList).map(file => ({
+		let files = Array.from(fileList).map(file => ({
 			file,
 			name: file.name,
 			size: file.size,
 			type: file.type
 		}));
 		
-		dispatch('filesSelected', multiple ? files : files.slice(0, 1));
+		// 如果是图片类型，过滤非图片文件
+		if (fileType === 'image') {
+			files = files.filter(file => {
+				const lowerName = file.name.toLowerCase();
+				const isValidImage = file.type.startsWith('image/') || 
+					lowerName.endsWith('.png') ||
+					lowerName.endsWith('.jpg') ||
+					lowerName.endsWith('.jpeg') ||
+					lowerName.endsWith('.gif') ||
+					lowerName.endsWith('.bmp') ||
+					lowerName.endsWith('.webp');
+				return isValidImage;
+			});
+			
+			if (files.length === 0) {
+				onError?.('请选择有效的图片文件 (PNG, JPG, JPEG, GIF, BMP, WebP)');
+				return;
+			}
+		}
+		
+		onFilesSelected?.( multiple ? files : files.slice(0, 1));
 	}
 	
 	async function openFileDialog() {
@@ -201,7 +259,8 @@
 						const filePaths = await invoke<string[] | null>('open_multiple_image_files_dialog');
 						if (filePaths && filePaths.length > 0) {
 							const files = filePaths.map(path => {
-								const fileName = path.split('/').pop() || path.split('\\').pop() || 'Unknown';
+								// 正确处理Windows和Unix路径
+								const fileName = path.replace(/\\/g, '/').split('/').pop() || 'Unknown';
 								return {
 									path,
 									name: fileName,
@@ -210,13 +269,14 @@
 									url: convertFileSrc(path)
 								};
 							});
-							dispatch('filesSelected', files);
+							onFilesSelected?.( files);
 						}
 					} else {
 						const filePath = await invoke<string | null>('open_image_file_dialog');
 						if (filePath) {
-							const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
-							dispatch('filesSelected', [{
+							// 正确处理Windows和Unix路径
+							const fileName = filePath.replace(/\\/g, '/').split('/').pop() || 'Unknown';
+							onFilesSelected?.( [{
 								path: filePath,
 								name: fileName,
 								size: 0,
@@ -228,8 +288,9 @@
 				} else if (fileType === 'project') {
 					const filePath = await platformService.openProjectFileDialog();
 					if (filePath) {
-						const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || 'Unknown';
-						dispatch('fileSelected', {
+						// 正确处理Windows和Unix路径
+						const fileName = filePath.replace(/\\/g, '/').split('/').pop() || 'Unknown';
+						onFileSelected?.( {
 							path: filePath,
 							fileName
 						});
@@ -241,7 +302,7 @@
 			} catch (error) {
 				console.error('Failed to open native dialog, falling back to HTML input:', error);
 				if (fileType === 'project') {
-					dispatch('error', '选择文件失败');
+					onError?.(  '选择文件失败');
 				} else {
 					fileInput?.click();
 				}
@@ -252,24 +313,31 @@
 		}
 	}
 	// 获取正确的accept属性
-	$: computedAccept = fileType === 'project' ? '.bf,.txt,.lp' : 
-	                   fileType === 'image' ? 'image/*' : 
-	                   accept;
+	const computedAccept = $derived(
+		fileType === 'project' ? '.bf,.txt,.lp' : 
+		fileType === 'image' ? 'image/*' : 
+		accept
+	);
 	
 	// 获取按钮文本
-	$: buttonText = fileType === 'project' ? '点击选择项目文件' : 
-	               fileType === 'image' ? '选择图片' : 
-	               '选择文件';
+	const buttonText = $derived(
+		fileType === 'project' ? '点击选择项目文件' : 
+		fileType === 'image' ? '选择图片' : 
+		'选择文件'
+	);
 	
 	// 获取提示文本
-	$: hintText = fileType === 'project' ? '支持格式：.bf, .txt, .lp' : 
-	             fileType === 'image' ? '支持格式：PNG, JPG, GIF, WebP, BMP' : 
-	             '';
+	const hintText = $derived(
+		fileType === 'project' ? '支持格式：.bf, .txt, .lp' : 
+		fileType === 'image' ? '支持格式：PNG, JPG, GIF, WebP, BMP' : 
+		''
+	);
 </script>
 
 <div class="space-y-4">
 	<!-- 文件选择区域 -->
 	<div
+		bind:this={dropZone}
 		role="button"
 		tabindex="0"
 		aria-label="选择或拖拽文件"
@@ -279,11 +347,11 @@
 				: 'border-theme-outline bg-theme-surface hover:bg-theme-surface-variant hover:border-theme-outline'}
 			{disabled ? 'opacity-50 cursor-not-allowed' : ''}"
 		style="border-color: {isDragging ? 'var(--color-primary)' : 'var(--color-outline)'}"
-		on:drop={handleDrop}
-		on:dragover={handleDragOver}
-		on:dragleave={handleDragLeave}
-		on:click={openFileDialog}
-		on:keydown={(e) => e.key === 'Enter' && openFileDialog()}
+		ondrop={handleDrop}
+		ondragover={handleDragOver}
+		ondragleave={handleDragLeave}
+		onclick={openFileDialog}
+		onkeydown={(e) => e.key === 'Enter' && openFileDialog()}
 	>
 		<input
 			bind:this={fileInput}
@@ -291,7 +359,7 @@
 			accept={computedAccept}
 			{multiple}
 			{disabled}
-			on:change={handleFileSelect}
+			onchange={handleFileSelect}
 			class="absolute -left-[9999px]"
 		/>
 		

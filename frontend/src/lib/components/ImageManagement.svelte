@@ -66,8 +66,8 @@
 		}
 	}
 	
-	function handleFilesSelected(event: CustomEvent<ImageFile[]>) {
-		selectedFiles = [...selectedFiles, ...event.detail];
+	function handleFilesSelected(files: ImageFile[]) {
+		selectedFiles = [...selectedFiles, ...files];
 		error = '';
 	}
 	
@@ -400,7 +400,7 @@
 					</div>
 					<button
 						type="button"
-						class="px-3 py-1 text-xs bg-theme-surface-variant text-theme-on-surface-variant rounded hover:bg-theme-surface-container transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+						class="px-3 py-1 text-xs bg-theme-surface-variant text-theme-on-surface-variant rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed enabled:hover:bg-theme-surface-container enabled:hover:shadow-md"
 						onclick={sortImagesByName}
 						disabled={isUploading || isDragDisabled}
 					>
@@ -464,7 +464,7 @@
 			
 			<!-- 文件选择 -->
 			<FileUpload 
-				on:filesSelected={handleFilesSelected}
+				onFilesSelected={handleFilesSelected}
 				accept="image/*"
 				multiple={true}
 				disabled={isUploading}

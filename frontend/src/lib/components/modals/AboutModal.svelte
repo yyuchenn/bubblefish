@@ -75,20 +75,20 @@
 		<div class="flex gap-4 justify-end w-full">
 			{#if !platformService.isTauri()}
 				<button
-					class="bg-theme-primary text-theme-on-primary hover:bg-theme-primary-container hover:text-theme-on-primary-container rounded px-6 py-2 text-sm font-medium transition-colors"
+					class="bg-theme-primary text-theme-on-primary hover:bg-theme-primary-container hover:text-theme-on-primary-container hover:shadow-md rounded px-6 py-2 text-sm font-medium transition-all"
 					onclick={openRelease}
 				>
 					下载桌面端
 				</button>
 			{/if}
 			<button
-				class="bg-theme-primary text-theme-on-primary hover:bg-theme-primary-container hover:text-theme-on-primary-container rounded px-6 py-2 text-sm font-medium transition-colors"
+				class="bg-theme-primary text-theme-on-primary hover:bg-theme-primary-container hover:text-theme-on-primary-container hover:shadow-md rounded px-6 py-2 text-sm font-medium transition-all"
 				onclick={openGitHub}
 			>
 				GitHub
 			</button>
 			<button
-				class="bg-theme-surface-variant text-theme-on-surface-variant hover:bg-theme-surface-container hover:text-theme-on-surface rounded px-6 py-2 text-sm font-medium transition-colors"
+				class="bg-theme-surface-variant text-theme-on-surface-variant hover:bg-theme-surface-container hover:text-theme-on-surface hover:shadow-md rounded px-6 py-2 text-sm font-medium transition-all"
 				onclick={close}
 			>
 				关闭
