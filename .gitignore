@@ -12,7 +12,7 @@ desktop/target
 wasm/pkg
 wasm/target
 target/build/
-desktop/resources/
+desktop/resources/plugins
 
 ### Env ###
 .env
