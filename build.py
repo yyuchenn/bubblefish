@@ -549,10 +549,11 @@ class BuildScript:
             cleanup_frontend()
             log_success("Frontend server stopped.")
 
-    def desktop_build(self, release: bool = True) -> bool:
-        """Build desktop application"""
+    def desktop_build(self, release: bool = True, with_plugins: bool = False) -> bool:
+        """Build desktop application with or without plugins"""
         mode = "release" if release else "debug"
-        log_info(f"Building desktop application ({mode})...")
+        variant = "with plugins" if with_plugins else "without plugins"
+        log_info(f"Building desktop application ({mode}, {variant})...")
         
         if not self.frontend_install_deps():
             return False
@@ -563,10 +564,33 @@ class BuildScript:
         log_info("Building frontend first...")
         if not self.frontend_build():
             return False
+        
+        # Build plugins if needed
+        if with_plugins:
+            log_info("Building native plugins for desktop...")
+            if not self.plugin_build_native():
+                log_warning("Plugin build failed, continuing without plugins")
+                with_plugins = False
+        
+        # Copy plugins to resources if building with plugins
+        if with_plugins:
+            if not self.copy_plugins_to_resources():
+                log_warning("Failed to copy plugins to resources")
+        
+        # Select the appropriate Tauri config
+        config_file = "tauri.bundled.conf.json" if with_plugins else "tauri.conf.json"
+        config_path = self.desktop_dir / config_file
+        
+        # Check if bundled config exists, if not create it
+        if with_plugins and not config_path.exists():
+            log_info("Creating bundled config from base config...")
+            self.create_bundled_config()
             
         cmd = ["cargo", "tauri", "build"]
         if not release:
             cmd.append("--debug")
+        if with_plugins:
+            cmd.extend(["--config", config_file])
         
         # 构建桌面应用
         if not self.run_command(cmd, cwd=self.desktop_dir):
@@ -612,14 +636,21 @@ class BuildScript:
 
     # ===== Combined Commands =====
 
-    def build_all(self) -> bool:
+    def build_all(self, with_plugins: bool = False) -> bool:
         """Build all components (web + desktop)"""
-        log_info("Building all components...")
+        variant = "with plugins" if with_plugins else "without plugins"
+        log_info(f"Building all components ({variant})...")
         
+        # Build web with plugins
         if not self.web_build():
             return False
-            
-        return self.desktop_build()
+        
+        if with_plugins:
+            log_info("Building plugins for web...")
+            if not self.plugin_build():
+                log_warning("Web plugin build failed")
+                
+        return self.desktop_build(with_plugins=with_plugins)
 
     # ===== Utility Commands =====
 
@@ -1057,6 +1088,101 @@ class BuildScript:
         log_success("Plugin artifacts cleaned")
         return True
     
+    def copy_plugins_to_resources(self) -> bool:
+        """Copy built native plugins to desktop resources directory"""
+        log_info("Copying native plugins to desktop resources...")
+        
+        # Create resources/plugins directory
+        resources_dir = self.desktop_dir / "resources"
+        plugins_resource_dir = resources_dir / "plugins"
+        plugins_resource_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Platform-specific library naming
+        import platform
+        system = platform.system().lower()
+        if system == "darwin":  # macOS
+            lib_ext = "dylib"
+            lib_prefix = "lib"
+        elif system == "linux":
+            lib_ext = "so"
+            lib_prefix = "lib"
+        elif system == "windows":
+            lib_ext = "dll"
+            lib_prefix = ""
+        else:
+            log_error(f"Unsupported platform: {system}")
+            return False
+        
+        copied_count = 0
+        # Find all built native plugins
+        for plugin_path in self.plugins_dir.iterdir():
+            if plugin_path.is_dir() and (plugin_path / "Cargo.toml").exists():
+                if plugin_path.name == "plugin-sdk":
+                    continue
+                
+                # Look for the built library
+                plugin_name = plugin_path.name.replace('-', '_')
+                lib_name = f"{lib_prefix}{plugin_name}_plugin.{lib_ext}"
+                
+                # Check in workspace target directory first
+                source_lib = self.root_dir / "target" / "release" / lib_name
+                if not source_lib.exists():
+                    source_lib = self.root_dir / "target" / "debug" / lib_name
+                
+                if not source_lib.exists():
+                    # Try alternative naming
+                    lib_name = f"{lib_prefix}{plugin_name}.{lib_ext}"
+                    source_lib = self.root_dir / "target" / "release" / lib_name
+                    if not source_lib.exists():
+                        source_lib = self.root_dir / "target" / "debug" / lib_name
+                
+                if source_lib.exists():
+                    dest_lib = plugins_resource_dir / source_lib.name
+                    shutil.copy2(source_lib, dest_lib)
+                    log_success(f"Copied {source_lib.name} to resources")
+                    copied_count += 1
+                else:
+                    log_warning(f"Plugin library not found for {plugin_path.name}")
+        
+        if copied_count > 0:
+            log_success(f"Copied {copied_count} plugin(s) to resources")
+            return True
+        else:
+            log_warning("No plugin libraries found to copy")
+            return False
+    
+    def create_bundled_config(self) -> bool:
+        """Create a Tauri config for bundled plugins build"""
+        log_info("Creating bundled Tauri config...")
+        
+        base_config_path = self.desktop_dir / "tauri.conf.json"
+        bundled_config_path = self.desktop_dir / "tauri.bundled.conf.json"
+        
+        try:
+            import json
+            with open(base_config_path, 'r') as f:
+                config = json.load(f)
+            
+            # Add resources configuration for plugins
+            if "bundle" not in config:
+                config["bundle"] = {}
+            
+            config["bundle"]["resources"] = [
+                "resources/plugins/*"
+            ]
+            
+            # Optionally change the product name to indicate bundled version
+            # config["productName"] = "Bubblefish (Bundled)"
+            
+            with open(bundled_config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            log_success(f"Created bundled config: {bundled_config_path}")
+            return True
+        except Exception as e:
+            log_error(f"Failed to create bundled config: {e}")
+            return False
+    
     def plugin_list(self) -> bool:
         """List available plugins"""
         log_info("Available plugins:")
@@ -1095,13 +1221,15 @@ Available commands:
     frontend-build Frontend build only
 
   🪟 Desktop Development:
-    desktop-dev   Start desktop development (auto)
-    desktop-build Build desktop application
+    desktop-dev          Start desktop development (auto)
+    desktop-build        Build desktop application (use --with-plugins to include)
+    desktop-build-bundled Build desktop with plugins included
 
   🔨 Building:
-    build-all     Build everything (web + desktop)
-    wasm-build    Build WASM (production)
-    wasm-dev      Build WASM (development)
+    build-all            Build everything (use --with-plugins for bundled)
+    build-all-bundled    Build everything with plugins included
+    wasm-build           Build WASM (production)
+    wasm-dev             Build WASM (development)
 
   🔌 Plugin Development:
     plugin-build         Build plugin(s) as WASM modules
@@ -1133,6 +1261,7 @@ Available commands:
     parser.add_argument("--release", action="store_true", help="Build in release mode")
     parser.add_argument("--debug", action="store_true", help="Build in debug mode")
     parser.add_argument("--native", action="store_true", help="Build native version for plugins")
+    parser.add_argument("--with-plugins", action="store_true", help="Include plugins in desktop build")
     
     args = parser.parse_args()
     
@@ -1150,7 +1279,8 @@ Available commands:
         
         # Desktop development
         "desktop-dev": build_script.desktop_dev,
-        "desktop-build": lambda: build_script.desktop_build(release=not args.debug),
+        "desktop-build": lambda: build_script.desktop_build(release=not args.debug, with_plugins=args.with_plugins),
+        "desktop-build-bundled": lambda: build_script.desktop_build(release=not args.debug, with_plugins=True),
         
         # Plugin commands
         "plugin-build": lambda: build_script.plugin_build(plugin_name=args.plugin, dev=False, native=False),
@@ -1161,7 +1291,8 @@ Available commands:
         "plugin-clean": build_script.plugin_clean,
         
         # Combined commands
-        "build-all": build_script.build_all,
+        "build-all": lambda: build_script.build_all(with_plugins=args.with_plugins),
+        "build-all-bundled": lambda: build_script.build_all(with_plugins=True),
         
         # Utility commands
         "setup": build_script.setup,

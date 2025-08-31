@@ -94,6 +94,9 @@ jobs:
 
       - name: Build web application
         run: python build.py web-build
+      
+      - name: Build plugins for web
+        run: python build.py plugin-build
 
       - name: Copy deployment headers
         run: cp deploy/cloudflare/_headers frontend/build/_headers

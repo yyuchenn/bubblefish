@@ -19,6 +19,15 @@ on:
           - all
           - windows-only
           - macos-only
+      include_plugins:
+        description: 'Include plugins in build'
+        required: true
+        default: 'both'
+        type: choice
+        options:
+          - both
+          - with-plugins
+          - without-plugins
   release:
     types: [created]
 
@@ -124,8 +133,13 @@ jobs:
           cd frontend
           yarn install
 
-      - name: Build all components (WASM + Desktop)
+      - name: Build all components without plugins (WASM + Desktop)
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins'
         run: python build.py build-all
+      
+      - name: Build all components with plugins (WASM + Desktop + Plugins)
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
+        run: python build.py build-all-bundled
 
       - name: Sign Windows Executables
         if: env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE != null
@@ -190,6 +204,30 @@ jobs:
           Remove-Item $certPath -Force
           Write-Host "Code signing completed"
 
+      - name: Rename bundled artifacts
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
+        shell: pwsh
+        run: |
+          # Find and rename bundled builds to distinguish them
+          $msiFiles = Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
+          $exeFiles = Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          
+          foreach ($file in $msiFiles) {
+            if ($file.Name -notlike "*-bundled*") {
+              $newName = $file.Name -replace '\.msi$', '-bundled.msi'
+              Rename-Item -Path $file.FullName -NewName $newName
+              Write-Host "Renamed $($file.Name) to $newName"
+            }
+          }
+          
+          foreach ($file in $exeFiles) {
+            if ($file.Name -notlike "*-bundled*") {
+              $newName = $file.Name -replace '\.exe$', '-bundled.exe'
+              Rename-Item -Path $file.FullName -NewName $newName
+              Write-Host "Renamed $($file.Name) to $newName"
+            }
+          }
+      
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -287,8 +325,13 @@ jobs:
           cd frontend
           yarn install
 
-      - name: Build all components (WASM + Desktop)
+      - name: Build all components without plugins (WASM + Desktop)
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins'
         run: python3 build.py build-all
+      
+      - name: Build all components with plugins (WASM + Desktop + Plugins)
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
+        run: python3 build.py build-all-bundled
 
       - name: Package macOS app for release
         if: github.event_name == 'release'
@@ -302,6 +345,26 @@ jobs:
             fi
           done
 
+      - name: Rename bundled artifacts
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
+        run: |
+          # Find and rename bundled builds to distinguish them
+          for dmg in target/release/bundle/dmg/*.dmg; do
+            if [ -f "$dmg" ] && [[ ! "$dmg" == *"-bundled"* ]]; then
+              newname="${dmg%.dmg}-bundled.dmg"
+              mv "$dmg" "$newname"
+              echo "Renamed $(basename $dmg) to $(basename $newname)"
+            fi
+          done
+          
+          for app in target/release/bundle/macos/*.app; do
+            if [ -d "$app" ] && [[ ! "$app" == *"-bundled"* ]]; then
+              newname="${app%.app}-bundled.app"
+              mv "$app" "$newname"
+              echo "Renamed $(basename $app) to $(basename $newname)"
+            fi
+          done
+      
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
         with:

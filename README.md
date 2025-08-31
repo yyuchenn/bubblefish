@@ -14,12 +14,33 @@
 
 欢迎提交PR！
 
-### 调试
+### 快速开始
 
 ```python
 python build.py setup       # 安装相关toolchain和依赖
 python build.py web-dev     # 网页端调试
 python build.py desktop-dev # 桌面端调试
+```
+
+### 构建命令
+
+```python
+# Web端构建
+python build.py web-build           # 构建Web应用
+python build.py plugin-build        # 构建WASM插件
+
+# 桌面端构建（两种版本）
+python build.py desktop-build       # 标准版（不含插件）
+python build.py desktop-build-bundled # 捆绑版（包含插件）
+
+# 组合构建
+python build.py build-all           # 构建所有（标准版）
+python build.py build-all-bundled   # 构建所有（捆绑版）
+
+# 插件开发
+python build.py plugin-build        # 构建WASM插件
+python build.py plugin-build-native # 构建原生插件
+python build.py plugin-list         # 列出所有插件
 ```
 
 ### 项目结构
@@ -33,22 +54,37 @@ bubblefish/
 │   │   ├── common/         # 公共类型和工具
 │   │   ├── service/        # 业务服务层
 │   │   └── storage/        # 数据存储层
-├── desktop/                 # 桌面端应用（Tauri）
-│   ├── src/                # Tauri主进程代码
-│   └── tauri.conf.json     # Tauri配置
-├── frontend/                # 前端界面（SvelteKit）
+├── desktop/                # 桌面端应用（Tauri）
+│   ├── src/                
+│   │   ├── lib.rs              # 主应用逻辑
+│   │   └── plugin_loader.rs    # 原生插件加载器
+│   ├── tauri.conf.json         # 标准版配置
+│   └── tauri.bundled.conf.json # 捆绑版配置（含插件）
+├── frontend/                   # 前端界面（SvelteKit）
 │   ├── src/
 │   │   ├── lib/
 │   │   │   ├── components/ # UI组件
 │   │   │   ├── services/   # 前端服务
 │   │   │   ├── stores/     # 状态管理
-│   │   │   ├── wasm/       # WASM模块
+│   │   │   ├── core/       # 核心接口
 │   │   │   └── workers/    # Web Workers
 │   │   └── routes/         # 页面路由
-│   └── static/             # 静态资源
-├── deploy/                  # 部署配置
+│   └── static/             
+│       └── plugins/        # Web端插件资源
+├── plugins/                # 插件系统
+│   ├── plugin-sdk/         # 插件SDK
+├── deploy/                 # 部署配置
 │   └── cloudflare/         # Cloudflare部署
-└── build.py                # 构建脚本
+├── .github/
+│   └── workflows/          # GitHub Actions
+│       ├── deploy-cloudflare.yml  # Web端自动部署
+│       └── build-desktop.yml      # 桌面端自动构建
+├── target/                 # Rust构建输出
+│   └── build/              # 统一构建目录
+│       ├── wasm/           # WASM构建产物
+│       ├── frontend/       # 前端构建产物
+│       └── desktop/        # 桌面端构建产物
+└── build.py                # 统一构建脚本
 ```
 
 
