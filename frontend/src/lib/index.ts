@@ -8,11 +8,7 @@ export * from './services/imageViewerService';
 export * from './services/projectService';
 
 // 导出工具
-export * from './utils/validation';
-export * from './utils/imageUtils';
 export * from './utils/progressManager';
-export * from './utils/sharedArrayBufferStream';
-export * from './utils/sharedArrayBufferImageLoader';
 
 // 导出存储
 export * from './stores/projectStore';
@@ -30,6 +26,7 @@ export * from './stores/themeStore';
 export * from './core/adapter';
 export * from './core/events';
 export * from './core/tauri';
+export * from './core/streaming/imageStream';
 export * from './types';
 
 // 导出组件（可选，如果需要在其他地方重用）
