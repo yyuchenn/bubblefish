@@ -274,11 +274,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.`;
 	}
 
 	function getTabButtonClass(tabId: string): string {
-		const baseClass = 'px-4 py-2 text-sm font-medium transition-colors border-b-2';
+		const baseClass = 'px-4 py-2 text-sm font-medium transition-all border-b-2';
 		if (activeTab === tabId) {
 			return `${baseClass} bg-theme-primary-container text-theme-on-primary-container border-theme-primary`;
 		}
-		return `${baseClass} text-theme-on-surface-variant hover:text-theme-on-surface hover:bg-theme-surface-variant border-transparent`;
+		return `${baseClass} text-theme-on-surface-variant hover:text-theme-on-surface hover:bg-theme-surface-variant hover:shadow-md border-transparent`;
 	}
 
 	function close() {
@@ -311,7 +311,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.`;
 		
 		<div class="flex justify-end mt-4">
 			<button
-				class="bg-theme-primary text-theme-on-primary cursor-pointer rounded border-none px-6 py-2 transition-opacity hover:opacity-80"
+				class="bg-theme-primary text-theme-on-primary cursor-pointer rounded border-none px-6 py-2 transition-all hover:opacity-80 hover:shadow-md"
 				onclick={close}
 			>
 				关闭

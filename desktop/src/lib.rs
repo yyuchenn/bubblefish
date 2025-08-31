@@ -231,6 +231,62 @@ async fn read_file_content(file_path: String) -> Result<String, String> {
     }
 }
 
+// 扫描目录中的图片文件
+#[tauri::command]
+async fn scan_directory_for_images(directory_path: String, required_images: Vec<String>) -> Result<Vec<String>, String> {
+    use std::path::Path;
+    use std::fs;
+    
+    let dir_path = Path::new(&directory_path);
+    if !dir_path.exists() || !dir_path.is_dir() {
+        return Err("指定的路径不是有效的目录".to_string());
+    }
+    
+    let mut found_images = Vec::new();
+    let image_extensions = ["png", "jpg", "jpeg", "gif", "bmp", "webp"];
+    
+    // 读取目录中的所有文件
+    match fs::read_dir(dir_path) {
+        Ok(entries) => {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Some(extension) = path.extension() {
+                        let ext_str = extension.to_string_lossy().to_lowercase();
+                        if image_extensions.contains(&ext_str.as_str()) {
+                            if let Some(file_name) = path.file_name() {
+                                let file_name_str = file_name.to_string_lossy().to_string();
+                                // 检查文件名（不包含扩展名）是否在需求列表中
+                                let name_without_ext = path.file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("");
+                                
+                                // 检查是否匹配任何需要的图片
+                                for required in &required_images {
+                                    // 去掉required中可能的扩展名
+                                    let required_stem = if let Some(pos) = required.rfind('.') {
+                                        &required[..pos]
+                                    } else {
+                                        required
+                                    };
+                                    
+                                    if name_without_ext == required_stem {
+                                        found_images.push(path.to_string_lossy().to_string());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(e) => return Err(format!("无法读取目录: {}", e))
+    }
+    
+    Ok(found_images)
+}
+
 // 获取应用信息
 #[tauri::command]
 async fn get_app_info() -> Result<String, String> {
@@ -386,6 +442,7 @@ pub fn run() {
         save_project_to_path,
         get_project_file_path,
         read_file_content,
+        scan_directory_for_images,
         get_app_info,
         update_menu_checked_state,
         update_menu_enabled_state,

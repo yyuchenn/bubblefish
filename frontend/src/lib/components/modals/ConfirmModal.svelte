@@ -34,13 +34,13 @@
 		<p class="text-theme-on-surface-variant text-sm mb-6">{message}</p>
 		<div class="flex gap-4 justify-end">
 			<button
-				class="bg-theme-primary text-theme-on-primary cursor-pointer rounded border-none px-4 py-1.5 transition-opacity hover:opacity-80"
+				class="bg-theme-primary text-theme-on-primary cursor-pointer rounded border-none px-4 py-1.5 transition-all hover:opacity-80 hover:shadow-md"
 				onclick={handleCancel}
 			>
 				{cancelText}
 			</button>
 			<button
-				class="bg-theme-secondary text-theme-on-secondary cursor-pointer rounded border-none px-4 py-1.5 transition-opacity hover:opacity-80"
+				class="bg-theme-secondary text-theme-on-secondary cursor-pointer rounded border-none px-4 py-1.5 transition-all hover:opacity-80 hover:shadow-md"
 				onclick={handleConfirm}
 			>
 				{confirmText}

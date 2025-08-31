@@ -18,6 +18,8 @@ export interface TauriAPI {
 	updateMenuEnabledState(menuId: string, enabled: boolean): Promise<void>;
 	// 更新菜单项文本
 	updateMenuText(menuId: string, text: string): Promise<void>;
+	// 扫描目录中的图片文件
+	scanDirectoryForImages(directoryPath: string, requiredImages: string[]): Promise<string[]>;
 }
 
 export const tauriAPI: TauriAPI = {
@@ -136,6 +138,20 @@ export const tauriAPI: TauriAPI = {
 			await invoke('update_menu_text', { menuId, text });
 		} catch (error) {
 			console.error('Failed to update menu text:', error);
+		}
+	},
+
+	async scanDirectoryForImages(directoryPath: string, requiredImages: string[]): Promise<string[]> {
+		try {
+			if (!isTauri()) return [];
+			const result = await invoke<string[]>('scan_directory_for_images', { 
+				directoryPath, 
+				requiredImages 
+			});
+			return result || [];
+		} catch (error) {
+			console.error('Failed to scan directory for images:', error);
+			return [];
 		}
 	}
 };

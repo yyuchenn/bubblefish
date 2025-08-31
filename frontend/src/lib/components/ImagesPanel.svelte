@@ -106,16 +106,14 @@
 
 	onMount(() => {
 		// 初始检查
-		setTimeout(checkVisibleThumbnails, 200);
-
-		// 延迟添加滚动监听器，确保元素已绑定
-		setTimeout(() => {
+		requestAnimationFrame(() => {
+			checkVisibleThumbnails();
+			
+			// 添加滚动监听器
 			if (scrollElement) {
 				scrollElement.addEventListener('scroll', debouncedCheck, { passive: true });
-			} else if (containerElement) {
-				containerElement.addEventListener('scroll', debouncedCheck, { passive: true });
 			}
-		}, 50);
+		});
 
 		// 监听窗口大小变化
 		window.addEventListener('resize', debouncedCheck);
@@ -124,9 +122,6 @@
 	onDestroy(() => {
 		if (scrollElement) {
 			scrollElement.removeEventListener('scroll', debouncedCheck);
-		}
-		if (containerElement) {
-			containerElement.removeEventListener('scroll', debouncedCheck);
 		}
 		window.removeEventListener('resize', debouncedCheck);
 		clearTimeout(checkTimeout);
@@ -169,9 +164,29 @@
 	$effect(() => {
 		// 依赖于thumbnails的变化
 		void thumbnails;
-		if (images.length > 0) {
-			setTimeout(checkVisibleThumbnails, 100);
+		if (images.length > 0 && scrollElement && listElement) {
+			requestAnimationFrame(checkVisibleThumbnails);
 		}
+	});
+	
+	// 监听滚动容器的绑定
+	$effect(() => {
+		if (scrollElement && listElement) {
+			// 当元素绑定后，立即检查可视区域并添加监听器
+			requestAnimationFrame(() => {
+				checkVisibleThumbnails();
+				if (scrollElement) {
+					scrollElement.addEventListener('scroll', debouncedCheck, { passive: true });
+				}
+			});
+			
+			return () => {
+				if (scrollElement) {
+					scrollElement.removeEventListener('scroll', debouncedCheck);
+				}
+			};
+		}
+		return undefined;
 	});
 	
 	// 当当前图片ID变化时，滚动到对应的缩略图

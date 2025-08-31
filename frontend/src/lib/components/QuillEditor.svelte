@@ -42,6 +42,8 @@
 	export function setValue(newValue: string) {
 		if (quillEditor) {
 			isInternalUpdate = true;
+			// 保存当前光标位置
+			const currentSelection = quillEditor.getSelection();
 			// 解析Bubblefish文本并设置内容
 			const delta = bubblefishText2quillDelta(newValue);
 			quillEditor.setContents(delta);
@@ -50,7 +52,12 @@
 			const length = quillEditor.getLength();
 			quillEditor.setSelection(0, length);
 			quillEditor.format('color', textColor);
-			quillEditor.setSelection(length - 1, 0); // 将光标移到末尾
+			// 恢复光标位置或移到末尾
+			if (currentSelection && currentSelection.index < length) {
+				quillEditor.setSelection(currentSelection.index, 0);
+			} else {
+				quillEditor.setSelection(length - 1, 0);
+			}
 			isInternalUpdate = false;
 		}
 	}
