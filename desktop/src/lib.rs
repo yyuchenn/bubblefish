@@ -231,15 +231,19 @@ async fn read_file_content(file_path: String) -> Result<String, String> {
     }
 }
 
-// 扫描目录中的图片文件
+// 扫描目录中的图片文件（从文件路径自动提取目录）
 #[tauri::command]
-async fn scan_directory_for_images(directory_path: String, required_images: Vec<String>) -> Result<Vec<String>, String> {
+async fn scan_directory_for_images(file_path: String, required_images: Vec<String>) -> Result<Vec<String>, String> {
     use std::path::Path;
     use std::fs;
     
-    let dir_path = Path::new(&directory_path);
+    // 从文件路径提取目录
+    let file_path = Path::new(&file_path);
+    let dir_path = file_path.parent()
+        .ok_or_else(|| "无法从文件路径提取目录".to_string())?;
+    
     if !dir_path.exists() || !dir_path.is_dir() {
-        return Err("指定的路径不是有效的目录".to_string());
+        return Err("文件所在目录不存在或无效".to_string());
     }
     
     let mut found_images = Vec::new();
@@ -270,7 +274,13 @@ async fn scan_directory_for_images(directory_path: String, required_images: Vec<
                                         required
                                     };
                                     
-                                    if name_without_ext == required_stem {
+                                    // 在 Windows 上进行不区分大小写的比较
+                                    #[cfg(target_os = "windows")]
+                                    let matches = name_without_ext.eq_ignore_ascii_case(required_stem);
+                                    #[cfg(not(target_os = "windows"))]
+                                    let matches = name_without_ext == required_stem;
+                                    
+                                    if matches {
                                         found_images.push(path.to_string_lossy().to_string());
                                         break;
                                     }
