@@ -258,8 +258,7 @@ async fn scan_directory_for_images(file_path: String, required_images: Vec<Strin
                     if let Some(extension) = path.extension() {
                         let ext_str = extension.to_string_lossy().to_lowercase();
                         if image_extensions.contains(&ext_str.as_str()) {
-                            if let Some(file_name) = path.file_name() {
-                                let file_name_str = file_name.to_string_lossy().to_string();
+                            if let Some(_file_name) = path.file_name() {
                                 // 检查文件名（不包含扩展名）是否在需求列表中
                                 let name_without_ext = path.file_stem()
                                     .and_then(|s| s.to_str())
@@ -397,11 +396,11 @@ pub fn run() {
       app.handle().plugin(tauri_plugin_fs::init())?;
 
       // 使用 core 模块的自动回调设置
-      bubblefish_core::setup_all_core_callbacks(app.handle().clone());
+      bubblefish_core::tauri::setup_all_core_callbacks(app.handle().clone());
       
       // 初始化事件系统
-      let event_emitter = bubblefish_core::TauriEventEmitter::new(app.handle().clone());
-      bubblefish_core::EVENT_SYSTEM.register_emitter(
+      let event_emitter = bubblefish_core::tauri::TauriEventEmitter::new(app.handle().clone());
+      bubblefish_core::tauri::EVENT_SYSTEM.register_emitter(
           "tauri".to_string(),
           Box::new(event_emitter)
       );

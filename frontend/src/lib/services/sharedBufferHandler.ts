@@ -26,6 +26,7 @@ export class SharedBufferHandler {
     private readonly OFFSET_TOTAL_SIZE = 4;
     private readonly OFFSET_CHUNK_SIZE = 5;
     private readonly OFFSET_ERROR_CODE = 6;
+    // @ts-ignore - Reserved for future use
     private readonly OFFSET_RESERVED = 7;
 
     // Constants

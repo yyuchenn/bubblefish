@@ -17,7 +17,6 @@
 	const thumbnails = $derived($thumbnailStore);
 
 	// 可视区域检测
-	let containerElement: HTMLElement;
 	let scrollElement: HTMLElement | undefined = $state();  // 真正的滚动容器
 	let listElement: HTMLElement | undefined = $state();
 	const visibleThumbnails = new SvelteSet<number>();
@@ -210,7 +209,6 @@
 
 	<!-- 缩略图列表 -->
 	<div
-		bind:this={containerElement}
 		class="absolute right-0 left-0 bottom-0 overflow-hidden bg-theme-surface"
 		style="top: {panelTitleBarHeight}px;"
 	>

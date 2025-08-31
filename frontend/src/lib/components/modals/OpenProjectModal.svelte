@@ -448,7 +448,7 @@
 				<div class="mt-4 p-3 bg-theme-surface-variant rounded-md">
 					<p class="text-sm text-theme-on-surface mb-2">检测到 {autoDetectedImages.length} 张图片：</p>
 					<ul class="text-xs text-theme-on-surface-variant max-h-32 overflow-y-auto">
-						{#each autoDetectedImages as imagePath}
+						{#each autoDetectedImages as imagePath (imagePath)}
 							<li class="truncate" title={imagePath}>{imagePath.replace(/\\/g, '/').split('/').pop()}</li>
 						{/each}
 					</ul>

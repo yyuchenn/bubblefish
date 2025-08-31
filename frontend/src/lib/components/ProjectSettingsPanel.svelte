@@ -187,7 +187,7 @@
 								onchange={handleLanguageChange}
 								class="px-3 py-1 text-sm bg-theme-surface-variant border border-theme-outline rounded focus:outline-none focus:border-theme-primary text-theme-on-surface"
 							>
-								{#each languageOptions as option}
+								{#each languageOptions as option (option.value)}
 									<option value={option.value}>{option.label}</option>
 								{/each}
 							</select>
@@ -202,7 +202,7 @@
 								onchange={handleLanguageChange}
 								class="px-3 py-1 text-sm bg-theme-surface-variant border border-theme-outline rounded focus:outline-none focus:border-theme-primary text-theme-on-surface"
 							>
-								{#each languageOptions as option}
+								{#each languageOptions as option (option.value)}
 									<option value={option.value}>{option.label}</option>
 								{/each}
 							</select>

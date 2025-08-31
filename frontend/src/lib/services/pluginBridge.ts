@@ -307,7 +307,7 @@ class PluginBridge {
         this.serviceHandlers.set('files', async (method: string, params: any) => {
             switch (method) {
                 case 'read_binary': {
-                    const { path, image_id } = params;
+                    const { image_id } = params;
                     
                     if (!isTauri()) {
                         throw new Error('File service is only available in desktop environment');

@@ -2,7 +2,6 @@
 	import { onMount } from 'svelte';
 	import { pluginService, type PluginInfo } from '../../services/pluginService';
 	
-	let plugins = $state<PluginInfo[]>([]);
 	let loading = $state(false);
 	let selectedPlugin = $state<string>('');
 	
@@ -12,10 +11,7 @@
 	];
 	
 	const pluginsStore = pluginService.getPlugins();
-	
-	$effect(() => {
-		plugins = $pluginsStore;
-	});
+	const plugins = $derived($pluginsStore);
 	
 	onMount(() => {
 		if (availablePlugins.length > 0) {
@@ -78,7 +74,7 @@
 					bind:value={selectedPlugin}
 					disabled={loading}
 				>
-					{#each availablePlugins as plugin}
+					{#each availablePlugins as plugin (plugin.id)}
 						<option value={plugin.id}>
 							{plugin.name} - {plugin.description}
 						</option>
@@ -133,7 +129,7 @@
 							<div class="mb-3">
 								<p class="text-theme-on-surface-variant mb-1 text-xs font-medium">监听事件：</p>
 								<div class="flex flex-wrap gap-1">
-									{#each plugin.metadata.subscribed_events as event}
+									{#each plugin.metadata.subscribed_events as event (event)}
 										<span class="bg-theme-surface-variant text-theme-on-surface-variant rounded px-2 py-0.5 text-xs">
 											{event}
 										</span>

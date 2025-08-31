@@ -12,5 +12,8 @@ pub mod storage;
 pub mod common;
 pub mod plugin;
 
-// 重新导出bindings模块的所有内容
-pub use bindings::*;
+// 重新导出bindings模块
+#[cfg(feature = "wasm")]
+pub use bindings::wasm;
+#[cfg(feature = "tauri")]
+pub use bindings::tauri;

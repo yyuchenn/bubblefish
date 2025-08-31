@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use libloading::{Library, Symbol};
 use serde_json::Value;
 use tauri::Manager;
@@ -592,16 +592,14 @@ impl PluginLoader {
 }
 
 // Global plugin loader instance
-static mut PLUGIN_LOADER: Option<Arc<PluginLoader>> = None;
+static PLUGIN_LOADER: OnceLock<Arc<PluginLoader>> = OnceLock::new();
 
 pub fn init_plugin_loader(app_handle: tauri::AppHandle) {
-    unsafe {
-        PLUGIN_LOADER = Some(Arc::new(PluginLoader::new(app_handle)));
-    }
+    let _ = PLUGIN_LOADER.set(Arc::new(PluginLoader::new(app_handle)));
 }
 
 pub fn get_plugin_loader() -> Option<Arc<PluginLoader>> {
-    unsafe { PLUGIN_LOADER.clone() }
+    PLUGIN_LOADER.get().cloned()
 }
 
 // Host callback implementations

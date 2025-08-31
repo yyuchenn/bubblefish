@@ -7,4 +7,5 @@
         "typescriptreact",
         "svelte",
     ],
+    "rust-analyzer.cargo.features": ["wasm"]
 }
