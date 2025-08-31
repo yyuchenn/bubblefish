@@ -137,6 +137,23 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins'
         run: python build.py desktop-build
       
+      - name: Save standard build artifacts
+        if: (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both') && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins != 'with-plugins')
+        shell: pwsh
+        run: |
+          # Create backup directory for standard builds
+          New-Item -ItemType Directory -Force -Path "target\release\bundle\standard"
+          
+          # Copy standard builds to backup location
+          if (Test-Path "target\release\bundle\msi\*.msi") {
+            Copy-Item "target\release\bundle\msi\*.msi" "target\release\bundle\standard\" -Force
+            Write-Host "Saved standard MSI files"
+          }
+          if (Test-Path "target\release\bundle\nsis\*.exe") {
+            Copy-Item "target\release\bundle\nsis\*.exe" "target\release\bundle\standard\" -Force
+            Write-Host "Saved standard EXE files"
+          }
+      
       - name: Build desktop with native plugins
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
         run: python build.py desktop-build-all
@@ -204,28 +221,28 @@ jobs:
           Remove-Item $certPath -Force
           Write-Host "Code signing completed"
 
-      - name: Rename bundled artifacts
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
+      - name: Organize artifacts for both versions
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both'
         shell: pwsh
         run: |
-          # Find and rename bundled builds to distinguish them
-          $msiFiles = Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
-          $exeFiles = Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
-          
-          foreach ($file in $msiFiles) {
-            if ($file.Name -notlike "*-bundled*") {
-              $newName = $file.Name -replace '\.msi$', '-bundled.msi'
-              Rename-Item -Path $file.FullName -NewName $newName
-              Write-Host "Renamed $($file.Name) to $newName"
+          # Restore core builds from backup and rename them
+          if (Test-Path "target\release\bundle\standard") {
+            # Rename core (no plugins) builds
+            Get-ChildItem -Path "target\release\bundle\standard" -Filter "*.msi" | ForEach-Object {
+              $newName = $_.Name -replace '\.msi$', '-core.msi'
+              Copy-Item $_.FullName "target\release\bundle\msi\$newName" -Force
+              Write-Host "Created core version: $newName"
             }
-          }
-          
-          foreach ($file in $exeFiles) {
-            if ($file.Name -notlike "*-bundled*") {
-              $newName = $file.Name -replace '\.exe$', '-bundled.exe'
-              Rename-Item -Path $file.FullName -NewName $newName
-              Write-Host "Renamed $($file.Name) to $newName"
+            
+            Get-ChildItem -Path "target\release\bundle\standard" -Filter "*.exe" | ForEach-Object {
+              $newName = $_.Name -replace '\.exe$', '-core.exe'
+              Copy-Item $_.FullName "target\release\bundle\nsis\$newName" -Force
+              Write-Host "Created core version: $newName"
             }
+            
+            Write-Host "Core builds (without plugins) have been labeled with -core suffix"
+            Write-Host "Standard builds (with plugins) keep the original name"
+            Remove-Item -Path "target\release\bundle\standard" -Recurse -Force
           }
       
       - name: Upload Windows artifacts
@@ -329,6 +346,22 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins'
         run: python3 build.py desktop-build
       
+      - name: Save standard build artifacts
+        if: (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both') && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins != 'with-plugins')
+        run: |
+          # Create backup directory for standard builds
+          mkdir -p target/release/bundle/standard
+          
+          # Copy standard builds to backup location
+          if ls target/release/bundle/dmg/*.dmg 2>/dev/null; then
+            cp target/release/bundle/dmg/*.dmg target/release/bundle/standard/
+            echo "Saved standard DMG files"
+          fi
+          if ls target/release/bundle/macos/*.app 2>/dev/null; then
+            cp -r target/release/bundle/macos/*.app target/release/bundle/standard/
+            echo "Saved standard APP bundles"
+          fi
+      
       - name: Build desktop with native plugins
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
         run: python3 build.py desktop-build-all
@@ -345,25 +378,34 @@ jobs:
             fi
           done
 
-      - name: Rename bundled artifacts
-        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
+      - name: Organize artifacts for both versions
+        if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both'
         run: |
-          # Find and rename bundled builds to distinguish them
-          for dmg in target/release/bundle/dmg/*.dmg; do
-            if [ -f "$dmg" ] && [[ ! "$dmg" == *"-bundled"* ]]; then
-              newname="${dmg%.dmg}-bundled.dmg"
-              mv "$dmg" "$newname"
-              echo "Renamed $(basename $dmg) to $(basename $newname)"
-            fi
-          done
-          
-          for app in target/release/bundle/macos/*.app; do
-            if [ -d "$app" ] && [[ ! "$app" == *"-bundled"* ]]; then
-              newname="${app%.app}-bundled.app"
-              mv "$app" "$newname"
-              echo "Renamed $(basename $app) to $(basename $newname)"
-            fi
-          done
+          # Restore core builds from backup and rename them
+          if [ -d "target/release/bundle/standard" ]; then
+            # Rename core (no plugins) builds
+            for dmg in target/release/bundle/standard/*.dmg; do
+              if [ -f "$dmg" ]; then
+                filename=$(basename "$dmg")
+                newname="${filename%.dmg}-core.dmg"
+                cp "$dmg" "target/release/bundle/dmg/$newname"
+                echo "Created core version: $newname"
+              fi
+            done
+            
+            for app in target/release/bundle/standard/*.app; do
+              if [ -d "$app" ]; then
+                dirname=$(basename "$app")
+                newname="${dirname%.app}-core.app"
+                cp -r "$app" "target/release/bundle/macos/$newname"
+                echo "Created core version: $newname"
+              fi
+            done
+            
+            echo "Core builds (without plugins) have been labeled with -core suffix"
+            echo "Standard builds (with plugins) keep the original name"
+            rm -rf target/release/bundle/standard
+          fi
       
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -410,6 +452,12 @@ jobs:
           echo "**Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $SUMMARY_FILE
           echo "**Commit:** ${{ github.sha }}" >> $SUMMARY_FILE
           echo "**Branch:** ${{ github.ref_name }}" >> $SUMMARY_FILE
+          echo "" >> $SUMMARY_FILE
+          
+          echo "## Build Variants" >> $SUMMARY_FILE
+          echo "" >> $SUMMARY_FILE
+          echo "- **Standard Version** (Bubblefish.*): Full-featured version with native plugins included" >> $SUMMARY_FILE
+          echo "- **Core Version** (Bubblefish-core.*): Lightweight version without plugins" >> $SUMMARY_FILE
           echo "" >> $SUMMARY_FILE
           
           echo "## Build Artifacts with MD5 Checksums" >> $SUMMARY_FILE

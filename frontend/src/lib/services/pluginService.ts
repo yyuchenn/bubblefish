@@ -129,8 +129,10 @@ class PluginService {
                 prefix = '';
             }
             
-            // 插件实际编译在workspace的target目录下
-            const path = pluginPath || `../target/release/${prefix}${pluginId.replace(/-/g, '_')}_plugin.${ext}`;
+            // 对于打包的应用，直接使用文件名，插件加载器会从资源目录找
+            // 对于开发环境，使用完整路径
+            const fileName = `${prefix}${pluginId.replace(/-/g, '_')}_plugin.${ext}`;
+            const path = pluginPath || fileName;
             
             // 调用Tauri命令加载原生插件
             const metadata = await invoke<PluginMetadata>('load_native_plugin', { 

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use libloading::{Library, Symbol};
 use serde_json::Value;
+use tauri::Manager;
 
 /// Callbacks provided to plugins
 #[repr(C)]
@@ -54,9 +55,69 @@ impl PluginLoader {
             _app_handle: app_handle,
         }
     }
+    
+    /// Resolve plugin path from Tauri resources
+    fn resolve_resource_path(&self, file_name: &str) -> Option<PathBuf> {
+        // Try to get the resource directory from Tauri
+        self._app_handle
+            .path()
+            .resource_dir()
+            .ok()
+            .and_then(|resource_dir| {
+                // Look for plugin in resources/plugins directory
+                let plugin_path = resource_dir.join("resources").join("plugins").join(file_name);
+                if plugin_path.exists() {
+                    Some(plugin_path)
+                } else {
+                    // Also try without the resources prefix (some platforms)
+                    let plugin_path = resource_dir.join("plugins").join(file_name);
+                    if plugin_path.exists() {
+                        Some(plugin_path)
+                    } else {
+                        None
+                    }
+                }
+            })
+    }
 
     /// Load a native plugin from dynamic library
     pub fn load_plugin(&self, plugin_path: &str) -> Result<PluginMetadata, String> {
+        // First check if we should load from bundled resources
+        // This happens when plugin_path is just a filename or plugins/filename
+        if !plugin_path.contains('/') || plugin_path.starts_with("plugins/") {
+            // Extract just the filename
+            let file_name = if plugin_path.starts_with("plugins/") {
+                &plugin_path[8..] // Skip "plugins/"
+            } else {
+                plugin_path
+            };
+            
+            // Try to load from Tauri resources directory first (for packaged app)
+            if let Some(resource_path) = self.resolve_resource_path(file_name) {
+                if resource_path.exists() {
+                    return self.load_plugin_from_path(&resource_path);
+                }
+            }
+            
+            // If not found in resources, try target/release directory (for development)
+            let target_path = std::env::current_dir()
+                .ok()
+                .and_then(|cwd| {
+                    let base = if cwd.ends_with("desktop") {
+                        cwd.parent()?.to_path_buf()
+                    } else {
+                        cwd
+                    };
+                    Some(base.join("target").join("release").join(file_name))
+                });
+            
+            if let Some(target_path) = target_path {
+                if target_path.exists() {
+                    return self.load_plugin_from_path(&target_path);
+                }
+            }
+        }
+        
         // First, try to resolve the path directly
         let initial_path = PathBuf::from(plugin_path);
         
