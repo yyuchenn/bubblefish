@@ -25,7 +25,18 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "displayLanguageSelector": false,
+        "languages": ["SimpChinese", "TradChinese", "English", "Japanese"],
+        "headerImage": "resources/nsis/header.bmp",
+        "sidebarImage": "resources/nsis/sidebar.bmp",
+        "installerIcon": "icons/installer_icon.ico",
+        "license": null
+      }
+    }
   },
   "plugins": {
     "shell": {
