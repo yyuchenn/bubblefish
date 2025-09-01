@@ -137,6 +137,25 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins'
         run: python build.py desktop-build
       
+      - name: Sign lite version builds
+        if: github.event_name == 'release' && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        shell: pwsh
+        run: |
+          # Sign the lite version builds
+          $files = @()
+          $files += Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
+          $files += Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          
+          foreach ($file in $files) {
+            if ($file) {
+              Write-Host "Signing with Tauri: $($file.FullName)"
+              cargo tauri signer sign -k $env:TAURI_SIGNING_PRIVATE_KEY -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" -f "$($file.FullName)"
+            }
+          }
+      
       - name: Save standard build artifacts
         if: (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both') && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins != 'with-plugins')
         shell: pwsh
@@ -144,19 +163,40 @@ jobs:
           # Create backup directory for standard builds
           New-Item -ItemType Directory -Force -Path "target\release\bundle\standard"
           
-          # Copy standard builds to backup location
+          # Copy standard builds and signatures to backup location
           if (Test-Path "target\release\bundle\msi\*.msi") {
             Copy-Item "target\release\bundle\msi\*.msi" "target\release\bundle\standard\" -Force
-            Write-Host "Saved standard MSI files"
+            Copy-Item "target\release\bundle\msi\*.msi.sig" "target\release\bundle\standard\" -Force -ErrorAction SilentlyContinue
+            Write-Host "Saved standard MSI files and signatures"
           }
           if (Test-Path "target\release\bundle\nsis\*.exe") {
             Copy-Item "target\release\bundle\nsis\*.exe" "target\release\bundle\standard\" -Force
-            Write-Host "Saved standard EXE files"
+            Copy-Item "target\release\bundle\nsis\*.exe.sig" "target\release\bundle\standard\" -Force -ErrorAction SilentlyContinue
+            Write-Host "Saved standard EXE files and signatures"
           }
       
       - name: Build desktop with native plugins
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
         run: python build.py desktop-build-all
+
+      - name: Sign bundled version builds
+        if: github.event_name == 'release' && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        shell: pwsh
+        run: |
+          # Sign the bundled version builds (only unsigned files)
+          $files = @()
+          $files += Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
+          $files += Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          
+          foreach ($file in $files) {
+            if ($file -and -not (Test-Path "$($file.FullName).sig")) {
+              Write-Host "Signing with Tauri: $($file.FullName)"
+              cargo tauri signer sign -k $env:TAURI_SIGNING_PRIVATE_KEY -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" -f "$($file.FullName)"
+            }
+          }
 
       - name: Sign Windows Executables
         if: env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE != null
@@ -234,10 +274,22 @@ jobs:
               Write-Host "Created core version: $newName"
             }
             
+            Get-ChildItem -Path "target\release\bundle\standard" -Filter "*.msi.sig" | ForEach-Object {
+              $newName = $_.Name -replace '\.msi\.sig$', '-core.msi.sig'
+              Copy-Item $_.FullName "target\release\bundle\msi\$newName" -Force
+              Write-Host "Created core signature: $newName"
+            }
+            
             Get-ChildItem -Path "target\release\bundle\standard" -Filter "*.exe" | ForEach-Object {
               $newName = $_.Name -replace '\.exe$', '-core.exe'
               Copy-Item $_.FullName "target\release\bundle\nsis\$newName" -Force
               Write-Host "Created core version: $newName"
+            }
+            
+            Get-ChildItem -Path "target\release\bundle\standard" -Filter "*.exe.sig" | ForEach-Object {
+              $newName = $_.Name -replace '\.exe\.sig$', '-core.exe.sig'
+              Copy-Item $_.FullName "target\release\bundle\nsis\$newName" -Force
+              Write-Host "Created core signature: $newName"
             }
             
             Write-Host "Core builds (without plugins) have been labeled with -core suffix"
@@ -259,7 +311,9 @@ jobs:
         with:
           files: |
             target/release/bundle/msi/*.msi
+            target/release/bundle/msi/*.msi.sig
             target/release/bundle/nsis/*.exe
+            target/release/bundle/nsis/*.exe.sig
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -346,16 +400,31 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins'
         run: python3 build.py desktop-build
       
+      - name: Sign lite version builds
+        if: github.event_name == 'release' && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: |
+          # Sign the lite version builds
+          for file in target/release/bundle/dmg/*.dmg; do
+            if [ -f "$file" ]; then
+              echo "Signing with Tauri: $file"
+              cargo tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" -f "$file"
+            fi
+          done
+      
       - name: Save standard build artifacts
         if: (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both') && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins != 'with-plugins')
         run: |
           # Create backup directory for standard builds
           mkdir -p target/release/bundle/standard
           
-          # Copy standard builds to backup location
+          # Copy standard builds and signatures to backup location
           if ls target/release/bundle/dmg/*.dmg 2>/dev/null; then
             cp target/release/bundle/dmg/*.dmg target/release/bundle/standard/
-            echo "Saved standard DMG files"
+            cp target/release/bundle/dmg/*.dmg.sig target/release/bundle/standard/ 2>/dev/null || true
+            echo "Saved standard DMG files and signatures"
           fi
           if ls target/release/bundle/macos/*.app 2>/dev/null; then
             cp -r target/release/bundle/macos/*.app target/release/bundle/standard/
@@ -366,6 +435,20 @@ jobs:
         if: github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins'
         run: python3 build.py desktop-build-all
 
+      - name: Sign bundled version builds
+        if: github.event_name == 'release' && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins')
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        run: |
+          # Sign the bundled version builds (only unsigned files)
+          for file in target/release/bundle/dmg/*.dmg; do
+            if [ -f "$file" ] && [ ! -f "$file.sig" ]; then
+              echo "Signing with Tauri: $file"
+              cargo tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" -f "$file"
+            fi
+          done
+
       - name: Package macOS app for release
         if: github.event_name == 'release'
         run: |
@@ -375,6 +458,15 @@ jobs:
               app_name=$(basename "$app")
               tar -czf "target/release/bundle/macos/${app_name}.tar.gz" -C "target/release/bundle/macos" "$app_name"
               echo "Created ${app_name}.tar.gz"
+              
+              # Sign the tar.gz file if this is a release
+              if [ "${{ github.event_name }}" = "release" ]; then
+                if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+                  TAURI_SIGNING_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" \
+                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}" \
+                  cargo tauri signer sign -k "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" -p "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}" -f "target/release/bundle/macos/${app_name}.tar.gz"
+                fi
+              fi
             fi
           done
 
@@ -393,12 +485,33 @@ jobs:
               fi
             done
             
+            for sig in target/release/bundle/standard/*.dmg.sig; do
+              if [ -f "$sig" ]; then
+                filename=$(basename "$sig")
+                newname="${filename%.dmg.sig}-core.dmg.sig"
+                cp "$sig" "target/release/bundle/dmg/$newname"
+                echo "Created core signature: $newname"
+              fi
+            done
+            
             for app in target/release/bundle/standard/*.app; do
               if [ -d "$app" ]; then
                 dirname=$(basename "$app")
                 newname="${dirname%.app}-core.app"
                 cp -r "$app" "target/release/bundle/macos/$newname"
                 echo "Created core version: $newname"
+                
+                # Create tar.gz for core app
+                tar -czf "target/release/bundle/macos/${newname}.tar.gz" -C "target/release/bundle/macos" "$newname"
+                
+                # Sign the core tar.gz file if this is a release
+                if [ "${{ github.event_name }}" = "release" ]; then
+                  if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+                    TAURI_SIGNING_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" \
+                    TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}" \
+                    cargo tauri signer sign -k "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" -p "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}" -f "target/release/bundle/macos/${newname}.tar.gz"
+                  fi
+                fi
               fi
             done
             
@@ -414,7 +527,9 @@ jobs:
           path: |
             target/release/bundle/macos/*.app
             target/release/bundle/macos/*.app.tar.gz
+            target/release/bundle/macos/*.app.tar.gz.sig
             target/release/bundle/dmg/*.dmg
+            target/release/bundle/dmg/*.dmg.sig
           retention-days: 7
 
       - name: Upload to Release (if release)
@@ -423,7 +538,9 @@ jobs:
         with:
           files: |
             target/release/bundle/dmg/*.dmg
+            target/release/bundle/dmg/*.dmg.sig
             target/release/bundle/macos/*.app.tar.gz
+            target/release/bundle/macos/*.app.tar.gz.sig
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -538,3 +655,25 @@ jobs:
             checksums.md5
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  trigger-update-manifests:
+    name: Trigger Update Manifests
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos]
+    if: github.event_name == 'release'
+    
+    steps:
+      - name: Trigger update manifests workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'update-manifests.yml',
+              ref: 'main',
+              inputs: {
+                version: '${{ github.event.release.tag_name }}',
+                release_url: '${{ github.event.release.html_url }}'
+              }
+            })
