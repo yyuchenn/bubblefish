@@ -26,6 +26,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "resources/plugins/*"
+    ],
     "windows": {
       "nsis": {
         "installMode": "perMachine",

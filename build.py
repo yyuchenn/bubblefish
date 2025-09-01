@@ -570,32 +570,32 @@ class BuildScript:
         if not self.frontend_build():
             return False
         
-        # Build plugins if needed
+        # Build and copy plugins only if with_plugins is True
         if with_plugins:
             log_info("Building native plugins for desktop...")
             if not self.plugin_build_native():
                 log_warning("Plugin build failed, continuing without plugins")
-                with_plugins = False
+            else:
+                # Only copy plugins if build succeeded
+                if not self.copy_plugins_to_resources():
+                    log_warning("Failed to copy plugins to resources")
+        else:
+            # Clean up any existing plugins in resources when building without plugins
+            plugins_resource_dir = self.desktop_dir / "resources" / "plugins"
+            if plugins_resource_dir.exists():
+                log_info("Cleaning up plugins directory for lite build...")
+                # Remove all plugin files but keep the directory and .gitkeep
+                for item in plugins_resource_dir.iterdir():
+                    if item.name != '.gitkeep':
+                        if item.is_file():
+                            item.unlink()
+                        elif item.is_dir():
+                            shutil.rmtree(item)
         
-        # Copy plugins to resources if building with plugins
-        if with_plugins:
-            if not self.copy_plugins_to_resources():
-                log_warning("Failed to copy plugins to resources")
-        
-        # Select the appropriate Tauri config
-        config_file = "tauri.bundled.conf.json" if with_plugins else "tauri.conf.json"
-        config_path = self.desktop_dir / config_file
-        
-        # Check if bundled config exists, if not create it
-        if with_plugins and not config_path.exists():
-            log_info("Creating bundled config from base config...")
-            self.create_bundled_config()
-            
+        # Always use the same config file
         cmd = ["cargo", "tauri", "build"]
         if not release:
             cmd.append("--debug")
-        if with_plugins:
-            cmd.extend(["--config", config_file])
         
         # 构建桌面应用
         if not self.run_command(cmd, cwd=self.desktop_dir):
@@ -1106,6 +1106,11 @@ class BuildScript:
         plugins_resource_dir = resources_dir / "plugins"
         plugins_resource_dir.mkdir(parents=True, exist_ok=True)
         
+        # Ensure .gitkeep exists
+        gitkeep_file = plugins_resource_dir / ".gitkeep"
+        if not gitkeep_file.exists():
+            gitkeep_file.write_text("# This file ensures the plugins directory exists in git\n")
+        
         # Platform-specific library naming
         import platform
         system = platform.system().lower()
@@ -1158,38 +1163,6 @@ class BuildScript:
             return True
         else:
             log_warning("No plugin libraries found to copy")
-            return False
-    
-    def create_bundled_config(self) -> bool:
-        """Create a Tauri config for bundled plugins build"""
-        log_info("Creating bundled Tauri config...")
-        
-        base_config_path = self.desktop_dir / "tauri.conf.json"
-        bundled_config_path = self.desktop_dir / "tauri.bundled.conf.json"
-        
-        try:
-            import json
-            with open(base_config_path, 'r') as f:
-                config = json.load(f)
-            
-            # Add resources configuration for plugins
-            if "bundle" not in config:
-                config["bundle"] = {}
-            
-            config["bundle"]["resources"] = [
-                "resources/plugins/*"
-            ]
-            
-            # Optionally change the product name to indicate bundled version
-            # config["productName"] = "Bubblefish (Bundled)"
-            
-            with open(bundled_config_path, 'w') as f:
-                json.dump(config, f, indent=2)
-            
-            log_success(f"Created bundled config: {bundled_config_path}")
-            return True
-        except Exception as e:
-            log_error(f"Failed to create bundled config: {e}")
             return False
     
     def plugin_list(self) -> bool:

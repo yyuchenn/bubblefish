@@ -12,7 +12,8 @@ desktop/target
 wasm/pkg
 wasm/target
 target/build/
-desktop/resources/plugins
+desktop/resources/plugins/*
+!desktop/resources/plugins/.gitkeep
 
 ### Env ###
 .env
