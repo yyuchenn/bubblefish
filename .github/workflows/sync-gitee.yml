@@ -1,0 +1,62 @@
+name: Sync to Gitee (Simple)
+
+on:
+  push:
+    branches:
+      - main
+      - updater
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync to Gitee
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Sync to Gitee
+        uses: Yikun/hub-mirror-action@v1.5
+        with:
+          src: github/yyuchenn
+          dst: gitee/yyuchenn
+          dst_key: ${{ secrets.GITEE_PRIVATE_KEY }}
+          dst_token: ${{ secrets.GITEE_TOKEN }}
+          static_list: "bubblefish"
+          force_update: true
+          timeout: '10m'
+          
+      - name: Create Gitee Release (if release)
+        if: github.event_name == 'release'
+        run: |
+          # 使用 curl 创建 Gitee Release
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          RELEASE_NAME="${{ github.event.release.name }}"
+          RELEASE_BODY="${{ github.event.release.body }}"
+          
+          # 截断过长的描述
+          if [ ${#RELEASE_BODY} -gt 5000 ]; then
+            RELEASE_BODY="${RELEASE_BODY:0:4997}..."
+          fi
+          
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"access_token\": \"${{ secrets.GITEE_TOKEN }}\",
+              \"tag_name\": \"$TAG_NAME\",
+              \"name\": \"$RELEASE_NAME\",
+              \"body\": \"$RELEASE_BODY\",
+              \"prerelease\": ${{ github.event.release.prerelease }}
+            }" \
+            "https://gitee.com/api/v5/repos/yyuchenn/bubblefish/releases" || true
+          
+          echo "✅ Gitee Release 创建完成（或已存在）"
+          echo "📎 请手动上传 Release 资源文件到: https://gitee.com/yyuchenn/bubblefish/releases"
