@@ -115,8 +115,23 @@ class UpdaterService {
     }
     
     try {
-      const { check } = await import('@tauri-apps/plugin-updater');
-      const { getVersion } = await import('@tauri-apps/api/app');
+      // Use dynamic imports with proper error handling
+      let check: any;
+      let getVersion: any;
+      
+      try {
+        // Try to import Tauri modules
+        const [updaterModule, appModule] = await Promise.all([
+          import('@tauri-apps/plugin-updater'),
+          import('@tauri-apps/api/app')
+        ]);
+        check = updaterModule.check;
+        getVersion = appModule.getVersion;
+      } catch (importError) {
+        // If imports fail (e.g., in web environment), return error
+        console.warn('Tauri modules not available:', importError);
+        throw new Error('Update service not available in web environment');
+      }
       
       const currentVersion = await getVersion();
       const update = await check();
@@ -169,8 +184,23 @@ class UpdaterService {
     downloadProgress.set(0);
     
     try {
-      const { check } = await import('@tauri-apps/plugin-updater');
-      const { relaunch } = await import('@tauri-apps/plugin-process');
+      // Use dynamic imports with proper error handling
+      let check: any;
+      let relaunch: any;
+      
+      try {
+        // Try to import Tauri modules
+        const [updaterModule, processModule] = await Promise.all([
+          import('@tauri-apps/plugin-updater'),
+          import('@tauri-apps/plugin-process')
+        ]);
+        check = updaterModule.check;
+        relaunch = processModule.relaunch;
+      } catch (importError) {
+        // If imports fail (e.g., in web environment), return error
+        console.warn('Tauri modules not available:', importError);
+        throw new Error('Update service not available in web environment');
+      }
       
       const update = await check();
       if (!update?.available) {
@@ -181,21 +211,17 @@ class UpdaterService {
       let downloaded = 0;
       let contentLength = 0;
       
-      await update.downloadAndInstall((event) => {
+      await update.downloadAndInstall((event: any) => {
         switch (event.event) {
           case 'Started':
-            if (event.data) {
-              contentLength = event.data.contentLength || 0;
-              console.log(`Started downloading update: ${contentLength} bytes`);
-            }
+            contentLength = event.data.contentLength || 0;
+            console.log(`Started downloading update: ${contentLength} bytes`);
             break;
           case 'Progress':
-            if (event.data) {
-              downloaded += event.data.chunkLength || 0;
-              if (contentLength > 0) {
-                const progress = (downloaded / contentLength) * 100;
-                downloadProgress.set(progress);
-              }
+            downloaded += event.data.chunkLength;
+            if (contentLength > 0) {
+              const progress = (downloaded / contentLength) * 100;
+              downloadProgress.set(progress);
             }
             break;
           case 'Finished':
