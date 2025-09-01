@@ -120,10 +120,10 @@ class UpdaterService {
         throw new Error('Update service not available in web environment');
       }
       
-      // Dynamic imports for Tauri modules (using string concatenation to avoid Vite static analysis)
+      // Dynamic imports for Tauri modules
       const [updaterModule, appModule] = await Promise.all([
-        import(/* @vite-ignore */ '@tauri-apps/plugin-updater'),
-        import(/* @vite-ignore */ '@tauri-apps/api/app')
+        import('@tauri-apps/plugin-updater'),
+        import('@tauri-apps/api/app')
       ]);
       const check = updaterModule.check;
       const getVersion = appModule.getVersion;
@@ -184,10 +184,10 @@ class UpdaterService {
         throw new Error('Update service not available in web environment');
       }
       
-      // Dynamic imports for Tauri modules (using string concatenation to avoid Vite static analysis)
+      // Dynamic imports for Tauri modules
       const [updaterModule, processModule] = await Promise.all([
-        import(/* @vite-ignore */ '@tauri-apps/plugin-updater'),
-        import(/* @vite-ignore */ '@tauri-apps/plugin-process')
+        import('@tauri-apps/plugin-updater'),
+        import('@tauri-apps/plugin-process')
       ]);
       const check = updaterModule.check;
       const relaunch = processModule.relaunch;
