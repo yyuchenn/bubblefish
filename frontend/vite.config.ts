@@ -156,11 +156,18 @@ export default defineConfig({
 	build: {
 		target: process.env.TAURI_PLATFORM === 'windows' ? 'chrome105' : 'safari13',
 		minify: !process.env.TAURI_DEBUG ? 'esbuild' : false,
-		sourcemap: !!process.env.TAURI_DEBUG,
-		// rollupOptions 会被 SvelteKit 覆盖，所以移除以避免警告
+		sourcemap: !!process.env.TAURI_DEBUG
 	},
 	optimizeDeps: {
-		exclude: ['@tauri-apps/api', '@tauri-apps/plugin-os']
+		exclude: [
+			'@tauri-apps/api',
+			'@tauri-apps/plugin-os',
+			'@tauri-apps/plugin-updater',
+			'@tauri-apps/plugin-process',
+			'@tauri-apps/plugin-dialog',
+			'@tauri-apps/plugin-shell',
+			'@tauri-apps/plugin-fs'
+		]
 	},
 	// 添加 WASM 支持
 	assetsInclude: ['**/*.wasm'],
