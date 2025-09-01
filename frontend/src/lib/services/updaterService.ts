@@ -234,8 +234,11 @@ class UpdaterService {
   
   async getSettings(): Promise<UpdateSettings> {
     return new Promise(resolve => {
-      const unsubscribe = updateSettings.subscribe(settings => {
-        unsubscribe();
+      let unsubscribe: (() => void) | null = null;
+      unsubscribe = updateSettings.subscribe(settings => {
+        if (unsubscribe) {
+          unsubscribe();
+        }
         resolve(settings);
       });
     });

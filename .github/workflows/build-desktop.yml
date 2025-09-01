@@ -140,11 +140,12 @@ jobs:
       - name: Sign lite version builds
         if: github.event_name == 'release' && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins')
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         shell: pwsh
         run: |
           # Sign the lite version builds
+          # cargo tauri signer uses TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD env vars automatically
           $files = @()
           $files += Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
           $files += Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
@@ -152,17 +153,7 @@ jobs:
           foreach ($file in $files) {
             if ($file) {
               Write-Host "Signing with Tauri: $($file.FullName)"
-              # Write private key to temp file
-              $keyPath = New-TemporaryFile
-              $env:TAURI_SIGNING_PRIVATE_KEY | Out-File -FilePath $keyPath -Encoding UTF8 -NoNewline
-              
-              if ([string]::IsNullOrEmpty($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
-                cargo tauri signer sign --private-key-path "$keyPath" "$($file.FullName)"
-              } else {
-                cargo tauri signer sign --private-key-path "$keyPath" --password "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$($file.FullName)"
-              }
-              
-              Remove-Item $keyPath -Force
+              cargo tauri signer sign "$($file.FullName)"
             }
           }
       
@@ -192,11 +183,12 @@ jobs:
       - name: Sign bundled version builds
         if: github.event_name == 'release' && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins')
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         shell: pwsh
         run: |
           # Sign the bundled version builds (only unsigned files)
+          # cargo tauri signer uses TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD env vars automatically
           $files = @()
           $files += Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
           $files += Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
@@ -204,17 +196,7 @@ jobs:
           foreach ($file in $files) {
             if ($file -and -not (Test-Path "$($file.FullName).sig")) {
               Write-Host "Signing with Tauri: $($file.FullName)"
-              # Write private key to temp file
-              $keyPath = New-TemporaryFile
-              $env:TAURI_SIGNING_PRIVATE_KEY | Out-File -FilePath $keyPath -Encoding UTF8 -NoNewline
-              
-              if ([string]::IsNullOrEmpty($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
-                cargo tauri signer sign --private-key-path "$keyPath" "$($file.FullName)"
-              } else {
-                cargo tauri signer sign --private-key-path "$keyPath" --password "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$($file.FullName)"
-              }
-              
-              Remove-Item $keyPath -Force
+              cargo tauri signer sign "$($file.FullName)"
             }
           }
 
@@ -423,24 +405,15 @@ jobs:
       - name: Sign lite version builds
         if: github.event_name == 'release' && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'without-plugins')
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           # Sign the lite version builds
+          # cargo tauri signer uses TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD env vars automatically
           for file in target/release/bundle/dmg/*.dmg; do
             if [ -f "$file" ]; then
               echo "Signing with Tauri: $file"
-              # Write private key to temp file
-              KEY_PATH=$(mktemp)
-              echo "$TAURI_SIGNING_PRIVATE_KEY" > "$KEY_PATH"
-              
-              if [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
-                cargo tauri signer sign --private-key-path "$KEY_PATH" "$file"
-              else
-                cargo tauri signer sign --private-key-path "$KEY_PATH" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$file"
-              fi
-              
-              rm -f "$KEY_PATH"
+              cargo tauri signer sign "$file"
             fi
           done
       
@@ -468,29 +441,23 @@ jobs:
       - name: Sign bundled version builds
         if: github.event_name == 'release' && (github.event_name != 'workflow_dispatch' || github.event.inputs.include_plugins == 'both' || github.event.inputs.include_plugins == 'with-plugins')
         env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           # Sign the bundled version builds (only unsigned files)
+          # cargo tauri signer uses TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD env vars automatically
           for file in target/release/bundle/dmg/*.dmg; do
             if [ -f "$file" ] && [ ! -f "$file.sig" ]; then
               echo "Signing with Tauri: $file"
-              # Write private key to temp file
-              KEY_PATH=$(mktemp)
-              echo "$TAURI_SIGNING_PRIVATE_KEY" > "$KEY_PATH"
-              
-              if [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
-                cargo tauri signer sign --private-key-path "$KEY_PATH" "$file"
-              else
-                cargo tauri signer sign --private-key-path "$KEY_PATH" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$file"
-              fi
-              
-              rm -f "$KEY_PATH"
+              cargo tauri signer sign "$file"
             fi
           done
 
       - name: Package macOS app for release
         if: github.event_name == 'release'
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           # Find and compress .app bundles for release
           for app in target/release/bundle/macos/*.app; do
@@ -499,18 +466,9 @@ jobs:
               tar -czf "target/release/bundle/macos/${app_name}.tar.gz" -C "target/release/bundle/macos" "$app_name"
               echo "Created ${app_name}.tar.gz"
               
-              # Sign the tar.gz file if this is a release
-              if [ "${{ github.event_name }}" = "release" ] && [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-                KEY_PATH=$(mktemp)
-                echo "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" > "$KEY_PATH"
-                
-                if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" ]; then
-                  cargo tauri signer sign --private-key-path "$KEY_PATH" "target/release/bundle/macos/${app_name}.tar.gz"
-                else
-                  cargo tauri signer sign --private-key-path "$KEY_PATH" --password "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" "target/release/bundle/macos/${app_name}.tar.gz"
-                fi
-                
-                rm -f "$KEY_PATH"
+              # Sign the tar.gz file if private key is available
+              if [ -n "$TAURI_PRIVATE_KEY" ]; then
+                cargo tauri signer sign "target/release/bundle/macos/${app_name}.tar.gz"
               fi
             fi
           done
@@ -549,18 +507,12 @@ jobs:
                 # Create tar.gz for core app
                 tar -czf "target/release/bundle/macos/${newname}.tar.gz" -C "target/release/bundle/macos" "$newname"
                 
-                # Sign the core tar.gz file if this is a release
-                if [ "${{ github.event_name }}" = "release" ] && [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-                  KEY_PATH=$(mktemp)
-                  echo "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" > "$KEY_PATH"
-                  
-                  if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" ]; then
-                    cargo tauri signer sign --private-key-path "$KEY_PATH" "target/release/bundle/macos/${newname}.tar.gz"
-                  else
-                    cargo tauri signer sign --private-key-path "$KEY_PATH" --password "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" "target/release/bundle/macos/${newname}.tar.gz"
-                  fi
-                  
-                  rm -f "$KEY_PATH"
+                # Sign the core tar.gz file if private key is available
+                # Note: This step inherits TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD from parent workflow env
+                if [ "${{ github.event_name }}" = "release" ] && [ -n "$TAURI_PRIVATE_KEY" ]; then
+                  TAURI_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" \
+                  TAURI_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" \
+                  cargo tauri signer sign "target/release/bundle/macos/${newname}.tar.gz"
                 fi
               fi
             done
