@@ -115,23 +115,18 @@ class UpdaterService {
     }
     
     try {
-      // Use dynamic imports with proper error handling
-      let check: any;
-      let getVersion: any;
-      
-      try {
-        // Try to import Tauri modules
-        const [updaterModule, appModule] = await Promise.all([
-          import('@tauri-apps/plugin-updater'),
-          import('@tauri-apps/api/app')
-        ]);
-        check = updaterModule.check;
-        getVersion = appModule.getVersion;
-      } catch (importError) {
-        // If imports fail (e.g., in web environment), return error
-        console.warn('Tauri modules not available:', importError);
+      // Only try to import if we're in Tauri environment
+      if (!platformService.isTauri()) {
         throw new Error('Update service not available in web environment');
       }
+      
+      // Dynamic imports for Tauri modules
+      const [updaterModule, appModule] = await Promise.all([
+        import('@tauri-apps/plugin-updater'),
+        import('@tauri-apps/api/app')
+      ]);
+      const check = updaterModule.check;
+      const getVersion = appModule.getVersion;
       
       const currentVersion = await getVersion();
       const update = await check();
@@ -184,23 +179,18 @@ class UpdaterService {
     downloadProgress.set(0);
     
     try {
-      // Use dynamic imports with proper error handling
-      let check: any;
-      let relaunch: any;
-      
-      try {
-        // Try to import Tauri modules
-        const [updaterModule, processModule] = await Promise.all([
-          import('@tauri-apps/plugin-updater'),
-          import('@tauri-apps/plugin-process')
-        ]);
-        check = updaterModule.check;
-        relaunch = processModule.relaunch;
-      } catch (importError) {
-        // If imports fail (e.g., in web environment), return error
-        console.warn('Tauri modules not available:', importError);
+      // Only try to import if we're in Tauri environment
+      if (!platformService.isTauri()) {
         throw new Error('Update service not available in web environment');
       }
+      
+      // Dynamic imports for Tauri modules
+      const [updaterModule, processModule] = await Promise.all([
+        import('@tauri-apps/plugin-updater'),
+        import('@tauri-apps/plugin-process')
+      ]);
+      const check = updaterModule.check;
+      const relaunch = processModule.relaunch;
       
       const update = await check();
       if (!update?.available) {

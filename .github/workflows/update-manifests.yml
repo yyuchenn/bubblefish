@@ -55,9 +55,15 @@ jobs:
           # Remove 'v' prefix if present
           VERSION="${VERSION#v}"
           
+          # Handle multi-line content by encoding it
+          RELEASE_NOTES_ESCAPED=$(echo "$RELEASE_NOTES" | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/"/\\"/g')
+          
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
-          echo "release_notes=$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          # Use EOF delimiter for multi-line content
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
       
       - name: Download release assets
         run: |
@@ -83,34 +89,38 @@ jobs:
       - name: Generate update manifest for lite version
         run: |
           VERSION="${{ steps.release_info.outputs.version }}"
-          NOTES="${{ steps.release_info.outputs.release_notes }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REPO="${{ github.repository }}"
           
-          # Create manifest for lite version (without plugins)
-          cat > latest.json << EOF
-          {
-            "version": "$VERSION",
-            "notes": "$NOTES",
-            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "platforms": {
-              "darwin-aarch64": {
-                "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_aarch64-core.dmg"
-              },
-              "darwin-x86_64": {
-                "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_x64-core.dmg"
-              },
-              "linux-x86_64": {
-                "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_amd64-core.AppImage"
-              },
-              "windows-x86_64": {
-                "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_x64-en-US-core.msi"
+          # Create manifest for lite version (without plugins) using jq
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "${{ steps.release_info.outputs.release_notes }}" \
+            --arg pub_date "$PUB_DATE" \
+            --arg repo "$REPO" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_aarch64-core.dmg"
+                },
+                "darwin-x86_64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64-core.dmg"
+                },
+                "linux-x86_64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_amd64-core.AppImage"
+                },
+                "windows-x86_64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64-en-US-core.msi"
+                }
               }
-            }
-          }
-          EOF
+            }' > latest.json
           
           # Add signatures if available
           for sig_file in temp_assets/*.sig; do
@@ -135,34 +145,38 @@ jobs:
       - name: Generate update manifest for bundled version
         run: |
           VERSION="${{ steps.release_info.outputs.version }}"
-          NOTES="${{ steps.release_info.outputs.release_notes }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REPO="${{ github.repository }}"
           
-          # Create manifest for bundled version (with plugins)
-          cat > latest-bundled.json << EOF
-          {
-            "version": "$VERSION",
-            "notes": "$NOTES",
-            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
-            "platforms": {
-              "darwin-aarch64": {
-                "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_aarch64.dmg"
-              },
-              "darwin-x86_64": {
-                "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_x64.dmg"
-              },
-              "linux-x86_64": {
-                "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_amd64.AppImage"
-              },
-              "windows-x86_64": {
-                "signature": "",
-                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_x64-en-US.msi"
+          # Create manifest for bundled version (with plugins) using jq
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "${{ steps.release_info.outputs.release_notes }}" \
+            --arg pub_date "$PUB_DATE" \
+            --arg repo "$REPO" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_aarch64.dmg"
+                },
+                "darwin-x86_64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64.dmg"
+                },
+                "linux-x86_64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_amd64.AppImage"
+                },
+                "windows-x86_64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64-en-US.msi"
+                }
               }
-            }
-          }
-          EOF
+            }' > latest-bundled.json
           
           # Add signatures if available
           for sig_file in temp_assets/*.sig; do
