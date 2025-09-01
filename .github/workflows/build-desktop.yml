@@ -152,7 +152,17 @@ jobs:
           foreach ($file in $files) {
             if ($file) {
               Write-Host "Signing with Tauri: $($file.FullName)"
-              cargo tauri signer sign -k $env:TAURI_SIGNING_PRIVATE_KEY -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" -f "$($file.FullName)"
+              # Write private key to temp file
+              $keyPath = New-TemporaryFile
+              $env:TAURI_SIGNING_PRIVATE_KEY | Out-File -FilePath $keyPath -Encoding UTF8 -NoNewline
+              
+              if ([string]::IsNullOrEmpty($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
+                cargo tauri signer sign --private-key-path "$keyPath" "$($file.FullName)"
+              } else {
+                cargo tauri signer sign --private-key-path "$keyPath" --password "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$($file.FullName)"
+              }
+              
+              Remove-Item $keyPath -Force
             }
           }
       
@@ -194,7 +204,17 @@ jobs:
           foreach ($file in $files) {
             if ($file -and -not (Test-Path "$($file.FullName).sig")) {
               Write-Host "Signing with Tauri: $($file.FullName)"
-              cargo tauri signer sign -k $env:TAURI_SIGNING_PRIVATE_KEY -p "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" -f "$($file.FullName)"
+              # Write private key to temp file
+              $keyPath = New-TemporaryFile
+              $env:TAURI_SIGNING_PRIVATE_KEY | Out-File -FilePath $keyPath -Encoding UTF8 -NoNewline
+              
+              if ([string]::IsNullOrEmpty($env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD)) {
+                cargo tauri signer sign --private-key-path "$keyPath" "$($file.FullName)"
+              } else {
+                cargo tauri signer sign --private-key-path "$keyPath" --password "$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$($file.FullName)"
+              }
+              
+              Remove-Item $keyPath -Force
             }
           }
 
@@ -410,7 +430,17 @@ jobs:
           for file in target/release/bundle/dmg/*.dmg; do
             if [ -f "$file" ]; then
               echo "Signing with Tauri: $file"
-              cargo tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" -f "$file"
+              # Write private key to temp file
+              KEY_PATH=$(mktemp)
+              echo "$TAURI_SIGNING_PRIVATE_KEY" > "$KEY_PATH"
+              
+              if [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+                cargo tauri signer sign --private-key-path "$KEY_PATH" "$file"
+              else
+                cargo tauri signer sign --private-key-path "$KEY_PATH" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$file"
+              fi
+              
+              rm -f "$KEY_PATH"
             fi
           done
       
@@ -445,7 +475,17 @@ jobs:
           for file in target/release/bundle/dmg/*.dmg; do
             if [ -f "$file" ] && [ ! -f "$file.sig" ]; then
               echo "Signing with Tauri: $file"
-              cargo tauri signer sign -k "$TAURI_SIGNING_PRIVATE_KEY" -p "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" -f "$file"
+              # Write private key to temp file
+              KEY_PATH=$(mktemp)
+              echo "$TAURI_SIGNING_PRIVATE_KEY" > "$KEY_PATH"
+              
+              if [ -z "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ]; then
+                cargo tauri signer sign --private-key-path "$KEY_PATH" "$file"
+              else
+                cargo tauri signer sign --private-key-path "$KEY_PATH" --password "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" "$file"
+              fi
+              
+              rm -f "$KEY_PATH"
             fi
           done
 
@@ -460,12 +500,17 @@ jobs:
               echo "Created ${app_name}.tar.gz"
               
               # Sign the tar.gz file if this is a release
-              if [ "${{ github.event_name }}" = "release" ]; then
-                if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-                  TAURI_SIGNING_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" \
-                  TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}" \
-                  cargo tauri signer sign -k "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" -p "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}" -f "target/release/bundle/macos/${app_name}.tar.gz"
+              if [ "${{ github.event_name }}" = "release" ] && [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+                KEY_PATH=$(mktemp)
+                echo "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" > "$KEY_PATH"
+                
+                if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" ]; then
+                  cargo tauri signer sign --private-key-path "$KEY_PATH" "target/release/bundle/macos/${app_name}.tar.gz"
+                else
+                  cargo tauri signer sign --private-key-path "$KEY_PATH" --password "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" "target/release/bundle/macos/${app_name}.tar.gz"
                 fi
+                
+                rm -f "$KEY_PATH"
               fi
             fi
           done
@@ -505,12 +550,17 @@ jobs:
                 tar -czf "target/release/bundle/macos/${newname}.tar.gz" -C "target/release/bundle/macos" "$newname"
                 
                 # Sign the core tar.gz file if this is a release
-                if [ "${{ github.event_name }}" = "release" ]; then
-                  if [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
-                    TAURI_SIGNING_PRIVATE_KEY="${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" \
-                    TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}" \
-                    cargo tauri signer sign -k "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" -p "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}" -f "target/release/bundle/macos/${newname}.tar.gz"
+                if [ "${{ github.event_name }}" = "release" ] && [ -n "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+                  KEY_PATH=$(mktemp)
+                  echo "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" > "$KEY_PATH"
+                  
+                  if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" ]; then
+                    cargo tauri signer sign --private-key-path "$KEY_PATH" "target/release/bundle/macos/${newname}.tar.gz"
+                  else
+                    cargo tauri signer sign --private-key-path "$KEY_PATH" --password "${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}" "target/release/bundle/macos/${newname}.tar.gz"
                   fi
+                  
+                  rm -f "$KEY_PATH"
                 fi
               fi
             done
