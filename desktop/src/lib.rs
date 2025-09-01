@@ -394,6 +394,12 @@ pub fn run() {
       
       // 初始化 FS 插件（文件系统）
       app.handle().plugin(tauri_plugin_fs::init())?;
+      
+      // 初始化更新器插件
+      app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
+      
+      // 初始化进程插件（用于重启应用）
+      app.handle().plugin(tauri_plugin_process::init())?;
 
       // 使用 core 模块的自动回调设置
       bubblefish_core::tauri::setup_all_core_callbacks(app.handle().clone());

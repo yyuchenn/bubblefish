@@ -28,6 +28,8 @@ tauri-plugin-os = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 bubblefish-core = { path = "../core", features = ["tauri"] }
 libloading = "0.8"
 libc = "0.2"

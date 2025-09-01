@@ -1,0 +1,210 @@
+name: Update Release Manifests
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update (e.g., 0.1.1)'
+        required: true
+      release_url:
+        description: 'GitHub release URL'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  update-manifests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository (updater branch)
+        uses: actions/checkout@v4
+        with:
+          ref: updater
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Create updater branch if it doesn't exist
+        run: |
+          git fetch origin
+          if ! git ls-remote --heads origin updater | grep -q updater; then
+            git checkout -b updater
+            git push origin updater
+          fi
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Get release information
+        id: release_info
+        run: |
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            RELEASE_URL="${{ github.event.release.html_url }}"
+            RELEASE_NOTES="${{ github.event.release.body }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            RELEASE_URL="${{ github.event.inputs.release_url }}"
+            RELEASE_NOTES="Update to version $VERSION"
+          fi
+          
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
+          echo "release_notes=$RELEASE_NOTES" >> $GITHUB_OUTPUT
+      
+      - name: Download release assets
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          
+          # Create temp directory for assets
+          mkdir -p temp_assets
+          
+          # Download release assets information
+          gh api repos/${{ github.repository }}/releases/tags/v$VERSION \
+            --jq '.assets[] | {name: .name, url: .browser_download_url}' > assets.json || \
+          gh api repos/${{ github.repository }}/releases/tags/$VERSION \
+            --jq '.assets[] | {name: .name, url: .browser_download_url}' > assets.json
+          
+          # Download signature files
+          cat assets.json | jq -r 'select(.name | endswith(".sig")) | .url' | while read url; do
+            filename=$(echo "$url" | rev | cut -d'/' -f1 | rev)
+            curl -L -o "temp_assets/$filename" "$url"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Generate update manifest for lite version
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          NOTES="${{ steps.release_info.outputs.release_notes }}"
+          
+          # Create manifest for lite version (without plugins)
+          cat > latest.json << EOF
+          {
+            "version": "$VERSION",
+            "notes": "$NOTES",
+            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_aarch64-core.dmg"
+              },
+              "darwin-x86_64": {
+                "signature": "",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_x64-core.dmg"
+              },
+              "linux-x86_64": {
+                "signature": "",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_amd64-core.AppImage"
+              },
+              "windows-x86_64": {
+                "signature": "",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_x64-en-US-core.msi"
+              }
+            }
+          }
+          EOF
+          
+          # Add signatures if available
+          for sig_file in temp_assets/*.sig; do
+            if [ -f "$sig_file" ]; then
+              base_name=$(basename "$sig_file" .sig)
+              if [[ "$base_name" == *"-core"* ]]; then
+                signature=$(cat "$sig_file")
+                # Update the appropriate platform signature
+                if [[ "$base_name" == *"aarch64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
+                  jq ".platforms.\"darwin-aarch64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
+                elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
+                  jq ".platforms.\"darwin-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
+                elif [[ "$base_name" == *"amd64"* ]] && [[ "$base_name" == *".AppImage"* ]]; then
+                  jq ".platforms.\"linux-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
+                elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".msi"* ]]; then
+                  jq ".platforms.\"windows-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
+                fi
+              fi
+            fi
+          done
+      
+      - name: Generate update manifest for bundled version
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          NOTES="${{ steps.release_info.outputs.release_notes }}"
+          
+          # Create manifest for bundled version (with plugins)
+          cat > latest-bundled.json << EOF
+          {
+            "version": "$VERSION",
+            "notes": "$NOTES",
+            "pub_date": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")",
+            "platforms": {
+              "darwin-aarch64": {
+                "signature": "",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_aarch64.dmg"
+              },
+              "darwin-x86_64": {
+                "signature": "",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_x64.dmg"
+              },
+              "linux-x86_64": {
+                "signature": "",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_amd64.AppImage"
+              },
+              "windows-x86_64": {
+                "signature": "",
+                "url": "https://github.com/${{ github.repository }}/releases/download/v$VERSION/Bubblefish_${VERSION}_x64-en-US.msi"
+              }
+            }
+          }
+          EOF
+          
+          # Add signatures if available
+          for sig_file in temp_assets/*.sig; do
+            if [ -f "$sig_file" ]; then
+              base_name=$(basename "$sig_file" .sig)
+              if [[ "$base_name" != *"-core"* ]]; then
+                signature=$(cat "$sig_file")
+                # Update the appropriate platform signature
+                if [[ "$base_name" == *"aarch64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
+                  jq ".platforms.\"darwin-aarch64\".signature = \"$signature\"" latest-bundled.json > latest-bundled.tmp && mv latest-bundled.tmp latest-bundled.json
+                elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
+                  jq ".platforms.\"darwin-x86_64\".signature = \"$signature\"" latest-bundled.json > latest-bundled.tmp && mv latest-bundled.tmp latest-bundled.json
+                elif [[ "$base_name" == *"amd64"* ]] && [[ "$base_name" == *".AppImage"* ]]; then
+                  jq ".platforms.\"linux-x86_64\".signature = \"$signature\"" latest-bundled.json > latest-bundled.tmp && mv latest-bundled.tmp latest-bundled.json
+                elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".msi"* ]]; then
+                  jq ".platforms.\"windows-x86_64\".signature = \"$signature\"" latest-bundled.json > latest-bundled.tmp && mv latest-bundled.tmp latest-bundled.json
+                fi
+              fi
+            fi
+          done
+      
+      - name: Commit and push manifests
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # Add manifests
+          git add latest.json latest-bundled.json
+          
+          # Commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update manifests for version ${{ steps.release_info.outputs.version }}"
+            git push origin updater
+          fi
+      
+      - name: Upload manifests as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-manifests
+          path: |
+            latest.json
+            latest-bundled.json
+          retention-days: 30
