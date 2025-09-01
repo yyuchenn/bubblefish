@@ -2,8 +2,14 @@ import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { resolve } from 'path';
 
 export default defineConfig({
+	resolve: {
+		alias: {
+			'/plugins': resolve(__dirname, '../plugins')
+		}
+	},
 	plugins: [
 		tailwindcss(), 
 		sveltekit(),
@@ -137,7 +143,7 @@ export default defineConfig({
 		strictPort: true,
 		host: 'localhost',
 		fs: {
-			allow: ['.', '../node_modules']
+			allow: ['.', '../node_modules', '../plugins']
 		},
 		headers: {
 			'Cross-Origin-Opener-Policy': 'same-origin',

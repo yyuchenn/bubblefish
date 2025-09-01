@@ -5,12 +5,14 @@
 	import Resizable from '../Resizable.svelte';
 	import LogsTab from './LogsTab.svelte';
 	import StoreTab from './StoreTab.svelte';
+	import PluginsTab from './PluginsTab.svelte';
 
-	let activeTab = $state<'logs' | 'stores'>('logs');
+	let activeTab = $state<'logs' | 'stores' | 'plugins'>('logs');
 
 	const tabs = [
 		{ id: 'logs', label: '日志', icon: '📄' },
-		{ id: 'stores', label: 'Store 数据', icon: '🗂️' }
+		{ id: 'stores', label: 'Store 数据', icon: '🗂️' },
+		{ id: 'plugins', label: '插件', icon: '🔌' }
 	] as const;
 
 	onMount(() => {
@@ -27,7 +29,7 @@
 		}
 	});
 
-	function switchTab(tabId: 'logs' | 'stores') {
+	function switchTab(tabId: 'logs' | 'stores' | 'plugins') {
 		activeTab = tabId;
 	}
 
@@ -95,6 +97,8 @@
 					<LogsTab />
 				{:else if activeTab === 'stores'}
 					<StoreTab />
+				{:else if activeTab === 'plugins'}
+					<PluginsTab />
 				{/if}
 			</div>
 			</div>

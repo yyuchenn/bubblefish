@@ -213,7 +213,7 @@
 					编辑
 				</button>
 				{#if showEditMenu}
-					<div class="bg-theme-background border-theme-outline absolute top-full left-0 z-[1002] min-w-[150px] rounded border shadow-lg"
+					<div class="bg-theme-background border-theme-outline absolute top-full left-0 z-[1002] min-w-[200px] rounded border shadow-lg"
 					>
 						<button
 							class="block w-full border-none bg-transparent px-4 py-2 text-left text-sm transition-colors flex items-center justify-between {canUndo ? 'text-theme-on-surface hover:bg-theme-surface-variant cursor-pointer' : 'opacity-50 cursor-not-allowed'}"

@@ -1,5 +1,11 @@
 [workspace]
-members = ["core", "desktop"]
+members = [
+    "core", 
+    "desktop",
+    "plugins/plugin-sdk",
+    "plugins/marker-logger",
+    "plugins/md5-calculator"
+]
 resolver = "2"
 
 

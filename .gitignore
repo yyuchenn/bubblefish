@@ -11,6 +11,8 @@ frontend/build
 desktop/target
 wasm/pkg
 wasm/target
+target/build/
+desktop/resources/plugins
 
 ### Env ###
 .env
@@ -37,6 +39,12 @@ desktop/gen/schemas/
 ### WASM ###
 wasm/pkg/
 frontend/src/lib/wasm-pkg/
+core/pkg/
+
+### Plugins ###
+plugins/*/pkg/
+plugins/*/target/
+frontend/static/plugins/
 
 ### Yarn ###
 .yarn/*

@@ -1,0 +1,26 @@
+[package]
+name = "bubblefish-plugin-sdk"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# WASM-specific dependencies
+wasm-bindgen = { version = "0.2", optional = true }
+js-sys = { version = "0.3", features = [], optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }
+web-sys = { version = "0.3", features = ["console"], optional = true }
+
+# Native-specific dependencies
+libloading = { version = "0.8", optional = true }
+once_cell = { version = "1.19", optional = true }
+
+[features]
+default = []
+wasm = ["wasm-bindgen", "js-sys", "serde-wasm-bindgen", "web-sys"]
+native = ["libloading", "once_cell"]
+
+[lib]
+crate-type = ["cdylib", "rlib"]

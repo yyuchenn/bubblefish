@@ -171,13 +171,9 @@
 		error = '';
 
 		try {
-			// 获取项目文件所在目录
-			const directoryPath = projectFilePath.substring(0, projectFilePath.lastIndexOf('/'));
-			
-			// 扫描目录中的图片文件
 			const { tauriAPI } = await import('$lib/core/tauri');
 			autoDetectedImages = await tauriAPI.scanDirectoryForImages(
-				directoryPath,
+				projectFilePath,
 				projectInfo.pendingImages
 			);
 
@@ -452,8 +448,8 @@
 				<div class="mt-4 p-3 bg-theme-surface-variant rounded-md">
 					<p class="text-sm text-theme-on-surface mb-2">检测到 {autoDetectedImages.length} 张图片：</p>
 					<ul class="text-xs text-theme-on-surface-variant max-h-32 overflow-y-auto">
-						{#each autoDetectedImages as imagePath}
-							<li class="truncate" title={imagePath}>{imagePath.split('/').pop()}</li>
+						{#each autoDetectedImages as imagePath (imagePath)}
+							<li class="truncate" title={imagePath}>{imagePath.replace(/\\/g, '/').split('/').pop()}</li>
 						{/each}
 					</ul>
 				</div>

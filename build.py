@@ -64,6 +64,7 @@ class BuildScript:
         self.frontend_dir = self.root_dir / "frontend"
         self.desktop_dir = self.root_dir / "desktop"
         self.core_dir = self.root_dir / "core"
+        self.plugins_dir = self.root_dir / "plugins"
         
         # 统一的构建输出目录
         self.build_dir = self.root_dir / "target" / "build"
@@ -451,11 +452,11 @@ class BuildScript:
         return self.frontend_dev()
 
     def web_build(self) -> bool:
-        """Build web application for production"""
+        """Build web application for production (includes WASM core)"""
         log_info("Building complete web application...")
         
         # 构建 WASM (生产版)
-        log_info("Step 1/2: Building WASM for production...")
+        log_info("Step 1/2: Building WASM core for production...")
         if not self.wasm_build(dev=False):
             return False
         
@@ -548,24 +549,53 @@ class BuildScript:
             cleanup_frontend()
             log_success("Frontend server stopped.")
 
-    def desktop_build(self, release: bool = True) -> bool:
-        """Build desktop application"""
+    def desktop_build(self, release: bool = True, with_plugins: bool = False) -> bool:
+        """Build desktop application with or without native plugins"""
         mode = "release" if release else "debug"
-        log_info(f"Building desktop application ({mode})...")
+        variant = "with native plugins" if with_plugins else "without plugins"
+        log_info(f"Building desktop application ({mode}, {variant})...")
         
         if not self.frontend_install_deps():
             return False
             
         if not self.install_tauri_cli():
             return False
+        
+        # Build WASM core (always needed for desktop)
+        log_info("Building WASM core for desktop...")
+        if not self.wasm_build(dev=False):
+            return False
             
-        log_info("Building frontend first...")
+        log_info("Building frontend...")
         if not self.frontend_build():
             return False
+        
+        # Build plugins if needed
+        if with_plugins:
+            log_info("Building native plugins for desktop...")
+            if not self.plugin_build_native():
+                log_warning("Plugin build failed, continuing without plugins")
+                with_plugins = False
+        
+        # Copy plugins to resources if building with plugins
+        if with_plugins:
+            if not self.copy_plugins_to_resources():
+                log_warning("Failed to copy plugins to resources")
+        
+        # Select the appropriate Tauri config
+        config_file = "tauri.bundled.conf.json" if with_plugins else "tauri.conf.json"
+        config_path = self.desktop_dir / config_file
+        
+        # Check if bundled config exists, if not create it
+        if with_plugins and not config_path.exists():
+            log_info("Creating bundled config from base config...")
+            self.create_bundled_config()
             
         cmd = ["cargo", "tauri", "build"]
         if not release:
             cmd.append("--debug")
+        if with_plugins:
+            cmd.extend(["--config", config_file])
         
         # 构建桌面应用
         if not self.run_command(cmd, cwd=self.desktop_dir):
@@ -611,14 +641,25 @@ class BuildScript:
 
     # ===== Combined Commands =====
 
-    def build_all(self) -> bool:
-        """Build all components (web + desktop)"""
-        log_info("Building all components...")
+    def desktop_build_all(self) -> bool:
+        """Build desktop application with all native plugins"""
+        log_info("Building desktop application with all native plugins...")
         
-        if not self.web_build():
-            return False
-            
-        return self.desktop_build()
+        # Build with all plugins included
+        return self.desktop_build(release=True, with_plugins=True)
+    
+    def web_build_all(self, with_plugins: bool = True) -> bool:
+        """Build web application with WASM plugins"""
+        log_info("Building web application with plugins...")
+        
+        # Build WASM plugins first
+        if with_plugins:
+            log_info("Building WASM plugins...")
+            if not self.plugin_build():
+                log_warning("WASM plugin build failed")
+        
+        # Build web application
+        return self.web_build()
 
     # ===== Utility Commands =====
 
@@ -850,6 +891,329 @@ class BuildScript:
             "-s", "python build.py wasm-dev"
         ])
 
+    def plugin_build(self, plugin_name: str = None, dev: bool = False, native: bool = False) -> bool:
+        """Build plugin(s) as WASM or native modules"""
+        mode = "development" if dev else "production"
+        target = "native" if native else "WASM"
+        
+        if plugin_name:
+            # Build specific plugin
+            log_info(f"Building plugin '{plugin_name}' as {target} ({mode})...")
+            plugin_dir = self.plugins_dir / plugin_name
+            
+            if not (plugin_dir / "Cargo.toml").exists():
+                log_error(f"Plugin '{plugin_name}' not found at {plugin_dir}")
+                return False
+            
+            if native:
+                return self.build_single_plugin_native(plugin_dir, plugin_name, dev)
+            else:
+                return self.build_single_plugin_wasm(plugin_dir, plugin_name, dev)
+        else:
+            # Build all plugins
+            log_info(f"Building all plugins as {target} ({mode})...")
+            success = True
+            
+            for plugin_path in self.plugins_dir.iterdir():
+                if plugin_path.is_dir() and (plugin_path / "Cargo.toml").exists():
+                    if plugin_path.name == "plugin-sdk":
+                        continue  # Skip SDK
+                    
+                    if native:
+                        if not self.build_single_plugin_native(plugin_path, plugin_path.name, dev):
+                            success = False
+                    else:
+                        if not self.build_single_plugin_wasm(plugin_path, plugin_path.name, dev):
+                            success = False
+            
+            return success
+    
+    def build_single_plugin_wasm(self, plugin_dir: Path, plugin_name: str, dev: bool = False) -> bool:
+        """Build a single plugin as WASM"""
+        log_step(f"Building WASM plugin: {plugin_name}")
+        
+        # Use --no-opt to avoid wasm-opt issues
+        cmd = ["wasm-pack", "build", "--target", "web", "--out-dir", "pkg", "--no-opt"]
+        
+        if dev:
+            cmd.append("--dev")
+            cmd.extend(["--", "--features", "wasm"])
+        else:
+            cmd.extend(["--", "--features", "wasm"])
+        
+        if not self.run_command(cmd, cwd=plugin_dir):
+            return False
+        
+        log_success(f"WASM plugin '{plugin_name}' built successfully")
+        
+        # Copy to frontend static directory
+        if not self.copy_plugin_files(plugin_dir, plugin_name):
+            log_warning(f"Failed to copy plugin files to frontend, but build succeeded")
+        
+        return True
+    
+    def build_single_plugin_native(self, plugin_dir: Path, plugin_name: str, dev: bool = False) -> bool:
+        """Build a single plugin as native dynamic library"""
+        log_step(f"Building native plugin: {plugin_name}")
+        
+        cmd = ["cargo", "build", "--lib", "--features", "native"]
+        
+        if not dev:
+            cmd.append("--release")
+        
+        if not self.run_command(cmd, cwd=plugin_dir):
+            return False
+        
+        # Copy the built library to a standard location
+        mode = "release" if not dev else "debug"
+        
+        # Platform-specific library naming
+        import platform
+        system = platform.system().lower()
+        if system == "darwin":  # macOS
+            lib_ext = "dylib"
+            lib_prefix = "lib"
+        elif system == "linux":
+            lib_ext = "so"
+            lib_prefix = "lib"
+        elif system == "windows":
+            lib_ext = "dll"
+            lib_prefix = ""
+        else:
+            log_error(f"Unsupported platform: {system}")
+            return False
+        
+        lib_name = f"{lib_prefix}{plugin_name.replace('-', '_')}_plugin.{lib_ext}"
+        # Check in workspace target directory first
+        source_lib = self.root_dir / "target" / mode / lib_name
+        
+        if not source_lib.exists():
+            # Try plugin-specific target directory
+            source_lib = plugin_dir / "target" / mode / lib_name
+            
+        if not source_lib.exists():
+            # Try alternative naming
+            lib_name = f"{lib_prefix}{plugin_name.replace('-', '_')}.{lib_ext}"
+            source_lib = self.root_dir / "target" / mode / lib_name
+            
+        if not source_lib.exists():
+            source_lib = plugin_dir / "target" / mode / lib_name
+            
+        if not source_lib.exists():
+            log_error(f"Built library not found: {source_lib}")
+            return False
+        
+        log_success(f"Native plugin '{plugin_name}' built successfully at {source_lib}")
+        return True
+    
+    def copy_plugin_files(self, plugin_dir: Path, plugin_name: str) -> bool:
+        """Copy plugin files to frontend static directory"""
+        log_info(f"Copying plugin files for {plugin_name} to frontend...")
+        
+        plugin_pkg_dir = plugin_dir / "pkg"
+        if not plugin_pkg_dir.exists():
+            log_warning(f"Plugin package directory not found: {plugin_pkg_dir}")
+            return False
+        
+        # Create plugin directory in frontend/static/plugins
+        frontend_plugin_dir = self.frontend_dir / "static" / "plugins" / plugin_name / "pkg"
+        
+        # Remove old files if they exist
+        if frontend_plugin_dir.exists():
+            log_step(f"Removing old plugin files from frontend...")
+            shutil.rmtree(frontend_plugin_dir)
+        
+        frontend_plugin_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy all files from pkg directory
+        try:
+            # Copy essential files
+            for file_pattern in ["*.wasm", "*.js", "*.d.ts", "package.json"]:
+                import glob
+                source_files = glob.glob(str(plugin_pkg_dir / file_pattern))
+                for source_file in source_files:
+                    source_path = Path(source_file)
+                    dest_path = frontend_plugin_dir / source_path.name
+                    shutil.copy2(source_path, dest_path)
+            
+            # Also copy snippets directory if it exists (for wasm-bindgen dependencies)
+            snippets_dir = plugin_pkg_dir / "snippets"
+            if snippets_dir.exists():
+                dest_snippets = frontend_plugin_dir / "snippets"
+                shutil.copytree(snippets_dir, dest_snippets, dirs_exist_ok=True)
+                log_info(f"Copied snippets directory")
+            
+            log_success(f"Plugin files copied to frontend/static/plugins/{plugin_name}/pkg")
+            return True
+        except Exception as e:
+            log_error(f"Failed to copy plugin files: {e}")
+            return False
+    
+    def plugin_dev(self, native: bool = False) -> bool:
+        """Build plugins in development mode"""
+        return self.plugin_build(dev=True, native=native)
+    
+    def plugin_build_native(self, plugin_name: str = None, dev: bool = False) -> bool:
+        """Build plugin(s) as native dynamic libraries"""
+        return self.plugin_build(plugin_name=plugin_name, dev=dev, native=True)
+    
+    def plugin_build_hybrid(self, plugin_name: str = None, dev: bool = False) -> bool:
+        """Build plugin(s) as both WASM and native"""
+        log_info("Building plugins in hybrid mode (both WASM and native)...")
+        
+        # Build WASM version
+        log_step("Building WASM version...")
+        if not self.plugin_build(plugin_name=plugin_name, dev=dev, native=False):
+            log_error("WASM build failed")
+            return False
+        
+        # Build native version
+        log_step("Building native version...")
+        if not self.plugin_build(plugin_name=plugin_name, dev=dev, native=True):
+            log_error("Native build failed")
+            return False
+        
+        log_success("Hybrid build completed successfully")
+        return True
+    
+    def plugin_clean(self) -> bool:
+        """Clean plugin build artifacts"""
+        log_info("Cleaning plugin build artifacts...")
+        
+        # Clean all plugin pkg directories
+        for plugin_path in self.plugins_dir.iterdir():
+            if plugin_path.is_dir():
+                pkg_dir = plugin_path / "pkg"
+                if pkg_dir.exists():
+                    log_step(f"Removing {pkg_dir}")
+                    shutil.rmtree(pkg_dir, ignore_errors=True)
+        
+        # Also clean frontend static plugin directories
+        frontend_plugins_dir = self.frontend_dir / "static" / "plugins"
+        if frontend_plugins_dir.exists():
+            log_step(f"Cleaning frontend plugin directory: {frontend_plugins_dir}")
+            shutil.rmtree(frontend_plugins_dir, ignore_errors=True)
+        
+        log_success("Plugin artifacts cleaned")
+        return True
+    
+    def copy_plugins_to_resources(self) -> bool:
+        """Copy built native plugins to desktop resources directory"""
+        log_info("Copying native plugins to desktop resources...")
+        
+        # Create resources/plugins directory
+        resources_dir = self.desktop_dir / "resources"
+        plugins_resource_dir = resources_dir / "plugins"
+        plugins_resource_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Platform-specific library naming
+        import platform
+        system = platform.system().lower()
+        if system == "darwin":  # macOS
+            lib_ext = "dylib"
+            lib_prefix = "lib"
+        elif system == "linux":
+            lib_ext = "so"
+            lib_prefix = "lib"
+        elif system == "windows":
+            lib_ext = "dll"
+            lib_prefix = ""
+        else:
+            log_error(f"Unsupported platform: {system}")
+            return False
+        
+        copied_count = 0
+        # Find all built native plugins
+        for plugin_path in self.plugins_dir.iterdir():
+            if plugin_path.is_dir() and (plugin_path / "Cargo.toml").exists():
+                if plugin_path.name == "plugin-sdk":
+                    continue
+                
+                # Look for the built library
+                plugin_name = plugin_path.name.replace('-', '_')
+                lib_name = f"{lib_prefix}{plugin_name}_plugin.{lib_ext}"
+                
+                # Check in workspace target directory first
+                source_lib = self.root_dir / "target" / "release" / lib_name
+                if not source_lib.exists():
+                    source_lib = self.root_dir / "target" / "debug" / lib_name
+                
+                if not source_lib.exists():
+                    # Try alternative naming
+                    lib_name = f"{lib_prefix}{plugin_name}.{lib_ext}"
+                    source_lib = self.root_dir / "target" / "release" / lib_name
+                    if not source_lib.exists():
+                        source_lib = self.root_dir / "target" / "debug" / lib_name
+                
+                if source_lib.exists():
+                    dest_lib = plugins_resource_dir / source_lib.name
+                    shutil.copy2(source_lib, dest_lib)
+                    log_success(f"Copied {source_lib.name} to resources")
+                    copied_count += 1
+                else:
+                    log_warning(f"Plugin library not found for {plugin_path.name}")
+        
+        if copied_count > 0:
+            log_success(f"Copied {copied_count} plugin(s) to resources")
+            return True
+        else:
+            log_warning("No plugin libraries found to copy")
+            return False
+    
+    def create_bundled_config(self) -> bool:
+        """Create a Tauri config for bundled plugins build"""
+        log_info("Creating bundled Tauri config...")
+        
+        base_config_path = self.desktop_dir / "tauri.conf.json"
+        bundled_config_path = self.desktop_dir / "tauri.bundled.conf.json"
+        
+        try:
+            import json
+            with open(base_config_path, 'r') as f:
+                config = json.load(f)
+            
+            # Add resources configuration for plugins
+            if "bundle" not in config:
+                config["bundle"] = {}
+            
+            config["bundle"]["resources"] = [
+                "resources/plugins/*"
+            ]
+            
+            # Optionally change the product name to indicate bundled version
+            # config["productName"] = "Bubblefish (Bundled)"
+            
+            with open(bundled_config_path, 'w') as f:
+                json.dump(config, f, indent=2)
+            
+            log_success(f"Created bundled config: {bundled_config_path}")
+            return True
+        except Exception as e:
+            log_error(f"Failed to create bundled config: {e}")
+            return False
+    
+    def plugin_list(self) -> bool:
+        """List available plugins"""
+        log_info("Available plugins:")
+        
+        plugin_count = 0
+        for plugin_path in self.plugins_dir.iterdir():
+            if plugin_path.is_dir() and (plugin_path / "Cargo.toml").exists():
+                if plugin_path.name == "plugin-sdk":
+                    continue
+                
+                plugin_count += 1
+                built = (plugin_path / "pkg").exists()
+                status = "✓ Built" if built else "✗ Not built"
+                log_info(f"  - {plugin_path.name} [{status}]")
+        
+        if plugin_count == 0:
+            log_info("  No plugins found")
+        else:
+            log_success(f"Total: {plugin_count} plugin(s)")
+        
+        return True
+
 def main():
     parser = argparse.ArgumentParser(
         description="Bubblefish Development Build Script",
@@ -860,19 +1224,28 @@ Available commands:
     setup         Complete development environment setup
 
   🌐 Web Development:
-    web-dev       Start web development (WASM + Frontend)
-    web-build     Build web application
-    frontend-dev  Frontend dev server only
-    frontend-build Frontend build only
+    web-dev         Start web development (WASM + Frontend)
+    web-build       Build web application (core only)
+    web-build-all   Build web with WASM plugins
+    frontend-dev    Frontend dev server only
+    frontend-build  Frontend build only
 
   🪟 Desktop Development:
-    desktop-dev   Start desktop development (auto)
-    desktop-build Build desktop application
+    desktop-dev           Start desktop development (auto)
+    desktop-build         Build desktop app (use --with-plugins to include native plugins)
+    desktop-build-all     Build desktop with all native plugins included
 
-  🔨 Building:
-    build-all     Build everything (web + desktop)
-    wasm-build    Build WASM (production)
-    wasm-dev      Build WASM (development)
+  🔨 Core Building:
+    wasm-build           Build WASM core (production)
+    wasm-dev             Build WASM core (development)
+
+  🔌 Plugin Development:
+    plugin-build         Build plugin(s) as WASM modules
+    plugin-build-native  Build plugin(s) as native libraries
+    plugin-build-hybrid  Build plugin(s) as both WASM and native
+    plugin-dev           Build plugins (development)
+    plugin-list          List available plugins
+    plugin-clean         Clean plugin build artifacts
 
   🛠️ Development Tools:
     watch         Auto-rebuild WASM on changes
@@ -892,8 +1265,11 @@ Available commands:
     )
     
     parser.add_argument("command", nargs="?", default="help", help="Command to run")
+    parser.add_argument("--plugin", help="Specific plugin name for plugin commands")
     parser.add_argument("--release", action="store_true", help="Build in release mode")
     parser.add_argument("--debug", action="store_true", help="Build in debug mode")
+    parser.add_argument("--native", action="store_true", help="Build native version for plugins")
+    parser.add_argument("--with-plugins", action="store_true", help="Include plugins in desktop build")
     
     args = parser.parse_args()
     
@@ -904,6 +1280,7 @@ Available commands:
         # Web development
         "web-dev": build_script.web_dev,
         "web-build": build_script.web_build,
+        "web-build-all": lambda: build_script.web_build_all(with_plugins=True),
         "frontend-dev": build_script.frontend_dev,
         "frontend-build": build_script.frontend_build,
         "wasm-build": lambda: build_script.wasm_build(dev=False),
@@ -911,10 +1288,18 @@ Available commands:
         
         # Desktop development
         "desktop-dev": build_script.desktop_dev,
-        "desktop-build": lambda: build_script.desktop_build(release=not args.debug),
+        "desktop-build": lambda: build_script.desktop_build(release=not args.debug, with_plugins=args.with_plugins),
+        
+        # Plugin commands
+        "plugin-build": lambda: build_script.plugin_build(plugin_name=args.plugin, dev=False, native=False),
+        "plugin-build-native": lambda: build_script.plugin_build_native(plugin_name=args.plugin, dev=args.debug),
+        "plugin-build-hybrid": lambda: build_script.plugin_build_hybrid(plugin_name=args.plugin, dev=args.debug),
+        "plugin-dev": lambda: build_script.plugin_dev(native=args.native if hasattr(args, 'native') else False),
+        "plugin-list": build_script.plugin_list,
+        "plugin-clean": build_script.plugin_clean,
         
         # Combined commands
-        "build-all": build_script.build_all,
+        "desktop-build-all": build_script.desktop_build_all,
         
         # Utility commands
         "setup": build_script.setup,

@@ -1035,7 +1035,7 @@ class WasmWorkerAdapter extends BaseCoreAPI implements ThumbnailAPI {
 			}
 			
 			// 大文件使用SharedArrayBuffer
-			const { getOrCreateStream, ImageFormatEnum } = await import('../utils/sharedArrayBufferStream');
+			const { getOrCreateStream, ImageFormatEnum } = await import('./streaming/imageStream');
 			
 			const minBufferSize = data.length + (1024 * 1024);
 			const stream = getOrCreateStream(minBufferSize);
@@ -1077,7 +1077,7 @@ class WasmWorkerAdapter extends BaseCoreAPI implements ThumbnailAPI {
 	): Promise<number | null> {
 		try {
 			// Use SharedArrayBuffer streaming for large images
-			const { getOrCreateStream } = await import('../utils/sharedArrayBufferStream');
+			const { getOrCreateStream } = await import('./streaming/imageStream');
 			
 			// For large images, ensure we have a big enough buffer
 			const minBufferSize = data.length + (1024 * 1024); // image size + 1MB overhead

@@ -3,6 +3,9 @@ use tauri::{Manager, Emitter, WebviewUrl, WebviewWindowBuilder};
 use tauri::TitleBarStyle;
 use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItemBuilder, CheckMenuItemBuilder};
 
+mod plugin_loader;
+use plugin_loader::{init_plugin_loader, get_plugin_loader, PluginMetadata};
+
 
 // 使用 bubblefish_core 的通用绑定
 // 这会自动生成所有必要的 Tauri 命令和回调设置
@@ -228,15 +231,19 @@ async fn read_file_content(file_path: String) -> Result<String, String> {
     }
 }
 
-// 扫描目录中的图片文件
+// 扫描目录中的图片文件（从文件路径自动提取目录）
 #[tauri::command]
-async fn scan_directory_for_images(directory_path: String, required_images: Vec<String>) -> Result<Vec<String>, String> {
+async fn scan_directory_for_images(file_path: String, required_images: Vec<String>) -> Result<Vec<String>, String> {
     use std::path::Path;
     use std::fs;
     
-    let dir_path = Path::new(&directory_path);
+    // 从文件路径提取目录
+    let file_path = Path::new(&file_path);
+    let dir_path = file_path.parent()
+        .ok_or_else(|| "无法从文件路径提取目录".to_string())?;
+    
     if !dir_path.exists() || !dir_path.is_dir() {
-        return Err("指定的路径不是有效的目录".to_string());
+        return Err("文件所在目录不存在或无效".to_string());
     }
     
     let mut found_images = Vec::new();
@@ -251,8 +258,7 @@ async fn scan_directory_for_images(directory_path: String, required_images: Vec<
                     if let Some(extension) = path.extension() {
                         let ext_str = extension.to_string_lossy().to_lowercase();
                         if image_extensions.contains(&ext_str.as_str()) {
-                            if let Some(file_name) = path.file_name() {
-                                let file_name_str = file_name.to_string_lossy().to_string();
+                            if let Some(_file_name) = path.file_name() {
                                 // 检查文件名（不包含扩展名）是否在需求列表中
                                 let name_without_ext = path.file_stem()
                                     .and_then(|s| s.to_str())
@@ -267,7 +273,13 @@ async fn scan_directory_for_images(directory_path: String, required_images: Vec<
                                         required
                                     };
                                     
-                                    if name_without_ext == required_stem {
+                                    // 在 Windows 上进行不区分大小写的比较
+                                    #[cfg(target_os = "windows")]
+                                    let matches = name_without_ext.eq_ignore_ascii_case(required_stem);
+                                    #[cfg(not(target_os = "windows"))]
+                                    let matches = name_without_ext == required_stem;
+                                    
+                                    if matches {
                                         found_images.push(path.to_string_lossy().to_string());
                                         break;
                                     }
@@ -288,6 +300,75 @@ async fn scan_directory_for_images(directory_path: String, required_images: Vec<
 #[tauri::command]
 async fn get_app_info() -> Result<String, String> {
     Ok("Bubblefish Desktop App v0.1.0".to_string())
+}
+
+// 插件管理命令
+#[tauri::command]
+async fn load_native_plugin(plugin_path: String) -> Result<PluginMetadata, String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.load_plugin(&plugin_path)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn unload_native_plugin(plugin_id: String) -> Result<(), String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.unload_plugin(&plugin_id)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn dispatch_event_to_plugin(plugin_id: String, event: serde_json::Value) -> Result<(), String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.dispatch_event(&plugin_id, &event)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn call_plugin_service(
+    plugin_id: String,
+    service: String,
+    method: String,
+    params: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.call_plugin_service(&plugin_id, &service, &method, &params)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn enable_native_plugin(plugin_id: String, enabled: bool) -> Result<(), String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.set_plugin_enabled(&plugin_id, enabled)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn list_native_plugins() -> Result<Vec<PluginMetadata>, String> {
+    if let Some(loader) = get_plugin_loader() {
+        Ok(loader.list_plugins())
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn send_message_to_plugin(to: String, from: String, message: serde_json::Value) -> Result<(), String> {
+    if let Some(loader) = get_plugin_loader() {
+        loader.send_message(&to, &from, &message)
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -315,14 +396,17 @@ pub fn run() {
       app.handle().plugin(tauri_plugin_fs::init())?;
 
       // 使用 core 模块的自动回调设置
-      bubblefish_core::setup_all_core_callbacks(app.handle().clone());
+      bubblefish_core::tauri::setup_all_core_callbacks(app.handle().clone());
       
       // 初始化事件系统
-      let event_emitter = bubblefish_core::TauriEventEmitter::new(app.handle().clone());
-      bubblefish_core::EVENT_SYSTEM.register_emitter(
+      let event_emitter = bubblefish_core::tauri::TauriEventEmitter::new(app.handle().clone());
+      bubblefish_core::tauri::EVENT_SYSTEM.register_emitter(
           "tauri".to_string(),
           Box::new(event_emitter)
       );
+      
+      // 初始化插件加载器
+      init_plugin_loader(app.handle().clone());
 
       // 创建主窗口，根据操作系统使用不同的标题栏样式
       let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
@@ -371,7 +455,14 @@ pub fn run() {
         get_app_info,
         update_menu_checked_state,
         update_menu_enabled_state,
-        update_menu_text
+        update_menu_text,
+        load_native_plugin,
+        unload_native_plugin,
+        dispatch_event_to_plugin,
+        call_plugin_service,
+        enable_native_plugin,
+        list_native_plugins,
+        send_message_to_plugin
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
