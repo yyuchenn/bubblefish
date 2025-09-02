@@ -1,38 +1,62 @@
-name: Sync to Gitee (Simple)
+name: Sync to Gitee (For Release and Update)
 
 on:
-  push:
-    branches:
-      - main
-      - updater
   release:
     types: [published]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   sync:
-    name: Sync to Gitee
+    name: Sync Updater Branch to Gitee
     runs-on: ubuntu-latest
     
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (updater branch)
         uses: actions/checkout@v4
         with:
+          ref: updater
           fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Sync to Gitee
-        uses: Yikun/hub-mirror-action@v1.5
-        with:
-          src: github/yyuchenn
-          dst: gitee/yyuchenn
-          dst_key: ${{ secrets.GITEE_PRIVATE_KEY }}
-          dst_token: ${{ secrets.GITEE_TOKEN }}
-          static_list: "bubblefish"
-          force_update: true
-          timeout: '10m'
+      - name: Wait for update-manifests workflow
+        run: |
+          echo "Waiting for update-manifests workflow to complete..."
+          sleep 30
+      
+      - name: Pull latest changes
+        run: |
+          git pull origin updater
+      
+      - name: Update latest.json URLs for Gitee
+        run: |
+          if [ -f latest.json ]; then
+            echo "Updating latest.json URLs from GitHub to Gitee..."
+            
+            # Replace GitHub URLs with Gitee URLs
+            sed -i 's|https://github.com/yyuchenn/bubblefish|https://gitee.com/yyuchenn/bubblefish|g' latest.json
+            
+            echo "Updated latest.json:"
+            cat latest.json
+          else
+            echo "latest.json not found, skipping URL update"
+          fi
+      
+      - name: Push updater branch to Gitee
+        run: |
+          # Configure git
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # Add Gitee remote
+          git remote add gitee https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/yyuchenn/bubblefish.git || true
+          
+          # Force push updater branch to Gitee
+          git push gitee updater --force
+          
+          echo "✅ Updater branch synced to Gitee"
           
       - name: Create Gitee Release (if release)
         if: github.event_name == 'release'
