@@ -127,6 +127,28 @@ jobs:
       - name: Build desktop
         run: python build.py desktop-build
       
+      - name: Rename MSI files (remove language suffix)
+        shell: pwsh
+        run: |
+          Write-Host "Renaming MSI files to remove language suffix..."
+          $msiPath = "target\release\bundle\msi"
+          
+          if (Test-Path $msiPath) {
+            # Find all MSI files with language suffix
+            $files = Get-ChildItem -Path $msiPath -Filter "*.msi" | Where-Object { $_.Name -match "_[a-z]{2}-[A-Z]{2}\.msi$" }
+            
+            foreach ($file in $files) {
+              # Remove the language suffix (e.g., _en-US, _zh-CN)
+              $newName = $file.Name -replace "_[a-z]{2}-[A-Z]{2}\.msi$", ".msi"
+              $newPath = Join-Path $msiPath $newName
+              
+              Write-Host "Renaming: $($file.Name) -> $newName"
+              Move-Item -Path $file.FullName -Destination $newPath -Force
+            }
+          } else {
+            Write-Host "MSI directory not found at: $msiPath"
+          }
+      
       - name: Sign builds
         if: github.event_name == 'release'
         env:
@@ -134,17 +156,14 @@ jobs:
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         shell: pwsh
         run: |
-          # Sign the builds
-          # cargo tauri signer uses TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD env vars automatically
-          $files = @()
-          $files += Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
-          $files += Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
-          
-          foreach ($file in $files) {
-            if ($file) {
-              Write-Host "Signing with Tauri: $($file.FullName)"
-              cargo tauri signer sign "$($file.FullName)"
-            }
+          # Sign the actual executable file, not the installer
+          $exePath = "target\release\bubblefish-desktop.exe"
+          if (Test-Path $exePath) {
+            Write-Host "Signing with Tauri: $exePath"
+            # Use -k for private key and -p for password
+            cargo tauri signer sign "$exePath" -k "$env:TAURI_PRIVATE_KEY" -p "$env:TAURI_KEY_PASSWORD"
+          } else {
+            Write-Host "Executable not found at: $exePath"
           }
 
       - name: Sign Windows Executables
@@ -224,9 +243,8 @@ jobs:
         with:
           files: |
             target/release/bundle/msi/*.msi
-            target/release/bundle/msi/*.msi.sig
             target/release/bundle/nsis/*.exe
-            target/release/bundle/nsis/*.exe.sig
+            target/release/bubblefish-desktop.exe.sig
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -318,34 +336,20 @@ jobs:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
-          # Sign the builds
-          # cargo tauri signer uses TAURI_PRIVATE_KEY and TAURI_KEY_PASSWORD env vars automatically
-          for file in target/release/bundle/dmg/*.dmg; do
-            if [ -f "$file" ]; then
-              echo "Signing with Tauri: $file"
-              cargo tauri signer sign "$file"
+          # Sign the actual .app bundle, not the DMG installer
+          for app in target/release/bundle/macos/*.app; do
+            if [ -d "$app" ]; then
+              echo "Signing with Tauri: $app"
+              # Create a tar.gz of the app bundle and sign that
+              app_name=$(basename "$app")
+              tar -czf "${app}.tar.gz" -C "$(dirname "$app")" "$app_name"
+              
+              # Use -k for private key and -p for password
+              cargo tauri signer sign "${app}.tar.gz" -k "$TAURI_PRIVATE_KEY" -p "$TAURI_KEY_PASSWORD"
             fi
           done
 
-      - name: Package macOS app for release
-        if: github.event_name == 'release'
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
-        run: |
-          # Find and compress .app bundles for release
-          for app in target/release/bundle/macos/*.app; do
-            if [ -d "$app" ]; then
-              app_name=$(basename "$app")
-              tar -czf "target/release/bundle/macos/${app_name}.tar.gz" -C "target/release/bundle/macos" "$app_name"
-              echo "Created ${app_name}.tar.gz"
-              
-              # Sign the tar.gz file if private key is available
-              if [ -n "$TAURI_PRIVATE_KEY" ]; then
-                cargo tauri signer sign "target/release/bundle/macos/${app_name}.tar.gz"
-              fi
-            fi
-          done
+      # Package macOS app step removed - now handled in Sign builds step
       
       - name: Upload macOS artifacts
         uses: actions/upload-artifact@v4
@@ -356,7 +360,6 @@ jobs:
             target/release/bundle/macos/*.app.tar.gz
             target/release/bundle/macos/*.app.tar.gz.sig
             target/release/bundle/dmg/*.dmg
-            target/release/bundle/dmg/*.dmg.sig
           retention-days: 7
 
       - name: Upload to Release (if release)
@@ -365,7 +368,6 @@ jobs:
         with:
           files: |
             target/release/bundle/dmg/*.dmg
-            target/release/bundle/dmg/*.dmg.sig
             target/release/bundle/macos/*.app.tar.gz
             target/release/bundle/macos/*.app.tar.gz.sig
           fail_on_unmatched_files: false

@@ -37,9 +37,6 @@
         "headerImage": "./resources/nsis/header.bmp",
         "sidebarImage": "./resources/nsis/sidebar.bmp",
         "installerIcon": "./icons/installer_icon.ico"
-      },
-      "wix": {
-        "language": "en-US"
       }
     }
   },
