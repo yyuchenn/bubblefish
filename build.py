@@ -549,11 +549,10 @@ class BuildScript:
             cleanup_frontend()
             log_success("Frontend server stopped.")
 
-    def desktop_build(self, release: bool = True, with_plugins: bool = False) -> bool:
-        """Build desktop application with or without native plugins"""
+    def desktop_build(self, release: bool = True) -> bool:
+        """Build desktop application"""
         mode = "release" if release else "debug"
-        variant = "with native plugins" if with_plugins else "without plugins"
-        log_info(f"Building desktop application ({mode}, {variant})...")
+        log_info(f"Building desktop application ({mode})...")
         
         if not self.frontend_install_deps():
             return False
@@ -569,28 +568,6 @@ class BuildScript:
         log_info("Building frontend...")
         if not self.frontend_build():
             return False
-        
-        # Build and copy plugins only if with_plugins is True
-        if with_plugins:
-            log_info("Building native plugins for desktop...")
-            if not self.plugin_build_native():
-                log_warning("Plugin build failed, continuing without plugins")
-            else:
-                # Only copy plugins if build succeeded
-                if not self.copy_plugins_to_resources():
-                    log_warning("Failed to copy plugins to resources")
-        else:
-            # Clean up any existing plugins in resources when building without plugins
-            plugins_resource_dir = self.desktop_dir / "resources" / "plugins"
-            if plugins_resource_dir.exists():
-                log_info("Cleaning up plugins directory for lite build...")
-                # Remove all plugin files but keep the directory and .gitkeep
-                for item in plugins_resource_dir.iterdir():
-                    if item.name != '.gitkeep':
-                        if item.is_file():
-                            item.unlink()
-                        elif item.is_dir():
-                            shutil.rmtree(item)
         
         # Always use the same config file
         cmd = ["cargo", "tauri", "build"]
@@ -640,23 +617,10 @@ class BuildScript:
             return False
 
     # ===== Combined Commands =====
-
-    def desktop_build_all(self) -> bool:
-        """Build desktop application with all native plugins"""
-        log_info("Building desktop application with all native plugins...")
-        
-        # Build with all plugins included
-        return self.desktop_build(release=True, with_plugins=True)
     
-    def web_build_all(self, with_plugins: bool = True) -> bool:
-        """Build web application with WASM plugins"""
-        log_info("Building web application with plugins...")
-        
-        # Build WASM plugins first
-        if with_plugins:
-            log_info("Building WASM plugins...")
-            if not self.plugin_build():
-                log_warning("WASM plugin build failed")
+    def web_build_all(self) -> bool:
+        """Build web application"""
+        log_info("Building web application...")
         
         # Build web application
         return self.web_build()
@@ -1205,8 +1169,7 @@ Available commands:
 
   🪟 Desktop Development:
     desktop-dev           Start desktop development (auto)
-    desktop-build         Build desktop app (use --with-plugins to include native plugins)
-    desktop-build-all     Build desktop with all native plugins included
+    desktop-build         Build desktop app
 
   🔨 Core Building:
     wasm-build           Build WASM core (production)
@@ -1242,7 +1205,6 @@ Available commands:
     parser.add_argument("--release", action="store_true", help="Build in release mode")
     parser.add_argument("--debug", action="store_true", help="Build in debug mode")
     parser.add_argument("--native", action="store_true", help="Build native version for plugins")
-    parser.add_argument("--with-plugins", action="store_true", help="Include plugins in desktop build")
     
     args = parser.parse_args()
     
@@ -1253,7 +1215,7 @@ Available commands:
         # Web development
         "web-dev": build_script.web_dev,
         "web-build": build_script.web_build,
-        "web-build-all": lambda: build_script.web_build_all(with_plugins=True),
+        "web-build-all": build_script.web_build_all,
         "frontend-dev": build_script.frontend_dev,
         "frontend-build": build_script.frontend_build,
         "wasm-build": lambda: build_script.wasm_build(dev=False),
@@ -1261,7 +1223,7 @@ Available commands:
         
         # Desktop development
         "desktop-dev": build_script.desktop_dev,
-        "desktop-build": lambda: build_script.desktop_build(release=not args.debug, with_plugins=args.with_plugins),
+        "desktop-build": lambda: build_script.desktop_build(release=not args.debug),
         
         # Plugin commands
         "plugin-build": lambda: build_script.plugin_build(plugin_name=args.plugin, dev=False, native=False),
@@ -1271,8 +1233,6 @@ Available commands:
         "plugin-list": build_script.plugin_list,
         "plugin-clean": build_script.plugin_clean,
         
-        # Combined commands
-        "desktop-build-all": build_script.desktop_build_all,
         
         # Utility commands
         "setup": build_script.setup,
