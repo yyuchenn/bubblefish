@@ -163,8 +163,10 @@ jobs:
           foreach ($msi in $msiFiles) {
             if (Test-Path $msi.FullName) {
               Write-Host "Signing with Tauri: $($msi.Name)"
-              # Use environment variable directly (cargo tauri signer handles base64 decoding)
-              cargo tauri signer sign "$($msi.FullName)" -k "$env:TAURI_PRIVATE_KEY" -p "$env:TAURI_KEY_PASSWORD"
+              # Use environment variable directly - pass as single-quoted string to avoid PowerShell interpretation
+              $privateKey = $env:TAURI_PRIVATE_KEY
+              $keyPassword = $env:TAURI_KEY_PASSWORD
+              & cargo tauri signer sign "$($msi.FullName)" -k $privateKey -p $keyPassword
             }
           }
           
@@ -174,7 +176,7 @@ jobs:
           foreach ($exe in $exeFiles) {
             if (Test-Path $exe.FullName) {
               Write-Host "Signing with Tauri: $($exe.Name)"
-              cargo tauri signer sign "$($exe.FullName)" -k "$env:TAURI_PRIVATE_KEY" -p "$env:TAURI_KEY_PASSWORD"
+              & cargo tauri signer sign "$($exe.FullName)" -k $privateKey -p $keyPassword
             }
           }
 
