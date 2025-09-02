@@ -25,6 +25,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: write
 
 env:
   NODE_VERSION: '20'
