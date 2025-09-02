@@ -39,7 +39,7 @@
         "installerIcon": "./icons/installer_icon.ico"
       },
       "wix": {
-        "language": 0
+        "language": "en-US"
       }
     }
   },
