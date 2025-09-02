@@ -1,6 +1,8 @@
 name: Update Release Manifests
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -43,16 +45,23 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ github.event.inputs.version }}"
-          RELEASE_URL="${{ github.event.inputs.release_url }}"
-          
-          # Fetch release notes from the GitHub API
-          RELEASE_TAG="${VERSION}"
-          if [[ ! "$RELEASE_TAG" =~ ^v ]]; then
-            RELEASE_TAG="v${VERSION}"
+          # Determine if triggered by release event or workflow_dispatch
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            RELEASE_URL="${{ github.event.release.html_url }}"
+            RELEASE_NOTES="${{ github.event.release.body }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            RELEASE_URL="${{ github.event.inputs.release_url }}"
+            
+            # Fetch release notes from the GitHub API for workflow_dispatch
+            RELEASE_TAG="${VERSION}"
+            if [[ ! "$RELEASE_TAG" =~ ^v ]]; then
+              RELEASE_TAG="v${VERSION}"
+            fi
+            
+            RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/tags/${RELEASE_TAG} --jq '.body' 2>/dev/null || echo "Update to version $VERSION")
           fi
-          
-          RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/tags/${RELEASE_TAG} --jq '.body' 2>/dev/null || echo "Update to version $VERSION")
           
           # Remove 'v' prefix if present
           VERSION="${VERSION#v}"
