@@ -107,7 +107,7 @@ jobs:
               platforms: {
                 "darwin-aarch64": {
                   "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_aarch64.dmg"
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish.app.tar.gz"
                 },
                 "windows-x86_64": {
                   "signature": "",
@@ -126,8 +126,8 @@ jobs:
               echo "Signature content: $signature"
               
               # Update the appropriate platform signature
-              if [[ "$base_name" == *"aarch64"* ]] || [[ "$base_name" == *".dmg"* ]]; then
-                echo "Updating darwin-aarch64 signature"
+              if [[ "$base_name" == *".app.tar.gz"* ]]; then
+                echo "Updating darwin-aarch64 signature for app.tar.gz"
                 jq --arg sig "$signature" '.platforms."darwin-aarch64".signature = $sig' latest.json > latest.tmp && mv latest.tmp latest.json
               elif [[ "$base_name" == *"x64"* ]] || [[ "$base_name" == *".msi"* ]]; then
                 echo "Updating windows-x86_64 signature"
