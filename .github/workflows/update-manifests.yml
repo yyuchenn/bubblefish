@@ -120,15 +120,25 @@ jobs:
           for sig_file in temp_assets/*.sig; do
             if [ -f "$sig_file" ]; then
               base_name=$(basename "$sig_file" .sig)
-              signature=$(cat "$sig_file")
+              # Read signature and ensure it's properly formatted
+              signature=$(cat "$sig_file" | tr -d '\n\r')
+              echo "Processing signature for: $base_name"
+              echo "Signature content: $signature"
+              
               # Update the appropriate platform signature
-              if [[ "$base_name" == *"aarch64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
-                jq ".platforms.\"darwin-aarch64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
-              elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".msi"* ]]; then
-                jq ".platforms.\"windows-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
+              if [[ "$base_name" == *"aarch64"* ]] || [[ "$base_name" == *".dmg"* ]]; then
+                echo "Updating darwin-aarch64 signature"
+                jq --arg sig "$signature" '.platforms."darwin-aarch64".signature = $sig' latest.json > latest.tmp && mv latest.tmp latest.json
+              elif [[ "$base_name" == *"x64"* ]] || [[ "$base_name" == *".msi"* ]]; then
+                echo "Updating windows-x86_64 signature"
+                jq --arg sig "$signature" '.platforms."windows-x86_64".signature = $sig' latest.json > latest.tmp && mv latest.tmp latest.json
               fi
             fi
           done
+          
+          # Check if signatures were added
+          echo "Final manifest:"
+          cat latest.json
       
       
       - name: Commit and push manifests
