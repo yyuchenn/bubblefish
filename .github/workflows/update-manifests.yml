@@ -109,7 +109,7 @@ jobs:
                 },
                 "windows-x86_64": {
                   "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64-en-US.msi"
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64.msi"
                 }
               }
             }' > latest.json
