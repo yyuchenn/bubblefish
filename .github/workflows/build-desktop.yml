@@ -163,10 +163,8 @@ jobs:
           foreach ($msi in $msiFiles) {
             if (Test-Path $msi.FullName) {
               Write-Host "Signing with Tauri: $($msi.Name)"
-              # Create signature for the MSI installer
-              $env:TAURI_PRIVATE_KEY | Out-File -FilePath "private.key" -Encoding UTF8
-              cargo tauri signer sign "$($msi.FullName)" -k "private.key" -p "$env:TAURI_KEY_PASSWORD"
-              Remove-Item "private.key" -Force
+              # Use environment variable directly (cargo tauri signer handles base64 decoding)
+              cargo tauri signer sign "$($msi.FullName)" -k "$env:TAURI_PRIVATE_KEY" -p "$env:TAURI_KEY_PASSWORD"
             }
           }
           
@@ -176,9 +174,7 @@ jobs:
           foreach ($exe in $exeFiles) {
             if (Test-Path $exe.FullName) {
               Write-Host "Signing with Tauri: $($exe.Name)"
-              $env:TAURI_PRIVATE_KEY | Out-File -FilePath "private.key" -Encoding UTF8
-              cargo tauri signer sign "$($exe.FullName)" -k "private.key" -p "$env:TAURI_KEY_PASSWORD"
-              Remove-Item "private.key" -Force
+              cargo tauri signer sign "$($exe.FullName)" -k "$env:TAURI_PRIVATE_KEY" -p "$env:TAURI_KEY_PASSWORD"
             }
           }
 
@@ -357,10 +353,8 @@ jobs:
           for dmg in target/release/bundle/dmg/*.dmg; do
             if [ -f "$dmg" ]; then
               echo "Signing with Tauri: $dmg"
-              # Write private key to temp file
-              echo "$TAURI_PRIVATE_KEY" > private.key
-              cargo tauri signer sign "$dmg" -k private.key -p "$TAURI_KEY_PASSWORD"
-              rm -f private.key
+              # Use environment variable directly (cargo tauri signer handles base64 decoding)
+              cargo tauri signer sign "$dmg" -k "$TAURI_PRIVATE_KEY" -p "$TAURI_KEY_PASSWORD"
             fi
           done
           
@@ -371,9 +365,7 @@ jobs:
               app_name=$(basename "$app")
               tar -czf "${app}.tar.gz" -C "$(dirname "$app")" "$app_name"
               
-              echo "$TAURI_PRIVATE_KEY" > private.key
-              cargo tauri signer sign "${app}.tar.gz" -k private.key -p "$TAURI_KEY_PASSWORD"
-              rm -f private.key
+              cargo tauri signer sign "${app}.tar.gz" -k "$TAURI_PRIVATE_KEY" -p "$TAURI_KEY_PASSWORD"
             fi
           done
 
