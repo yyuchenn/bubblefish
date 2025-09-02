@@ -127,6 +127,28 @@ jobs:
       - name: Build desktop
         run: python build.py desktop-build
       
+      - name: Rename MSI files (remove language suffix)
+        shell: pwsh
+        run: |
+          Write-Host "Renaming MSI files to remove language suffix..."
+          $msiPath = "target\release\bundle\msi"
+          
+          if (Test-Path $msiPath) {
+            # Find all MSI files with language suffix
+            $files = Get-ChildItem -Path $msiPath -Filter "*.msi" | Where-Object { $_.Name -match "_[a-z]{2}-[A-Z]{2}\.msi$" }
+            
+            foreach ($file in $files) {
+              # Remove the language suffix (e.g., _en-US, _zh-CN)
+              $newName = $file.Name -replace "_[a-z]{2}-[A-Z]{2}\.msi$", ".msi"
+              $newPath = Join-Path $msiPath $newName
+              
+              Write-Host "Renaming: $($file.Name) -> $newName"
+              Move-Item -Path $file.FullName -Destination $newPath -Force
+            }
+          } else {
+            Write-Host "MSI directory not found at: $msiPath"
+          }
+      
       - name: Sign builds
         if: github.event_name == 'release'
         env:
