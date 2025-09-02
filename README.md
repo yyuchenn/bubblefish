@@ -26,12 +26,10 @@ python build.py desktop-dev # 桌面端调试
 
 ```python
 # Web端构建
-python build.py web-build           # 构建Web应用（仅核心）
-python build.py web-build-all       # 构建Web应用（含WASM插件）
+python build.py web-build           # 构建Web应用
 
-# 桌面端构建（两种版本）
-python build.py desktop-build       # 标准版（不含插件）
-python build.py desktop-build-all   # 完整版（包含原生插件）
+# 桌面端构建
+python build.py desktop-build       # 构建桌面应用
 
 # 插件开发
 python build.py plugin-build        # 构建WASM插件（用于Web）

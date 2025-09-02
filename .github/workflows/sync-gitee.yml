@@ -1,0 +1,86 @@
+name: Sync to Gitee (For Release and Update)
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync Updater Branch to Gitee
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository (updater branch)
+        uses: actions/checkout@v4
+        with:
+          ref: updater
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Wait for update-manifests workflow
+        run: |
+          echo "Waiting for update-manifests workflow to complete..."
+          sleep 30
+      
+      - name: Pull latest changes
+        run: |
+          git pull origin updater
+      
+      - name: Update latest.json URLs for Gitee
+        run: |
+          if [ -f latest.json ]; then
+            echo "Updating latest.json URLs from GitHub to Gitee..."
+            
+            # Replace GitHub URLs with Gitee URLs
+            sed -i 's|https://github.com/yyuchenn/bubblefish|https://gitee.com/yyuchenn/bubblefish|g' latest.json
+            
+            echo "Updated latest.json:"
+            cat latest.json
+          else
+            echo "latest.json not found, skipping URL update"
+          fi
+      
+      - name: Push updater branch to Gitee
+        run: |
+          # Configure git
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # Add Gitee remote
+          git remote add gitee https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/yyuchenn/bubblefish.git || true
+          
+          # Force push updater branch to Gitee
+          git push gitee updater --force
+          
+          echo "✅ Updater branch synced to Gitee"
+          
+      - name: Create Gitee Release (if release)
+        if: github.event_name == 'release'
+        run: |
+          # 使用 curl 创建 Gitee Release
+          TAG_NAME="${{ github.event.release.tag_name }}"
+          RELEASE_NAME="${{ github.event.release.name }}"
+          RELEASE_BODY="${{ github.event.release.body }}"
+          
+          # 截断过长的描述
+          if [ ${#RELEASE_BODY} -gt 5000 ]; then
+            RELEASE_BODY="${RELEASE_BODY:0:4997}..."
+          fi
+          
+          curl -X POST \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"access_token\": \"${{ secrets.GITEE_TOKEN }}\",
+              \"tag_name\": \"$TAG_NAME\",
+              \"name\": \"$RELEASE_NAME\",
+              \"body\": \"$RELEASE_BODY\",
+              \"prerelease\": ${{ github.event.release.prerelease }}
+            }" \
+            "https://gitee.com/api/v5/repos/yyuchenn/bubblefish/releases" || true
+          
+          echo "✅ Gitee Release 创建完成（或已存在）"
+          echo "📎 请手动上传 Release 资源文件到: https://gitee.com/yyuchenn/bubblefish/releases"

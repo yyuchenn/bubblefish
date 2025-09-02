@@ -26,6 +26,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [
+      "resources/plugins/*"
+    ],
     "windows": {
       "nsis": {
         "installMode": "perMachine",
@@ -34,6 +37,9 @@
         "headerImage": "./resources/nsis/header.bmp",
         "sidebarImage": "./resources/nsis/sidebar.bmp",
         "installerIcon": "./icons/installer_icon.ico"
+      },
+      "wix": {
+        "language": "en-US"
       }
     }
   },

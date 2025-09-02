@@ -86,69 +86,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Generate update manifest for lite version
+      - name: Generate update manifest
         run: |
           VERSION="${{ steps.release_info.outputs.version }}"
           PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
           REPO="${{ github.repository }}"
           
-          # Create manifest for lite version (without plugins) using jq
-          jq -n \
-            --arg version "$VERSION" \
-            --arg notes "${{ steps.release_info.outputs.release_notes }}" \
-            --arg pub_date "$PUB_DATE" \
-            --arg repo "$REPO" \
-            '{
-              version: $version,
-              notes: $notes,
-              pub_date: $pub_date,
-              platforms: {
-                "darwin-aarch64": {
-                  "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_aarch64-core.dmg"
-                },
-                "darwin-x86_64": {
-                  "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64-core.dmg"
-                },
-                "linux-x86_64": {
-                  "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_amd64-core.AppImage"
-                },
-                "windows-x86_64": {
-                  "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64-en-US-core.msi"
-                }
-              }
-            }' > latest.json
-          
-          # Add signatures if available
-          for sig_file in temp_assets/*.sig; do
-            if [ -f "$sig_file" ]; then
-              base_name=$(basename "$sig_file" .sig)
-              if [[ "$base_name" == *"-core"* ]]; then
-                signature=$(cat "$sig_file")
-                # Update the appropriate platform signature
-                if [[ "$base_name" == *"aarch64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
-                  jq ".platforms.\"darwin-aarch64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
-                elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
-                  jq ".platforms.\"darwin-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
-                elif [[ "$base_name" == *"amd64"* ]] && [[ "$base_name" == *".AppImage"* ]]; then
-                  jq ".platforms.\"linux-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
-                elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".msi"* ]]; then
-                  jq ".platforms.\"windows-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
-                fi
-              fi
-            fi
-          done
-      
-      - name: Generate update manifest for bundled version
-        run: |
-          VERSION="${{ steps.release_info.outputs.version }}"
-          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          REPO="${{ github.repository }}"
-          
-          # Create manifest for bundled version (with plugins) using jq
+          # Create manifest using jq
           jq -n \
             --arg version "$VERSION" \
             --arg notes "${{ steps.release_info.outputs.release_notes }}" \
@@ -163,48 +107,35 @@ jobs:
                   "signature": "",
                   "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_aarch64.dmg"
                 },
-                "darwin-x86_64": {
-                  "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64.dmg"
-                },
-                "linux-x86_64": {
-                  "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_amd64.AppImage"
-                },
                 "windows-x86_64": {
                   "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64-en-US.msi"
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64.msi"
                 }
               }
-            }' > latest-bundled.json
+            }' > latest.json
           
           # Add signatures if available
           for sig_file in temp_assets/*.sig; do
             if [ -f "$sig_file" ]; then
               base_name=$(basename "$sig_file" .sig)
-              if [[ "$base_name" != *"-core"* ]]; then
-                signature=$(cat "$sig_file")
-                # Update the appropriate platform signature
-                if [[ "$base_name" == *"aarch64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
-                  jq ".platforms.\"darwin-aarch64\".signature = \"$signature\"" latest-bundled.json > latest-bundled.tmp && mv latest-bundled.tmp latest-bundled.json
-                elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
-                  jq ".platforms.\"darwin-x86_64\".signature = \"$signature\"" latest-bundled.json > latest-bundled.tmp && mv latest-bundled.tmp latest-bundled.json
-                elif [[ "$base_name" == *"amd64"* ]] && [[ "$base_name" == *".AppImage"* ]]; then
-                  jq ".platforms.\"linux-x86_64\".signature = \"$signature\"" latest-bundled.json > latest-bundled.tmp && mv latest-bundled.tmp latest-bundled.json
-                elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".msi"* ]]; then
-                  jq ".platforms.\"windows-x86_64\".signature = \"$signature\"" latest-bundled.json > latest-bundled.tmp && mv latest-bundled.tmp latest-bundled.json
-                fi
+              signature=$(cat "$sig_file")
+              # Update the appropriate platform signature
+              if [[ "$base_name" == *"aarch64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
+                jq ".platforms.\"darwin-aarch64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
+              elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".msi"* ]]; then
+                jq ".platforms.\"windows-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
               fi
             fi
           done
+      
       
       - name: Commit and push manifests
         run: |
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
           
-          # Add manifests
-          git add latest.json latest-bundled.json
+          # Add manifest
+          git add latest.json
           
           # Commit if there are changes
           if git diff --staged --quiet; then
@@ -220,5 +151,4 @@ jobs:
           name: update-manifests
           path: |
             latest.json
-            latest-bundled.json
           retention-days: 30
