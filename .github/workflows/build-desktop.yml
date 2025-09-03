@@ -150,36 +150,6 @@ jobs:
             Write-Host "MSI directory not found at: $msiPath"
           }
       
-      - name: Sign builds
-        if: github.event_name == 'release'
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
-        shell: pwsh
-        run: |
-          # Sign MSI installer for updates
-          $msiFiles = Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
-          
-          foreach ($msi in $msiFiles) {
-            if (Test-Path $msi.FullName) {
-              Write-Host "Signing with Tauri: $($msi.Name)"
-              # Use environment variable directly - pass as single-quoted string to avoid PowerShell interpretation
-              $privateKey = $env:TAURI_PRIVATE_KEY
-              $keyPassword = $env:TAURI_KEY_PASSWORD
-              & cargo tauri signer sign "$($msi.FullName)" -k $privateKey -p $keyPassword
-            }
-          }
-          
-          # Also sign NSIS installer
-          $exeFiles = Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
-          
-          foreach ($exe in $exeFiles) {
-            if (Test-Path $exe.FullName) {
-              Write-Host "Signing with Tauri: $($exe.Name)"
-              & cargo tauri signer sign "$($exe.FullName)" -k $privateKey -p $keyPassword
-            }
-          }
-
       - name: Sign Windows Executables
         if: env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE != null
         env:
@@ -243,6 +213,35 @@ jobs:
           Remove-Item $certPath -Force
           Write-Host "Code signing completed"
       
+      
+      - name: Sign builds
+        if: github.event_name == 'release'
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        shell: pwsh
+        run: |
+          # Sign MSI installer for updates
+          $msiFiles = Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
+          
+          foreach ($msi in $msiFiles) {
+            if (Test-Path $msi.FullName) {
+              Write-Host "Signing with Tauri: $($msi.Name)"
+              # Use environment variable directly - pass as single-quoted string to avoid PowerShell interpretation
+              & cargo tauri signer sign "$($msi.FullName)"
+            }
+          }
+          
+          # Also sign NSIS installer
+          $exeFiles = Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          
+          foreach ($exe in $exeFiles) {
+            if (Test-Path $exe.FullName) {
+              Write-Host "Signing with Tauri: $($exe.Name)"
+              & cargo tauri signer sign "$($exe.FullName)"
+            }
+          }
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -349,14 +348,14 @@ jobs:
         if: github.event_name == 'release'
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           # Sign DMG installer for updates
           for dmg in target/release/bundle/dmg/*.dmg; do
             if [ -f "$dmg" ]; then
               echo "Signing with Tauri: $dmg"
               # Use environment variable directly (cargo tauri signer handles base64 decoding)
-              cargo tauri signer sign "$dmg" -k "$TAURI_PRIVATE_KEY" -p "$TAURI_KEY_PASSWORD"
+              cargo tauri signer sign "$dmg"
             fi
           done
           
@@ -367,7 +366,7 @@ jobs:
               app_name=$(basename "$app")
               tar -czf "${app}.tar.gz" -C "$(dirname "$app")" "$app_name"
               
-              cargo tauri signer sign "${app}.tar.gz" -k "$TAURI_PRIVATE_KEY" -p "$TAURI_KEY_PASSWORD"
+              cargo tauri signer sign "${app}.tar.gz"
             fi
           done
 
@@ -502,3 +501,24 @@ jobs:
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  trigger-update-manifests:
+    name: Trigger Update Manifests
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos]
+    if: github.event_name == 'release'
+    
+    steps:
+      - name: Trigger update manifests workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'update-manifests.yml',
+              ref: '${{ github.event.release.target_commitish || github.ref_name }}',
+              inputs: {
+                version: '${{ github.event.release.tag_name }}',
+                release_url: '${{ github.event.release.html_url }}'
+              }
+            })
