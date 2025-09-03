@@ -125,6 +125,17 @@ jobs:
           cd frontend
           yarn install
 
+      - name: Clean old build artifacts
+        shell: pwsh
+        run: |
+          Write-Host "Cleaning old build artifacts..."
+          $bundlePath = "target\release\bundle"
+          if (Test-Path $bundlePath) {
+            Write-Host "Removing old bundle directory: $bundlePath"
+            Remove-Item -Path $bundlePath -Recurse -Force
+          }
+          Write-Host "Old artifacts cleaned"
+
       - name: Build desktop
         run: python build.py desktop-build
       
@@ -341,6 +352,15 @@ jobs:
           cd frontend
           yarn install
 
+      - name: Clean old build artifacts
+        run: |
+          echo "Cleaning old build artifacts..."
+          if [ -d "target/release/bundle" ]; then
+            echo "Removing old bundle directory: target/release/bundle"
+            rm -rf target/release/bundle
+          fi
+          echo "Old artifacts cleaned"
+
       - name: Build desktop
         run: python3 build.py desktop-build
       
@@ -410,7 +430,7 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Generate checksums and summary
+      - name: Generate build summary
         run: |
           # Create summary file
           SUMMARY_FILE="build-summary.md"
@@ -459,23 +479,6 @@ jobs:
           
           echo "" >> $SUMMARY_FILE
           
-          # Generate checksums file
-          echo "## Checksums File" >> $SUMMARY_FILE
-          echo "" >> $SUMMARY_FILE
-          echo "A \`checksums.md5\` file has been generated with all MD5 hashes." >> $SUMMARY_FILE
-          
-          # Create MD5 checksums file
-          CHECKSUM_FILE="checksums.md5"
-          echo "# MD5 Checksums for Bubblefish Build" > $CHECKSUM_FILE
-          echo "# Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $CHECKSUM_FILE
-          echo "" >> $CHECKSUM_FILE
-          
-          find artifacts -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.dmg" -o -name "*.app.tar.gz" \) 2>/dev/null | while read f; do
-            if [ -f "$f" ]; then
-              md5sum "$f" | sed "s|artifacts/[^/]*/||" >> $CHECKSUM_FILE
-            fi
-          done
-          
           # Display summary in job output
           cat $SUMMARY_FILE
           
@@ -488,7 +491,6 @@ jobs:
           name: build-summary
           path: |
             build-summary.md
-            checksums.md5
           retention-days: 30
 
       - name: Add summary to release (if release)
@@ -497,7 +499,6 @@ jobs:
         with:
           files: |
             build-summary.md
-            checksums.md5
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
