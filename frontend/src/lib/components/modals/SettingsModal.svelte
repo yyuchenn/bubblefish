@@ -20,7 +20,7 @@
 		onClose?: () => void;
 	}>();
 	
-	let activeTab = $state<'theme' | 'update' | 'other'>('theme');
+	let activeTab = $state<'appearance' | 'editor' | 'update'>('appearance');
 
 	function handleClose() {
 		onClose();
@@ -60,32 +60,32 @@
 	<div class="h-[80vh] w-[80vw] flex flex-col">
 		<div class="border-b border-theme-outline pb-4 mb-6">
 			<h2 class="text-2xl font-bold text-theme-on-background">设置</h2>
-			{#if platformService.isTauri()}
-				<div class="flex gap-2 mt-4">
-					<button
-						class="px-4 py-2 rounded-md transition-colors {activeTab === 'theme' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
-						onclick={() => activeTab = 'theme'}
-					>
-						主题
-					</button>
+			<div class="flex gap-2 mt-4">
+				<button
+					class="px-4 py-2 rounded-md transition-colors {activeTab === 'appearance' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
+					onclick={() => activeTab = 'appearance'}
+				>
+					外观
+				</button>
+				<button
+					class="px-4 py-2 rounded-md transition-colors {activeTab === 'editor' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
+					onclick={() => activeTab = 'editor'}
+				>
+					编辑器
+				</button>
+				{#if platformService.isTauri()}
 					<button
 						class="px-4 py-2 rounded-md transition-colors {activeTab === 'update' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
 						onclick={() => activeTab = 'update'}
 					>
 						更新
 					</button>
-					<button
-						class="px-4 py-2 rounded-md transition-colors {activeTab === 'other' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
-						onclick={() => activeTab = 'other'}
-					>
-						其他
-					</button>
-				</div>
-			{/if}
+				{/if}
+			</div>
 		</div>
 		
 		<div class="flex-1 overflow-y-auto">
-			{#if !platformService.isTauri() || activeTab === 'theme'}
+			{#if activeTab === 'appearance'}
 				<div class="space-y-6">
 					<div>
 						<h3 class="text-lg font-semibold text-theme-on-background mb-4">主题</h3>
@@ -114,6 +114,11 @@
 							{/each}
 						</div>
 					</div>
+				</div>
+			{:else if activeTab === 'editor'}
+				<div class="space-y-6">
+					<h3 class="text-lg font-semibold text-theme-on-background mb-4">编辑器设置</h3>
+					<p class="text-sm text-theme-on-surface-variant">更多设置选项即将推出...</p>
 				</div>
 			{:else if activeTab === 'update'}
 				<div class="space-y-6">
@@ -236,11 +241,6 @@
 							</label>
 						</div>
 					</div>
-				</div>
-			{:else if activeTab === 'other'}
-				<div class="space-y-6">
-					<h3 class="text-lg font-semibold text-theme-on-background mb-4">其他设置</h3>
-					<p class="text-sm text-theme-on-surface-variant">更多设置选项即将推出...</p>
 				</div>
 			{/if}
 		</div>
