@@ -35,8 +35,15 @@
 	}
 	
 	async function downloadAndInstall() {
-		if (confirm('将下载并安装更新，应用将在安装完成后重启。是否继续？')) {
-			await updaterService.downloadAndInstall();
+		const message = '将下载更新，更新会在下次启动应用时自动安装。是否继续？';
+		if (confirm(message)) {
+			await updaterService.downloadAndInstall(false);
+		}
+	}
+	
+	async function restartNow() {
+		if (confirm('立即重启应用以安装更新？')) {
+			await updaterService.restartAndUpdate();
 		}
 	}
 	
@@ -148,6 +155,16 @@
 						</div>
 						
 						<!-- Update Status -->
+					{#if $updateInfo.pendingInstall}
+					<div class="bg-theme-primary/10 text-theme-primary p-4 rounded-lg mb-4">
+						<div class="flex items-center gap-2">
+							<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+								<path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+							</svg>
+							<span class="font-medium">更新已下载，将在下次启动时安装</span>
+						</div>
+					</div>
+					{/if}
 						{#if $updateInfo.available}
 							<div class="bg-theme-primary/10 border border-theme-primary rounded-lg p-4 mb-4">
 								<div class="flex items-start gap-3">
@@ -197,12 +214,19 @@
 							>
 								{$isCheckingUpdate ? '检查中...' : '检查更新'}
 							</button>
-							{#if $updateInfo.available && !$isDownloadingUpdate}
+							{#if $updateInfo.pendingInstall}
+								<button
+									class="px-4 py-2 bg-theme-secondary text-theme-on-secondary rounded-md hover:bg-theme-secondary/90 transition-colors"
+									onclick={restartNow}
+								>
+									立即重启并安装
+								</button>
+							{:else if $updateInfo.available && !$isDownloadingUpdate}
 								<button
 									class="px-4 py-2 bg-theme-secondary text-theme-on-secondary rounded-md hover:bg-theme-secondary/90 transition-colors"
 									onclick={downloadAndInstall}
 								>
-									下载并安装
+									下载更新
 								</button>
 							{/if}
 						</div>
@@ -229,7 +253,7 @@
 							<label class="flex items-center justify-between cursor-pointer">
 								<div>
 									<span class="text-sm font-medium text-theme-on-surface">自动下载更新</span>
-									<p class="text-xs text-theme-on-surface-variant mt-1">发现新版本时自动下载（需要自动检查）</p>
+									<p class="text-xs text-theme-on-surface-variant mt-1">发现新版本时自动下载，在下次启动时安装（需要自动检查）</p>
 								</div>
 								<input
 									type="checkbox"

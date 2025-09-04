@@ -8,6 +8,7 @@ export interface UpdateInfo {
   notes?: string;
   date?: string;
   error?: string;
+  pendingInstall?: boolean;
 }
 
 export interface UpdateSettings {
@@ -27,7 +28,8 @@ const defaultSettings: UpdateSettings = {
 // Stores
 export const updateInfo = writable<UpdateInfo>({
   available: false,
-  currentVersion: '0.1.0'
+  currentVersion: '0.1.0',
+  pendingInstall: false
 });
 
 export const updateSettings = writable<UpdateSettings>(defaultSettings);
@@ -40,7 +42,18 @@ class UpdaterService {
   
   constructor() {
     this.loadSettings();
+    this.checkPendingUpdate();
     this.initAutoCheck();
+  }
+  
+  private checkPendingUpdate() {
+    if (!platformService.isTauri()) return;
+    
+    // Check if there's a pending update from previous session
+    const hasPendingUpdate = localStorage.getItem('pendingUpdate') === 'true';
+    if (hasPendingUpdate) {
+      updateInfo.update(info => ({ ...info, pendingInstall: true }));
+    }
   }
   
   private async loadSettings() {
@@ -172,7 +185,7 @@ class UpdaterService {
     }
   }
   
-  async downloadAndInstall(): Promise<void> {
+  async downloadAndInstall(restartNow = false): Promise<void> {
     if (!platformService.isTauri()) return;
     
     isDownloadingUpdate.set(true);
@@ -221,14 +234,33 @@ class UpdaterService {
         }
       });
       
-      // Relaunch the app
-      await relaunch();
+      // Mark update as pending install
+      updateInfo.update(info => ({ ...info, pendingInstall: true }));
+      localStorage.setItem('pendingUpdate', 'true');
+      
+      // Only relaunch if explicitly requested
+      if (restartNow) {
+        await relaunch();
+      }
     } catch (error) {
       console.error('Failed to download and install update:', error);
       throw error;
     } finally {
       isDownloadingUpdate.set(false);
       downloadProgress.set(0);
+    }
+  }
+  
+  async restartAndUpdate(): Promise<void> {
+    if (!platformService.isTauri()) return;
+    
+    try {
+      const processModule = await import('@tauri-apps/plugin-process');
+      const relaunch = processModule.relaunch;
+      await relaunch();
+    } catch (error) {
+      console.error('Failed to restart app:', error);
+      throw error;
     }
   }
   
