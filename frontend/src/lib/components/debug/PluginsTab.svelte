@@ -47,9 +47,7 @@
 	}
 	
 	async function unloadPlugin(plugin: PluginInfo) {
-		if (confirm(`确定要卸载插件 "${plugin.metadata.name}" 吗？`)) {
-			await pluginService.unloadPlugin(plugin.metadata.id);
-		}
+		await pluginService.unloadPlugin(plugin.metadata.id);
 	}
 	
 	

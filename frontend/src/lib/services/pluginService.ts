@@ -365,11 +365,16 @@ class PluginService {
         }
         
         this.plugins.update(plugins => {
-            const plugin = plugins.get(pluginId);
+            const newPlugins = new Map(plugins);
+            const plugin = newPlugins.get(pluginId);
             if (plugin) {
-                plugin.enabled = true;
+                // Create a new plugin object to trigger reactivity
+                newPlugins.set(pluginId, {
+                    ...plugin,
+                    enabled: true
+                });
             }
-            return plugins;
+            return newPlugins;
         });
         
         // Save state after enabling
@@ -390,11 +395,16 @@ class PluginService {
         }
         
         this.plugins.update(plugins => {
-            const plugin = plugins.get(pluginId);
+            const newPlugins = new Map(plugins);
+            const plugin = newPlugins.get(pluginId);
             if (plugin) {
-                plugin.enabled = false;
+                // Create a new plugin object to trigger reactivity
+                newPlugins.set(pluginId, {
+                    ...plugin,
+                    enabled: false
+                });
             }
-            return plugins;
+            return newPlugins;
         });
         
         // Save state after disabling
