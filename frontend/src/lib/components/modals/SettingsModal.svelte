@@ -8,7 +8,9 @@
 		updateSettings,
 		isCheckingUpdate,
 		isDownloadingUpdate,
-		downloadProgress
+		downloadProgress,
+		UPDATE_SOURCE_NAMES,
+		type UpdateSource
 	} from '$lib/services/updaterService';
 	import { onMount } from 'svelte';
 	
@@ -53,6 +55,10 @@
 	
 	function toggleAutoDownload(value: boolean) {
 		updaterService.updateSetting('autoDownload', value);
+	}
+	
+	function changeUpdateSource(source: UpdateSource) {
+		updaterService.updateSetting('updateSource', source);
 	}
 	
 	onMount(() => {
@@ -237,6 +243,22 @@
 						<h3 class="text-lg font-semibold text-theme-on-background mb-4">更新设置</h3>
 						
 						<div class="space-y-4">
+							<!-- Update Source Selection -->
+							<div>
+								<span class="text-sm font-medium text-theme-on-surface">更新源</span>
+								<p class="text-xs text-theme-on-surface-variant mt-1 mb-3">选择检查更新的服务器</p>
+								<div class="grid grid-cols-2 gap-2">
+									{#each Object.entries(UPDATE_SOURCE_NAMES) as [source, name] (source)}
+										<button
+											class="px-3 py-2 text-sm rounded-md transition-colors {$updateSettings.updateSource === source ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
+											onclick={() => changeUpdateSource(source as UpdateSource)}
+										>
+											{name}
+										</button>
+									{/each}
+								</div>
+							</div>
+							
 							<label class="flex items-center justify-between cursor-pointer">
 								<div>
 									<span class="text-sm font-medium text-theme-on-surface">自动检查更新</span>
