@@ -31,7 +31,7 @@ pub struct HostCallbacks {
 static mut HOST_CALLBACKS: Option<HostCallbacks> = None;
 
 /// Set the host callbacks (called during plugin initialization)
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn plugin_set_host_callbacks(callbacks: HostCallbacks) {
     unsafe {
         HOST_CALLBACKS = Some(callbacks);

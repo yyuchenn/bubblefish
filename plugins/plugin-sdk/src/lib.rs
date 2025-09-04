@@ -186,7 +186,7 @@ macro_rules! export_plugin {
         });
         
         /// Initialize plugin - called by host
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn plugin_init(plugin_id: *const std::os::raw::c_char) -> i32 {
             use $crate::{Plugin, PluginContext, ServiceProxyManager};
             
@@ -216,7 +216,7 @@ macro_rules! export_plugin {
         }
         
         /// Handle core event
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn plugin_on_event(event_json: *const std::os::raw::c_char) -> i32 {
             use $crate::{Plugin, CoreEvent};
             
@@ -247,7 +247,7 @@ macro_rules! export_plugin {
         }
         
         /// Handle plugin message
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn plugin_on_message(
             from: *const std::os::raw::c_char,
             message_json: *const std::os::raw::c_char
@@ -287,7 +287,7 @@ macro_rules! export_plugin {
         }
         
         /// Activate plugin
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn plugin_activate() -> i32 {
             use $crate::Plugin;
             
@@ -305,7 +305,7 @@ macro_rules! export_plugin {
         }
         
         /// Deactivate plugin
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn plugin_deactivate() -> i32 {
             use $crate::Plugin;
             
@@ -323,7 +323,7 @@ macro_rules! export_plugin {
         }
         
         /// Destroy plugin
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn plugin_destroy() {
             use $crate::Plugin;
             
@@ -337,7 +337,7 @@ macro_rules! export_plugin {
         }
         
         /// Get plugin metadata
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn plugin_get_metadata() -> *mut std::os::raw::c_char {
             use $crate::Plugin;
             
@@ -356,7 +356,7 @@ macro_rules! export_plugin {
         }
         
         /// Free string allocated by plugin
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         pub extern "C" fn plugin_free_string(s: *mut std::os::raw::c_char) {
             if !s.is_null() {
                 unsafe {
