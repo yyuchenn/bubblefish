@@ -2,39 +2,39 @@
 
 /* Theme Color Variables */
 :root {
-	/* Default fruit theme colors as fallback to match JavaScript default */
-	--color-background: #fef7ed;
-	--color-surface: #fff7ed;
-	--color-surface-variant: #fed7aa;
+	/* Default ocean theme colors as fallback to match JavaScript default */
+	--color-background: #ffffff;
+	--color-surface: #f8fafc;
+	--color-surface-variant: #f1f5f9;
 
-	--color-on-background: #431407;
-	--color-on-surface: #7c2d12;
-	--color-on-surface-variant: #9a3412;
+	--color-on-background: #1e293b;
+	--color-on-surface: #334155;
+	--color-on-surface-variant: #64748b;
 
-	--color-primary: #ff6b35;
-	--color-primary-rgb: 255, 107, 53;
+	--color-primary: #3b82f6;
+	--color-primary-rgb: 59, 130, 246;
 	--color-on-primary: #ffffff;
-	--color-primary-container: #ffedd5;
-	--color-on-primary-container: #c2410c;
+	--color-primary-container: #dbeafe;
+	--color-on-primary-container: #1e40af;
 
-	--color-secondary: #e11d48;
-	--color-secondary-rgb: 225, 29, 72;
+	--color-secondary: #6b7280;
+	--color-secondary-rgb: 107, 114, 128;
 	--color-on-secondary: #ffffff;
-	--color-secondary-container: #fecdd3;
-	--color-on-secondary-container: #be123c;
+	--color-secondary-container: #f3f4f6;
+	--color-on-secondary-container: #374151;
 
 	--color-error: #dc2626;
 	--color-on-error: #ffffff;
 	--color-error-container: #fecaca;
 	--color-on-error-container: #991b1b;
 
-	--color-outline: #fed7aa;
-	--color-outline-variant: #fdba74;
+	--color-outline: #e2e8f0;
+	--color-outline-variant: #cbd5e1;
 
-	--color-hover: rgba(255, 107, 53, 0.1);
-	--color-pressed: rgba(255, 107, 53, 0.2);
-	--color-focus: rgba(225, 29, 72, 0.1);
-	--color-disabled: rgba(120, 45, 18, 0.38);
+	--color-hover: rgba(59, 130, 246, 0.1);
+	--color-pressed: rgba(59, 130, 246, 0.2);
+	--color-focus: rgba(107, 114, 128, 0.1);
+	--color-disabled: rgba(100, 116, 139, 0.38);
 }
 
 /* Animations */

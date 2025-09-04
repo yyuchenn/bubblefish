@@ -25,6 +25,7 @@ on:
 permissions:
   contents: write
   packages: write
+  actions: write
 
 env:
   NODE_VERSION: '20'
@@ -124,6 +125,17 @@ jobs:
           cd frontend
           yarn install
 
+      - name: Clean old build artifacts
+        shell: pwsh
+        run: |
+          Write-Host "Cleaning old build artifacts..."
+          $bundlePath = "target\release\bundle"
+          if (Test-Path $bundlePath) {
+            Write-Host "Removing old bundle directory: $bundlePath"
+            Remove-Item -Path $bundlePath -Recurse -Force
+          }
+          Write-Host "Old artifacts cleaned"
+
       - name: Build desktop
         run: python build.py desktop-build
       
@@ -149,23 +161,6 @@ jobs:
             Write-Host "MSI directory not found at: $msiPath"
           }
       
-      - name: Sign builds
-        if: github.event_name == 'release'
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
-        shell: pwsh
-        run: |
-          # Sign the actual executable file, not the installer
-          $exePath = "target\release\bubblefish-desktop.exe"
-          if (Test-Path $exePath) {
-            Write-Host "Signing with Tauri: $exePath"
-            # Use -k for private key and -p for password
-            cargo tauri signer sign "$exePath" -k "$env:TAURI_PRIVATE_KEY" -p "$env:TAURI_KEY_PASSWORD"
-          } else {
-            Write-Host "Executable not found at: $exePath"
-          }
-
       - name: Sign Windows Executables
         if: env.WINDOWS_CERTIFICATE != '' && env.WINDOWS_CERTIFICATE != null
         env:
@@ -229,6 +224,35 @@ jobs:
           Remove-Item $certPath -Force
           Write-Host "Code signing completed"
       
+      
+      - name: Sign builds
+        if: github.event_name == 'release'
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+        shell: pwsh
+        run: |
+          # Sign MSI installer for updates
+          $msiFiles = Get-ChildItem -Path "target\release\bundle\msi" -Filter "*.msi" -ErrorAction SilentlyContinue
+          
+          foreach ($msi in $msiFiles) {
+            if (Test-Path $msi.FullName) {
+              Write-Host "Signing with Tauri: $($msi.Name)"
+              # Use environment variable directly - pass as single-quoted string to avoid PowerShell interpretation
+              & cargo tauri signer sign "$($msi.FullName)"
+            }
+          }
+          
+          # Also sign NSIS installer
+          $exeFiles = Get-ChildItem -Path "target\release\bundle\nsis" -Filter "*.exe" -ErrorAction SilentlyContinue
+          
+          foreach ($exe in $exeFiles) {
+            if (Test-Path $exe.FullName) {
+              Write-Host "Signing with Tauri: $($exe.Name)"
+              & cargo tauri signer sign "$($exe.FullName)"
+            }
+          }
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -243,8 +267,9 @@ jobs:
         with:
           files: |
             target/release/bundle/msi/*.msi
+            target/release/bundle/msi/*.msi.sig
             target/release/bundle/nsis/*.exe
-            target/release/bubblefish-desktop.exe.sig
+            target/release/bundle/nsis/*.exe.sig
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -327,6 +352,15 @@ jobs:
           cd frontend
           yarn install
 
+      - name: Clean old build artifacts
+        run: |
+          echo "Cleaning old build artifacts..."
+          if [ -d "target/release/bundle" ]; then
+            echo "Removing old bundle directory: target/release/bundle"
+            rm -rf target/release/bundle
+          fi
+          echo "Old artifacts cleaned"
+
       - name: Build desktop
         run: python3 build.py desktop-build
       
@@ -334,18 +368,25 @@ jobs:
         if: github.event_name == 'release'
         env:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
+          TAURI_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
-          # Sign the actual .app bundle, not the DMG installer
+          # Sign DMG installer for updates
+          for dmg in target/release/bundle/dmg/*.dmg; do
+            if [ -f "$dmg" ]; then
+              echo "Signing with Tauri: $dmg"
+              # Use environment variable directly (cargo tauri signer handles base64 decoding)
+              cargo tauri signer sign "$dmg"
+            fi
+          done
+          
+          # Also create tar.gz of app bundles and sign them
           for app in target/release/bundle/macos/*.app; do
             if [ -d "$app" ]; then
-              echo "Signing with Tauri: $app"
-              # Create a tar.gz of the app bundle and sign that
+              echo "Creating and signing tar.gz for: $app"
               app_name=$(basename "$app")
               tar -czf "${app}.tar.gz" -C "$(dirname "$app")" "$app_name"
               
-              # Use -k for private key and -p for password
-              cargo tauri signer sign "${app}.tar.gz" -k "$TAURI_PRIVATE_KEY" -p "$TAURI_KEY_PASSWORD"
+              cargo tauri signer sign "${app}.tar.gz"
             fi
           done
 
@@ -368,6 +409,7 @@ jobs:
         with:
           files: |
             target/release/bundle/dmg/*.dmg
+            target/release/bundle/dmg/*.dmg.sig
             target/release/bundle/macos/*.app.tar.gz
             target/release/bundle/macos/*.app.tar.gz.sig
           fail_on_unmatched_files: false
@@ -388,7 +430,7 @@ jobs:
         with:
           path: artifacts/
 
-      - name: Generate checksums and summary
+      - name: Generate build summary
         run: |
           # Create summary file
           SUMMARY_FILE="build-summary.md"
@@ -437,23 +479,6 @@ jobs:
           
           echo "" >> $SUMMARY_FILE
           
-          # Generate checksums file
-          echo "## Checksums File" >> $SUMMARY_FILE
-          echo "" >> $SUMMARY_FILE
-          echo "A \`checksums.md5\` file has been generated with all MD5 hashes." >> $SUMMARY_FILE
-          
-          # Create MD5 checksums file
-          CHECKSUM_FILE="checksums.md5"
-          echo "# MD5 Checksums for Bubblefish Build" > $CHECKSUM_FILE
-          echo "# Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $CHECKSUM_FILE
-          echo "" >> $CHECKSUM_FILE
-          
-          find artifacts -type f \( -name "*.exe" -o -name "*.msi" -o -name "*.dmg" -o -name "*.app.tar.gz" \) 2>/dev/null | while read f; do
-            if [ -f "$f" ]; then
-              md5sum "$f" | sed "s|artifacts/[^/]*/||" >> $CHECKSUM_FILE
-            fi
-          done
-          
           # Display summary in job output
           cat $SUMMARY_FILE
           
@@ -466,7 +491,6 @@ jobs:
           name: build-summary
           path: |
             build-summary.md
-            checksums.md5
           retention-days: 30
 
       - name: Add summary to release (if release)
@@ -475,7 +499,6 @@ jobs:
         with:
           files: |
             build-summary.md
-            checksums.md5
           fail_on_unmatched_files: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -494,7 +517,7 @@ jobs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               workflow_id: 'update-manifests.yml',
-              ref: 'main',
+              ref: '${{ github.event.release.target_commitish || github.ref_name }}',
               inputs: {
                 version: '${{ github.event.release.tag_name }}',
                 release_url: '${{ github.event.release.html_url }}'

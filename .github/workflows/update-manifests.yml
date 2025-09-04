@@ -1,8 +1,6 @@
 name: Update Release Manifests
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -14,6 +12,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   update-manifests:
@@ -41,15 +40,25 @@ jobs:
       
       - name: Get release information
         id: release_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
+          # Determine if triggered by release event or workflow_dispatch
+          if [[ "${{ github.event_name }}" == "release" ]]; then
             VERSION="${{ github.event.release.tag_name }}"
             RELEASE_URL="${{ github.event.release.html_url }}"
             RELEASE_NOTES="${{ github.event.release.body }}"
           else
             VERSION="${{ github.event.inputs.version }}"
             RELEASE_URL="${{ github.event.inputs.release_url }}"
-            RELEASE_NOTES="Update to version $VERSION"
+            
+            # Fetch release notes from the GitHub API for workflow_dispatch
+            RELEASE_TAG="${VERSION}"
+            if [[ ! "$RELEASE_TAG" =~ ^v ]]; then
+              RELEASE_TAG="v${VERSION}"
+            fi
+            
+            RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/tags/${RELEASE_TAG} --jq '.body' 2>/dev/null || echo "Update to version $VERSION")
           fi
           
           # Remove 'v' prefix if present
@@ -105,7 +114,7 @@ jobs:
               platforms: {
                 "darwin-aarch64": {
                   "signature": "",
-                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_aarch64.dmg"
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish.app.tar.gz"
                 },
                 "windows-x86_64": {
                   "signature": "",
@@ -118,15 +127,25 @@ jobs:
           for sig_file in temp_assets/*.sig; do
             if [ -f "$sig_file" ]; then
               base_name=$(basename "$sig_file" .sig)
-              signature=$(cat "$sig_file")
+              # Read signature and ensure it's properly formatted
+              signature=$(cat "$sig_file" | tr -d '\n\r')
+              echo "Processing signature for: $base_name"
+              echo "Signature content: $signature"
+              
               # Update the appropriate platform signature
-              if [[ "$base_name" == *"aarch64"* ]] && [[ "$base_name" == *".dmg"* ]]; then
-                jq ".platforms.\"darwin-aarch64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
-              elif [[ "$base_name" == *"x64"* ]] && [[ "$base_name" == *".msi"* ]]; then
-                jq ".platforms.\"windows-x86_64\".signature = \"$signature\"" latest.json > latest.tmp && mv latest.tmp latest.json
+              if [[ "$base_name" == *".app.tar.gz"* ]]; then
+                echo "Updating darwin-aarch64 signature for app.tar.gz"
+                jq --arg sig "$signature" '.platforms."darwin-aarch64".signature = $sig' latest.json > latest.tmp && mv latest.tmp latest.json
+              elif [[ "$base_name" == *"x64"* ]] || [[ "$base_name" == *".msi"* ]]; then
+                echo "Updating windows-x86_64 signature"
+                jq --arg sig "$signature" '.platforms."windows-x86_64".signature = $sig' latest.json > latest.tmp && mv latest.tmp latest.json
               fi
             fi
           done
+          
+          # Check if signatures were added
+          echo "Final manifest:"
+          cat latest.json
       
       
       - name: Commit and push manifests
@@ -152,3 +171,14 @@ jobs:
           path: |
             latest.json
           retention-days: 30
+      
+      - name: Trigger sync to Gitee
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'sync-gitee.yml',
+              ref: 'main'
+            })

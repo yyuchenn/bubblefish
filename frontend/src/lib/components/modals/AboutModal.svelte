@@ -56,7 +56,7 @@
 				
 				<!-- Version -->
 				<p class="text-theme-on-surface-variant text-md">
-					版本: 0.1.0-beta
+					版本: {__APP_VERSION__}
 				</p>
 				
 				<!-- Author info -->
