@@ -3,6 +3,22 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { resolve } from 'path';
+import { readFileSync } from 'fs';
+
+// Read version from Tauri config
+let appVersion = '0.0.1'; // default version
+try {
+	const tauriConfig = JSON.parse(readFileSync(resolve(__dirname, '../desktop/tauri.conf.json'), 'utf-8'));
+	appVersion = tauriConfig.version || appVersion;
+} catch (e) {
+	// If Tauri config doesn't exist, try frontend package.json
+	try {
+		const packageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf-8'));
+		appVersion = packageJson.version || appVersion;
+	} catch (err) {
+		console.warn('Could not read version from config files, using default:', appVersion);
+	}
+}
 
 export default defineConfig({
 	resolve: {
@@ -178,5 +194,6 @@ export default defineConfig({
 	// 添加 WASM 相关配置
 	define: {
 		global: 'globalThis',
+		__APP_VERSION__: JSON.stringify(appVersion),
 	}
 });
