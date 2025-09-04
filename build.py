@@ -619,10 +619,16 @@ class BuildScript:
     # ===== Combined Commands =====
     
     def web_build_all(self) -> bool:
-        """Build web application"""
-        log_info("Building web application...")
+        """Build web application with plugins"""
+        log_info("Building web application with plugins...")
+        
+        # Build plugins for WASM first
+        log_info("Step 1/2: Building plugins for WASM...")
+        if not self.plugin_build(dev=False, native=False):
+            log_warning("Failed to build some plugins, continuing with web build...")
         
         # Build web application
+        log_info("Step 2/2: Building web application...")
         return self.web_build()
 
     # ===== Utility Commands =====
