@@ -8,26 +8,37 @@ export interface UpdateInfo {
   notes?: string;
   date?: string;
   error?: string;
+  pendingInstall?: boolean;
 }
+
+export type UpdateSource = 'gitee' | 'github';
 
 export interface UpdateSettings {
   autoCheck: boolean;
   autoDownload: boolean;
   checkInterval: number; // in hours
   lastCheck?: string;
+  updateSource: UpdateSource;
 }
+
+export const UPDATE_SOURCE_NAMES: Record<UpdateSource, string> = {
+  gitee: 'Gitee (国内)',
+  github: 'GitHub (国际)'
+};
 
 const defaultSettings: UpdateSettings = {
   autoCheck: true,
-  autoDownload: false,
+  autoDownload: true,
   checkInterval: 24,
-  lastCheck: undefined
+  lastCheck: undefined,
+  updateSource: 'gitee'
 };
 
 // Stores
 export const updateInfo = writable<UpdateInfo>({
   available: false,
-  currentVersion: '0.1.0'
+  currentVersion: '0.1.0',
+  pendingInstall: false
 });
 
 export const updateSettings = writable<UpdateSettings>(defaultSettings);
@@ -40,7 +51,18 @@ class UpdaterService {
   
   constructor() {
     this.loadSettings();
+    this.checkPendingUpdate();
     this.initAutoCheck();
+  }
+  
+  private checkPendingUpdate() {
+    if (!platformService.isTauri()) return;
+    
+    // Check if there's a pending update from previous session
+    const hasPendingUpdate = localStorage.getItem('pendingUpdate') === 'true';
+    if (hasPendingUpdate) {
+      updateInfo.update(info => ({ ...info, pendingInstall: true }));
+    }
   }
   
   private async loadSettings() {
@@ -50,11 +72,32 @@ class UpdaterService {
       const stored = localStorage.getItem('updateSettings');
       if (stored) {
         const settings = JSON.parse(stored);
-        updateSettings.set({ ...defaultSettings, ...settings });
+        // Validate settings structure
+        const validatedSettings = this.validateSettings(settings);
+        updateSettings.set(validatedSettings);
+      } else {
+        // No settings found, use defaults
+        updateSettings.set(defaultSettings);
+        this.saveSettings(defaultSettings);
       }
     } catch (error) {
-      console.error('Failed to load update settings:', error);
+      console.error('Failed to load update settings, using defaults:', error);
+      // If parse fails or settings are corrupted, use defaults
+      updateSettings.set(defaultSettings);
+      this.saveSettings(defaultSettings);
     }
+  }
+  
+  private validateSettings(settings: any): UpdateSettings {
+    // Ensure all required fields exist with proper types
+    const validated: UpdateSettings = {
+      autoCheck: typeof settings.autoCheck === 'boolean' ? settings.autoCheck : defaultSettings.autoCheck,
+      autoDownload: typeof settings.autoDownload === 'boolean' ? settings.autoDownload : defaultSettings.autoDownload,
+      checkInterval: typeof settings.checkInterval === 'number' ? settings.checkInterval : defaultSettings.checkInterval,
+      lastCheck: typeof settings.lastCheck === 'string' ? settings.lastCheck : undefined,
+      updateSource: (settings.updateSource === 'gitee' || settings.updateSource === 'github') ? settings.updateSource : defaultSettings.updateSource
+    };
+    return validated;
   }
   
   private saveSettings(settings: UpdateSettings) {
@@ -115,28 +158,29 @@ class UpdaterService {
     }
     
     try {
-      // Only try to import if we're in Tauri environment
-      if (!platformService.isTauri()) {
-        throw new Error('Update service not available in web environment');
-      }
+      // Get current update source
+      const settings = await this.getSettings();
+      const source = settings.updateSource;
       
-      // Dynamic imports for Tauri modules
-      const [updaterModule, appModule] = await Promise.all([
-        import('@tauri-apps/plugin-updater'),
+      // Use backend command to check updates with specific source
+      const [coreModule, appModule] = await Promise.all([
+        import('@tauri-apps/api/core'),
         import('@tauri-apps/api/app')
       ]);
-      const check = updaterModule.check;
+      const invoke = coreModule.invoke;
       const getVersion = appModule.getVersion;
       
       const currentVersion = await getVersion();
-      const update = await check();
+      
+      // Call backend to check updates with selected source
+      const updateData = await invoke<any>('check_for_updates_with_source', { source });
       
       const info: UpdateInfo = {
-        available: update?.available || false,
+        available: updateData.available || false,
         currentVersion,
-        version: update?.version,
-        notes: update?.body,
-        date: update?.date
+        version: updateData.version,
+        notes: updateData.notes,
+        date: updateData.date
       };
       
       updateInfo.set(info);
@@ -172,63 +216,55 @@ class UpdaterService {
     }
   }
   
-  async downloadAndInstall(): Promise<void> {
+  async downloadAndInstall(restartNow = false): Promise<void> {
     if (!platformService.isTauri()) return;
     
     isDownloadingUpdate.set(true);
     downloadProgress.set(0);
     
     try {
-      // Only try to import if we're in Tauri environment
-      if (!platformService.isTauri()) {
-        throw new Error('Update service not available in web environment');
-      }
+      // Get current update source
+      const settings = await this.getSettings();
+      const source = settings.updateSource;
       
-      // Dynamic imports for Tauri modules
-      const [updaterModule, processModule] = await Promise.all([
-        import('@tauri-apps/plugin-updater'),
+      // Use backend command to download and install with specific source
+      const [coreModule, processModule] = await Promise.all([
+        import('@tauri-apps/api/core'),
         import('@tauri-apps/plugin-process')
       ]);
-      const check = updaterModule.check;
+      const invoke = coreModule.invoke;
       const relaunch = processModule.relaunch;
       
-      const update = await check();
-      if (!update?.available) {
-        throw new Error('No update available');
+      // Call backend to download and install update with selected source
+      await invoke('download_and_install_update', { source });
+      
+      // Mark update as pending install
+      updateInfo.update(info => ({ ...info, pendingInstall: true }));
+      localStorage.setItem('pendingUpdate', 'true');
+      
+      // Only relaunch if explicitly requested
+      if (restartNow) {
+        await relaunch();
       }
-      
-      // Download and install
-      let downloaded = 0;
-      let contentLength = 0;
-      
-      await update.downloadAndInstall((event: any) => {
-        switch (event.event) {
-          case 'Started':
-            contentLength = event.data.contentLength || 0;
-            console.log(`Started downloading update: ${contentLength} bytes`);
-            break;
-          case 'Progress':
-            downloaded += event.data.chunkLength;
-            if (contentLength > 0) {
-              const progress = (downloaded / contentLength) * 100;
-              downloadProgress.set(progress);
-            }
-            break;
-          case 'Finished':
-            downloadProgress.set(100);
-            console.log('Update downloaded successfully');
-            break;
-        }
-      });
-      
-      // Relaunch the app
-      await relaunch();
     } catch (error) {
       console.error('Failed to download and install update:', error);
       throw error;
     } finally {
       isDownloadingUpdate.set(false);
       downloadProgress.set(0);
+    }
+  }
+  
+  async restartAndUpdate(): Promise<void> {
+    if (!platformService.isTauri()) return;
+    
+    try {
+      const processModule = await import('@tauri-apps/plugin-process');
+      const relaunch = processModule.relaunch;
+      await relaunch();
+    } catch (error) {
+      console.error('Failed to restart app:', error);
+      throw error;
     }
   }
   
