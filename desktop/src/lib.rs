@@ -302,6 +302,98 @@ async fn get_app_info() -> Result<String, String> {
     Ok("Bubblefish Desktop App v0.1.0".to_string())
 }
 
+// 检查更新（支持动态选择更新源）
+#[tauri::command]
+async fn check_for_updates_with_source(app: tauri::AppHandle, source: String) -> Result<serde_json::Value, String> {
+    use tauri_plugin_updater::UpdaterExt;
+    use tauri::Url;
+    
+    // 根据源选择端点
+    let endpoint = match source.as_str() {
+        "gitee" => "https://gitee.com/yyuchenn/bubblefish/raw/updater/latest.json",
+        "github" => "https://raw.githubusercontent.com/yyuchenn/bubblefish/updater/latest.json",
+        _ => return Err(format!("Invalid update source: {}", source))
+    };
+    
+    // 解析 URL
+    let url = Url::parse(endpoint)
+        .map_err(|e| format!("Failed to parse URL: {}", e))?;
+    
+    // 获取更新器实例并设置端点
+    let updater = app.updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| format!("Failed to set endpoints: {}", e))?
+        .build()
+        .map_err(|e| format!("Failed to build updater: {}", e))?;
+    
+    // 检查更新
+    match updater.check().await {
+        Ok(Some(update)) => {
+            // 构建返回的 JSON 对象
+            let result = serde_json::json!({
+                "available": true,
+                "version": update.version,
+                "notes": update.body,
+                "date": update.date.map(|d| d.to_string()),
+                "download_url": update.download_url.to_string()
+            });
+            Ok(result)
+        }
+        Ok(None) => {
+            Ok(serde_json::json!({
+                "available": false
+            }))
+        }
+        Err(e) => Err(format!("Failed to check for updates: {}", e))
+    }
+}
+
+// 下载并安装更新（支持动态选择更新源）
+#[tauri::command]
+async fn download_and_install_update(app: tauri::AppHandle, source: String) -> Result<(), String> {
+    use tauri_plugin_updater::UpdaterExt;
+    use tauri::Url;
+    
+    // 根据源选择端点
+    let endpoint = match source.as_str() {
+        "gitee" => "https://gitee.com/yyuchenn/bubblefish/raw/updater/latest.json",
+        "github" => "https://raw.githubusercontent.com/yyuchenn/bubblefish/updater/latest.json",
+        _ => return Err(format!("Invalid update source: {}", source))
+    };
+    
+    // 解析 URL
+    let url = Url::parse(endpoint)
+        .map_err(|e| format!("Failed to parse URL: {}", e))?;
+    
+    // 获取更新器实例并设置端点
+    let updater = app.updater_builder()
+        .endpoints(vec![url])
+        .map_err(|e| format!("Failed to set endpoints: {}", e))?
+        .build()
+        .map_err(|e| format!("Failed to build updater: {}", e))?;
+    
+    // 检查更新
+    match updater.check().await {
+        Ok(Some(update)) => {
+            // 下载并安装更新
+            update.download_and_install(
+                |_chunk_len, _content_len| {
+                    // 这里可以处理下载进度事件
+                    // 但需要通过事件系统发送到前端
+                },
+                || {
+                    // 下载完成的回调
+                }
+            ).await.map_err(|e| format!("Failed to download and install: {}", e))?;
+            Ok(())
+        }
+        Ok(None) => {
+            Err("No update available".to_string())
+        }
+        Err(e) => Err(format!("Failed to check for updates: {}", e))
+    }
+}
+
 // 插件管理命令
 #[tauri::command]
 async fn load_native_plugin(plugin_path: String) -> Result<PluginMetadata, String> {
@@ -459,6 +551,8 @@ pub fn run() {
         read_file_content,
         scan_directory_for_images,
         get_app_info,
+        check_for_updates_with_source,
+        download_and_install_update,
         update_menu_checked_state,
         update_menu_enabled_state,
         update_menu_text,
