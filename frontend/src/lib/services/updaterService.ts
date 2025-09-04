@@ -34,10 +34,6 @@ const defaultSettings: UpdateSettings = {
   updateSource: 'gitee'
 };
 
-// Note: Update sources are configured in tauri.conf.json
-// The updateSource setting is stored for UI display and future use
-// Currently Tauri will try all configured endpoints in order
-
 // Stores
 export const updateInfo = writable<UpdateInfo>({
   available: false,
