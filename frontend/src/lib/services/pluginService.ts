@@ -3,7 +3,6 @@ import { pluginBridge } from './pluginBridge';
 import { platformService } from './platformService';
 import { pluginStorageService } from './pluginStorageService';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
 
 export interface PluginMetadata {
     id: string;
@@ -21,6 +20,7 @@ export interface PluginInfo {
     worker?: Worker;
     isNative?: boolean;  // 标记是否为原生插件
     isUploaded?: boolean; // 标记是否为上传的插件
+    storageId?: string;   // ID used in storage system (from filename)
 }
 
 export interface CoreEvent {
@@ -65,10 +65,14 @@ class PluginService {
         const state: PluginState[] = [];
         
         plugins.forEach((plugin) => {
-            state.push({
-                pluginId: plugin.metadata.id,
-                enabled: plugin.enabled
-            });
+            // Only save state for non-uploaded plugins (built-in plugins)
+            // Uploaded plugins are restored via loadStoredPlugins()
+            if (!plugin.isUploaded) {
+                state.push({
+                    pluginId: plugin.metadata.id,
+                    enabled: plugin.enabled
+                });
+            }
         });
         
         localStorage.setItem(PLUGIN_STATE_KEY, JSON.stringify(state));
@@ -136,7 +140,7 @@ class PluginService {
             
             // 对于打包的应用，直接使用文件名，插件加载器会从资源目录找
             // 对于开发环境，使用完整路径
-            const fileName = `${prefix}${pluginId.replace(/-/g, '_')}_plugin.${ext}`;
+            const fileName = `${prefix}${pluginId.replace(/-/g, '_')}.${ext}`;
             const path = pluginPath || fileName;
             
             // 调用Tauri命令加载原生插件
@@ -563,13 +567,19 @@ class PluginService {
                 // Upload and load the plugin
                 const metadata = await pluginStorageService.savePlugin(file);
                 
+                // Extract storage ID from filename
+                const storageId = file.name
+                    .replace(/^lib/, '')
+                    .replace(/\.(dylib|so|dll)$/, '');
+                
                 // Plugin is already loaded by the backend, just add to our store
                 const pluginInfo: PluginInfo = {
                     metadata,
                     enabled: true,
                     loaded: true,
                     isNative: true,
-                    isUploaded: true
+                    isUploaded: true,
+                    storageId: storageId
                 };
                 
                 this.plugins.update(plugins => {
@@ -701,11 +711,16 @@ class PluginService {
     // Delete an uploaded plugin
     async deleteUploadedPlugin(pluginId: string): Promise<void> {
         try {
+            // Get the plugin info to find the storage ID
+            const plugins = get(this.plugins);
+            const plugin = plugins.get(pluginId);
+            const storageId = plugin?.storageId || pluginId;
+            
             // First unload the plugin
             await this.unloadPlugin(pluginId);
             
-            // Then delete from storage
-            await pluginStorageService.deletePlugin(pluginId);
+            // Then delete from storage using the storage ID
+            await pluginStorageService.deletePlugin(storageId);
             
             console.log(`[PluginService] Deleted uploaded plugin ${pluginId}`);
         } catch (error) {
@@ -718,28 +733,39 @@ class PluginService {
     async loadStoredPlugins(): Promise<void> {
         try {
             if (platformService.isTauri()) {
-                // Desktop: listen for stored plugin events from backend
-                await listen<string>('plugin:stored-plugin-found', async (event) => {
-                    const pluginPath = event.payload;
-                    const filename = pluginPath.split(/[/\\]/).pop() || '';
-                    const pluginId = filename
-                        .replace(/^lib/, '')
-                        .replace(/\.(dylib|so|dll)$/, '');
-                    
-                    try {
-                        await this.loadPlugin(pluginId, pluginPath);
-                        // Mark as uploaded
-                        this.plugins.update(plugins => {
-                            const plugin = plugins.get(pluginId);
-                            if (plugin) {
-                                plugin.isUploaded = true;
-                            }
-                            return plugins;
-                        });
-                    } catch (error) {
-                        console.error(`Failed to load stored plugin ${pluginId}:`, error);
+                // Desktop: actively get stored plugins from backend
+                const storedPlugins = await invoke<any[]>('get_stored_plugins');
+                for (const storedPluginInfo of storedPlugins) {
+                    const pluginPath = await invoke<string>('get_plugin_path', { pluginId: storedPluginInfo.id });
+                    if (pluginPath) {
+                        try {
+                            // Load the plugin and get its actual metadata
+                            const metadata = await invoke<PluginMetadata>('load_native_plugin', { 
+                                pluginPath: pluginPath 
+                            });
+                            
+                            const pluginInfo: PluginInfo = {
+                                metadata,
+                                enabled: true,
+                                loaded: true,
+                                isNative: true,
+                                isUploaded: true,
+                                storageId: storedPluginInfo.id  // Save the storage ID for deletion
+                            };
+                            
+                            // Use the actual metadata ID as the key
+                            this.plugins.update(plugins => {
+                                plugins.set(metadata.id, pluginInfo);
+                                return plugins;
+                            });
+                            
+                            // Save state after successfully loading
+                            this.savePluginState();
+                        } catch (error) {
+                            console.error(`Failed to load stored plugin ${storedPluginInfo.id}:`, error);
+                        }
                     }
-                });
+                }
             } else {
                 // Web: load from IndexedDB
                 const storedPlugins = await pluginStorageService.loadStoredPlugins();

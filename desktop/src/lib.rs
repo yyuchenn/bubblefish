@@ -503,6 +503,12 @@ async fn get_stored_plugins(app_handle: tauri::AppHandle) -> Result<Vec<StoredPl
     Ok(storage.list_stored_plugins())
 }
 
+#[tauri::command]
+async fn get_plugin_path(app_handle: tauri::AppHandle, plugin_id: String) -> Result<Option<String>, String> {
+    let storage = PluginStorage::new(&app_handle)?;
+    Ok(storage.get_plugin_path(&plugin_id).and_then(|p| p.to_str().map(|s| s.to_string())))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -613,7 +619,8 @@ pub fn run() {
         send_message_to_plugin,
         upload_plugin,
         delete_uploaded_plugin,
-        get_stored_plugins
+        get_stored_plugins,
+        get_plugin_path
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
