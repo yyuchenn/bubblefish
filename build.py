@@ -58,6 +58,14 @@ def is_windows() -> bool:
     import platform
     return platform.system().lower() == "windows"
 
+def is_macos() -> bool:
+    import platform
+    return platform.system() == "Darwin"
+
+def is_linux() -> bool:
+    import platform
+    return platform.system() == "Linux"
+
 class BuildScript:
     def __init__(self):
         self.root_dir = Path(__file__).parent.absolute()
@@ -486,8 +494,10 @@ class BuildScript:
             return False
 
         # 构建前端开发版本（可选，Tauri 会自动处理）
-        log_info("Step 2/4: Preparing frontend...")
-        # 这里不需要完整构建，Tauri 会启动前端开发服务器
+        log_info("Step 2/4: Building plugin SDK...")
+        # Build SDK for development
+        if not self.build_plugin_sdk_native(dev=True):
+            log_warning("Failed to build plugin SDK, continuing anyway...")
 
         log_info("Step 3/4: Starting frontend dev server in background...")
         
@@ -564,6 +574,11 @@ class BuildScript:
         log_info("Building WASM core for desktop...")
         if not self.wasm_build(dev=False):
             return False
+        
+        # Build plugin SDK as native library (needed for uploaded plugins)
+        log_info("Building plugin SDK for desktop...")
+        if not self.build_plugin_sdk_native(dev=not release):
+            log_warning("Failed to build plugin SDK, continuing anyway...")
             
         log_info("Building frontend...")
         if not self.frontend_build():
@@ -902,7 +917,7 @@ class BuildScript:
         """Build a single plugin as WASM"""
         log_step(f"Building WASM plugin: {plugin_name}")
         
-        # Use --no-opt to avoid wasm-opt issues
+        # Build with web target
         cmd = ["wasm-pack", "build", "--target", "web", "--out-dir", "pkg", "--no-opt"]
         
         if dev:
@@ -916,9 +931,148 @@ class BuildScript:
         
         log_success(f"WASM plugin '{plugin_name}' built successfully")
         
-        # Copy to frontend static directory
+        # Copy to frontend static directory (for built-in plugins)
         if not self.copy_plugin_files(plugin_dir, plugin_name):
             log_warning(f"Failed to copy plugin files to frontend, but build succeeded")
+        
+        # Bundle the plugin to create a self-contained version for uploads
+        if not self.bundle_plugin_for_upload(plugin_dir, plugin_name):
+            log_warning(f"Failed to bundle plugin for upload, continuing anyway")
+        
+        return True
+    
+    def bundle_plugin_for_upload(self, plugin_dir: Path, plugin_name: str) -> bool:
+        """Bundle a plugin into a self-contained format for uploads"""
+        log_step(f"Bundling plugin '{plugin_name}' for uploads...")
+        
+        pkg_dir = plugin_dir / "pkg"
+        bundled_dir = plugin_dir / "pkg-bundled"
+        
+        if not pkg_dir.exists():
+            log_warning(f"Package directory not found: {pkg_dir}")
+            return False
+        
+        try:
+            # Create bundled directory
+            bundled_dir.mkdir(exist_ok=True)
+            
+            # Read the main JS file
+            js_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
+            if not js_file.exists():
+                log_warning(f"JS file not found: {js_file}")
+                return False
+            
+            js_content = js_file.read_text()
+            
+            # Inline all snippet imports
+            snippets_dir = pkg_dir / "snippets"
+            if snippets_dir.exists():
+                # Find all snippet imports in the JS file
+                import re
+                import_pattern = r'import\s*\{\s*([^}]+)\s*\}\s*from\s*[\'"`](\.\/snippets\/[^\'"`]+)[\'"`];?'
+                
+                bundled_js = js_content
+                snippets_content = []
+                
+                for match in re.finditer(import_pattern, js_content):
+                    import_path = match.group(2).replace('./', '')
+                    snippet_file = pkg_dir / import_path
+                    
+                    if snippet_file.exists():
+                        snippet_content = snippet_file.read_text()
+                        snippets_content.append(f"// Inlined from {import_path}\n{snippet_content}")
+                        # Remove the import statement
+                        bundled_js = bundled_js.replace(match.group(0), '')
+                
+                # Add snippets at the beginning
+                if snippets_content:
+                    bundled_js = '\n'.join(snippets_content) + '\n\n' + bundled_js
+                
+                # Replace WASM file reference to use relative path
+                wasm_filename = f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
+                # Replace the URL constructor pattern
+                bundled_js = re.sub(
+                    r"new URL\(['\"]" + re.escape(wasm_filename) + r"['\"],\s*import\.meta\.url\)",
+                    f"'./{wasm_filename}'",
+                    bundled_js
+                )
+                
+                # Write bundled JS
+                bundled_js_file = bundled_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
+                bundled_js_file.write_text(bundled_js)
+                
+                log_success(f"Created bundled JS file: {bundled_js_file}")
+            else:
+                # Just copy the JS file if no snippets
+                shutil.copy2(js_file, bundled_dir)
+            
+            # Copy WASM file
+            wasm_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
+            if wasm_file.exists():
+                shutil.copy2(wasm_file, bundled_dir)
+            
+            # Copy package.json
+            package_json = pkg_dir / "package.json"
+            if package_json.exists():
+                shutil.copy2(package_json, bundled_dir)
+            
+            # Create ZIP for easy upload (in pkg directory)
+            import zipfile
+            zip_path = pkg_dir / f"{plugin_name}-bundled.zip"
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for file in bundled_dir.iterdir():
+                    if file.is_file():
+                        zf.write(file, file.name)
+            
+            log_success(f"Created bundled plugin ZIP: {zip_path}")
+            
+            # Clean up the temporary bundled directory
+            shutil.rmtree(bundled_dir)
+            log_info(f"Cleaned up temporary bundled directory")
+            
+            return True
+            
+        except Exception as e:
+            log_error(f"Failed to bundle plugin: {e}")
+            return False
+    
+    def get_dynamic_lib_name(self, name: str) -> str:
+        """Get the platform-specific dynamic library name"""
+        if is_windows():
+            return f"{name}.dll"
+        elif is_macos():
+            return f"lib{name}.dylib"
+        else:  # Linux
+            return f"lib{name}.so"
+    
+    def build_plugin_sdk_native(self, dev: bool = False) -> bool:
+        """Build the plugin SDK as a native dynamic library"""
+        log_step("Building plugin SDK as native library...")
+        
+        sdk_dir = self.plugins_dir / "plugin-sdk"
+        if not sdk_dir.exists():
+            log_error(f"Plugin SDK not found at {sdk_dir}")
+            return False
+        
+        cmd = ["cargo", "build", "--lib", "--features", "native"]
+        if not dev:
+            cmd.append("--release")
+        
+        if not self.run_command(cmd, cwd=sdk_dir):
+            return False
+        
+        # Copy SDK to desktop resources
+        mode = "debug" if dev else "release"
+        lib_name = self.get_dynamic_lib_name("bubblefish_plugin_sdk")
+        
+        src = self.root_dir / "target" / mode / lib_name
+        if src.exists():
+            resources_dir = self.desktop_dir / "resources" / "plugins"
+            resources_dir.mkdir(parents=True, exist_ok=True)
+            
+            dst = resources_dir / lib_name
+            shutil.copy2(src, dst)
+            log_success(f"Plugin SDK copied to {dst}")
         
         return True
     

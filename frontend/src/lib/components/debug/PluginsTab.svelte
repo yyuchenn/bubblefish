@@ -1,14 +1,30 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { pluginService, type PluginInfo } from '../../services/pluginService';
+	import { platformService } from '../../services/platformService';
 	
 	let loading = $state(false);
 	let selectedPlugin = $state<string>('');
+	let uploadInput: HTMLInputElement;
+	let uploading = $state(false);
+	let dragOver = $state(false);
 	
 	const availablePlugins = [
 		{ id: 'marker-logger', name: 'Marker Logger', description: '监听和记录 Marker 事件' },
 		{ id: 'md5-calculator', name: 'MD5 Calculator', description: '计算文件的 MD5 哈希值' }
 	];
+	
+	// Get expected file extension for current platform
+	const getExpectedExtension = () => {
+		if (!platformService.isTauri()) return '.zip';
+		const platform = platformService.getPlatform();
+		if (platform === 'linux') return '.so';
+		if (platform === 'windows') return '.dll';
+		return '.dylib';
+	};
+	
+	const expectedExtension = getExpectedExtension();
+	const acceptedFileTypes = expectedExtension === '.zip' ? '.zip' : `${expectedExtension}`;
 	
 	const pluginsStore = pluginService.getPlugins();
 	const plugins = $derived($pluginsStore);
@@ -47,7 +63,60 @@
 	}
 	
 	async function unloadPlugin(plugin: PluginInfo) {
-		await pluginService.unloadPlugin(plugin.metadata.id);
+		if (plugin.isUploaded) {
+			if (confirm(`确定要删除上传的插件 "${plugin.metadata.name}" 吗？这将从本地存储中永久删除该插件。`)) {
+				await pluginService.deleteUploadedPlugin(plugin.metadata.id);
+			}
+		} else {
+			await pluginService.unloadPlugin(plugin.metadata.id);
+		}
+	}
+	
+	async function handleFileUpload(event: Event) {
+		const input = event.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (file) {
+			await uploadPlugin(file);
+			input.value = ''; // Reset input
+		}
+	}
+	
+	async function uploadPlugin(file: File) {
+		if (!file.name.endsWith(expectedExtension)) {
+			alert(`请选择 ${expectedExtension} 文件`);
+			return;
+		}
+		
+		uploading = true;
+		try {
+			await pluginService.uploadPlugin(file);
+			console.log(`Plugin uploaded: ${file.name}`);
+		} catch (error) {
+			console.error('Failed to upload plugin:', error);
+			alert(`上传插件失败: ${error}`);
+		} finally {
+			uploading = false;
+		}
+	}
+	
+	function handleDragOver(event: DragEvent) {
+		event.preventDefault();
+		dragOver = true;
+	}
+	
+	function handleDragLeave(event: DragEvent) {
+		event.preventDefault();
+		dragOver = false;
+	}
+	
+	async function handleDrop(event: DragEvent) {
+		event.preventDefault();
+		dragOver = false;
+		
+		const file = event.dataTransfer?.files[0];
+		if (file) {
+			await uploadPlugin(file);
+		}
 	}
 	
 	
@@ -63,9 +132,41 @@
 	<div class="mb-4">
 		<h3 class="text-theme-on-surface mb-3 text-lg font-semibold">插件管理</h3>
 		
+		<!-- Upload Plugin -->
+		<div class="bg-theme-surface-variant/30 rounded-lg p-3 mb-3">
+			<p class="text-theme-on-surface-variant mb-2 text-sm font-medium">上传插件</p>
+			<div 
+				class="border-2 border-dashed rounded-lg p-4 text-center transition-colors {dragOver ? 'border-theme-primary bg-theme-primary/10' : 'border-theme-outline'}"
+				ondragover={handleDragOver}
+				ondragleave={handleDragLeave}
+				ondrop={handleDrop}
+			>
+				<input
+					type="file"
+					accept={acceptedFileTypes}
+					class="hidden"
+					bind:this={uploadInput}
+					onchange={handleFileUpload}
+				/>
+				{#if uploading}
+					<p class="text-theme-on-surface-variant text-sm">上传中...</p>
+				{:else}
+					<button
+						class="text-theme-primary hover:text-theme-primary/80 text-sm font-medium transition-colors"
+						onclick={() => uploadInput.click()}
+					>
+						点击选择或拖拽 {expectedExtension} 文件到此处
+					</button>
+					<p class="text-theme-on-surface-variant text-xs mt-1">
+						{platformService.isTauri() ? '上传原生插件库文件' : '上传包含完整 pkg 目录内容的 ZIP 压缩包（包括 snippets 文件夹）'}
+					</p>
+				{/if}
+			</div>
+		</div>
+		
 		<!-- Available Plugins -->
 		<div class="bg-theme-surface-variant/30 rounded-lg p-3">
-			<p class="text-theme-on-surface-variant mb-2 text-sm font-medium">可用插件</p>
+			<p class="text-theme-on-surface-variant mb-2 text-sm font-medium">内置插件</p>
 			<div class="flex items-center gap-2">
 				<select
 					class="bg-theme-surface border-theme-outline text-theme-on-surface flex-1 rounded border px-3 py-1.5 text-sm"
@@ -109,6 +210,9 @@
 							<div>
 								<h4 class="text-theme-on-surface font-semibold">
 									{plugin.metadata.name}
+									{#if plugin.isUploaded}
+										<span class="text-theme-primary text-xs font-normal ml-2">[已上传]</span>
+									{/if}
 								</h4>
 								<p class="text-theme-on-surface-variant text-sm">
 									v{plugin.metadata.version} by {plugin.metadata.author}
@@ -147,7 +251,7 @@
 								class="text-theme-error hover:bg-theme-error/10 rounded px-3 py-1 text-sm transition-colors"
 								onclick={() => unloadPlugin(plugin)}
 							>
-								卸载
+								{plugin.isUploaded ? '删除' : '卸载'}
 							</button>
 						</div>
 					</div>

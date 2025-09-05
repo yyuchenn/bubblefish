@@ -1,7 +1,9 @@
 import { writable, derived, get } from 'svelte/store';
 import { pluginBridge } from './pluginBridge';
 import { platformService } from './platformService';
+import { pluginStorageService } from './pluginStorageService';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 
 export interface PluginMetadata {
     id: string;
@@ -18,6 +20,7 @@ export interface PluginInfo {
     loaded: boolean;
     worker?: Worker;
     isNative?: boolean;  // 标记是否为原生插件
+    isUploaded?: boolean; // 标记是否为上传的插件
 }
 
 export interface CoreEvent {
@@ -42,6 +45,8 @@ class PluginService {
         // Only restore state in browser environment
         if (typeof window !== 'undefined') {
             this.restorePluginState();
+            // Load stored plugins on startup
+            this.loadStoredPlugins().catch(console.error);
         }
     }
 
@@ -538,6 +543,218 @@ class PluginService {
         return derived(this.plugins, $plugins => $plugins.get(pluginId));
     }
 
+    // Upload a plugin file
+    async uploadPlugin(file: File): Promise<void> {
+        try {
+            if (platformService.isTauri()) {
+                // Desktop: validate file extension
+                const platform = platformService.getPlatform();
+                let expectedExt = '.dylib';
+                if (platform === 'linux') {
+                    expectedExt = '.so';
+                } else if (platform === 'windows') {
+                    expectedExt = '.dll';
+                }
+                
+                if (!file.name.endsWith(expectedExt)) {
+                    throw new Error(`Invalid plugin file. Expected ${expectedExt} file for ${platform}`);
+                }
+                
+                // Upload and load the plugin
+                const metadata = await pluginStorageService.savePlugin(file);
+                
+                // Plugin is already loaded by the backend, just add to our store
+                const pluginInfo: PluginInfo = {
+                    metadata,
+                    enabled: true,
+                    loaded: true,
+                    isNative: true,
+                    isUploaded: true
+                };
+                
+                this.plugins.update(plugins => {
+                    plugins.set(metadata.id, pluginInfo);
+                    return plugins;
+                });
+                
+            } else {
+                // Web: validate ZIP file
+                if (!file.name.endsWith('.zip')) {
+                    throw new Error('Invalid plugin file. Expected ZIP file for web platform');
+                }
+                
+                // Save to IndexedDB
+                const pluginId = await pluginStorageService.savePlugin(file);
+                
+                // Load the plugin from IndexedDB
+                await this.loadUploadedWasmPlugin(pluginId);
+            }
+            
+            // Save state
+            this.savePluginState();
+        } catch (error) {
+            console.error('[PluginService] Failed to upload plugin:', error);
+            throw error;
+        }
+    }
+
+    // Load an uploaded WASM plugin from IndexedDB
+    private async loadUploadedWasmPlugin(pluginId: string): Promise<void> {
+        const storedPlugin = await pluginStorageService.getStoredPlugin(pluginId);
+        if (!storedPlugin) {
+            throw new Error(`Stored plugin ${pluginId} not found`);
+        }
+        
+        // For uploaded plugins, we need to handle them differently
+        // Since blob URLs don't support relative imports, we need to patch the JS file
+        const jsFilename = Object.keys(storedPlugin.files).find(f => f.endsWith('.js'));
+        if (!jsFilename) {
+            throw new Error(`No JS file found for plugin ${pluginId}`);
+        }
+        
+        // Get the JS content and patch it
+        const jsContent = new TextDecoder().decode(storedPlugin.files[jsFilename]);
+        const wasmFilename = Object.keys(storedPlugin.files).find(f => f.endsWith('.wasm'));
+        
+        if (!wasmFilename) {
+            throw new Error(`No WASM file found for plugin ${pluginId}`);
+        }
+        
+        // Create blob URL for WASM file
+        const wasmUrl = await pluginStorageService.createBlobUrl(pluginId, wasmFilename);
+        
+        // Patch the JS to use the blob URL for WASM
+        let patchedJs = jsContent;
+        
+        // Replace WASM import with blob URL
+        patchedJs = patchedJs.replace(
+            /import\.meta\.url\.replace\(\/\\\.js\$\/,[^)]+\)/g,
+            `'${wasmUrl}'`
+        );
+        
+        // Also handle direct wasm file references
+        patchedJs = patchedJs.replace(
+            new RegExp(`['"\`]\\.\/${wasmFilename.replace('.', '\\.')}['"\`]`, 'g'),
+            `'${wasmUrl}'`
+        );
+        
+        // Check if the JS file has snippet imports (if not bundled)
+        const hasSnippetImports = /import\s*\{\s*[^}]+\s*\}\s*from\s*['"`]\.\/snippets\//.test(jsContent);
+        
+        if (hasSnippetImports) {
+            // This is an unbundled plugin, need to inline snippets
+            const snippetContents: string[] = [];
+            const snippetImports: string[] = [];
+            
+            // Find and process all snippet imports
+            const importRegex = /import\s*\{\s*([^}]+)\s*\}\s*from\s*['"`](\.\/snippets\/[^'"]+)['"`];?/g;
+            let match;
+            
+            while ((match = importRegex.exec(jsContent)) !== null) {
+                const importedName = match[1].trim();
+                const importPath = match[2];
+                
+                // Find the corresponding file in storedPlugin.files
+                const normalizedPath = importPath.replace('./', '');
+                if (storedPlugin.files[normalizedPath]) {
+                    const snippetContent = new TextDecoder().decode(storedPlugin.files[normalizedPath]);
+                    snippetContents.push(`// Inlined from ${normalizedPath}`);
+                    snippetContents.push(snippetContent);
+                    snippetImports.push(match[0]);
+                }
+            }
+            
+            // Remove all snippet imports and add inlined content at the top
+            for (const imp of snippetImports) {
+                patchedJs = patchedJs.replace(imp, '');
+            }
+            
+            // Add all snippet contents at the beginning of the file
+            if (snippetContents.length > 0) {
+                patchedJs = snippetContents.join('\n') + '\n\n' + patchedJs;
+            }
+        }
+        
+        // Create blob URL for patched JS
+        const patchedJsBlob = new Blob([patchedJs], { type: 'application/javascript' });
+        const jsUrl = URL.createObjectURL(patchedJsBlob);
+        
+        try {
+            // Use the existing loadWasmPlugin method with patched JS URL
+            await this.loadWasmPlugin(pluginId, jsUrl);
+            
+            // Mark as uploaded
+            this.plugins.update(plugins => {
+                const plugin = plugins.get(pluginId);
+                if (plugin) {
+                    plugin.isUploaded = true;
+                }
+                return plugins;
+            });
+        } finally {
+            // Clean up blob URLs
+            URL.revokeObjectURL(jsUrl);
+            URL.revokeObjectURL(wasmUrl);
+        }
+    }
+
+    // Delete an uploaded plugin
+    async deleteUploadedPlugin(pluginId: string): Promise<void> {
+        try {
+            // First unload the plugin
+            await this.unloadPlugin(pluginId);
+            
+            // Then delete from storage
+            await pluginStorageService.deletePlugin(pluginId);
+            
+            console.log(`[PluginService] Deleted uploaded plugin ${pluginId}`);
+        } catch (error) {
+            console.error(`[PluginService] Failed to delete plugin ${pluginId}:`, error);
+            throw error;
+        }
+    }
+
+    // Load all stored plugins on startup
+    async loadStoredPlugins(): Promise<void> {
+        try {
+            if (platformService.isTauri()) {
+                // Desktop: listen for stored plugin events from backend
+                await listen<string>('plugin:stored-plugin-found', async (event) => {
+                    const pluginPath = event.payload;
+                    const filename = pluginPath.split(/[/\\]/).pop() || '';
+                    const pluginId = filename
+                        .replace(/^lib/, '')
+                        .replace(/\.(dylib|so|dll)$/, '');
+                    
+                    try {
+                        await this.loadPlugin(pluginId, pluginPath);
+                        // Mark as uploaded
+                        this.plugins.update(plugins => {
+                            const plugin = plugins.get(pluginId);
+                            if (plugin) {
+                                plugin.isUploaded = true;
+                            }
+                            return plugins;
+                        });
+                    } catch (error) {
+                        console.error(`Failed to load stored plugin ${pluginId}:`, error);
+                    }
+                });
+            } else {
+                // Web: load from IndexedDB
+                const storedPlugins = await pluginStorageService.loadStoredPlugins();
+                for (const plugin of storedPlugins) {
+                    try {
+                        await this.loadUploadedWasmPlugin(plugin.id);
+                    } catch (error) {
+                        console.error(`Failed to load stored plugin ${plugin.id}:`, error);
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('[PluginService] Failed to load stored plugins:', error);
+        }
+    }
 
     // Send message from one plugin to another
     async sendPluginMessage(from: string, to: string, message: any) {

@@ -6,6 +6,9 @@ use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItemBuilder, CheckMenuItemBui
 mod plugin_loader;
 use plugin_loader::{init_plugin_loader, get_plugin_loader, PluginMetadata};
 
+mod plugin_storage;
+use plugin_storage::{PluginStorage, StoredPluginInfo};
+
 
 // 使用 bubblefish_core 的通用绑定
 // 这会自动生成所有必要的 Tauri 命令和回调设置
@@ -463,6 +466,43 @@ async fn send_message_to_plugin(to: String, from: String, message: serde_json::V
     }
 }
 
+// Plugin upload commands
+#[tauri::command]
+async fn upload_plugin(app_handle: tauri::AppHandle, file_data: Vec<u8>, filename: String) -> Result<PluginMetadata, String> {
+    // Save the plugin to storage
+    let storage = PluginStorage::new(&app_handle)?;
+    let plugin_path = storage.save_plugin(file_data, filename)?;
+    
+    // Load the plugin
+    if let Some(loader) = get_plugin_loader() {
+        if let Some(path_str) = plugin_path.to_str() {
+            loader.load_plugin(path_str)
+        } else {
+            Err("Invalid plugin path".to_string())
+        }
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn delete_uploaded_plugin(app_handle: tauri::AppHandle, plugin_id: String) -> Result<(), String> {
+    // First unload the plugin
+    if let Some(loader) = get_plugin_loader() {
+        loader.unload_plugin(&plugin_id)?;
+    }
+    
+    // Then delete from storage
+    let storage = PluginStorage::new(&app_handle)?;
+    storage.delete_plugin(&plugin_id)
+}
+
+#[tauri::command]
+async fn get_stored_plugins(app_handle: tauri::AppHandle) -> Result<Vec<StoredPluginInfo>, String> {
+    let storage = PluginStorage::new(&app_handle)?;
+    Ok(storage.list_stored_plugins())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
@@ -505,6 +545,14 @@ pub fn run() {
       
       // 初始化插件加载器
       init_plugin_loader(app.handle().clone());
+      
+      // 自动加载已存储的插件
+      let app_handle_clone = app.handle().clone();
+      tauri::async_runtime::spawn(async move {
+          if let Err(e) = plugin_storage::load_stored_plugins_on_startup(app_handle_clone).await {
+              log::error!("Failed to load stored plugins: {}", e);
+          }
+      });
 
       // 创建主窗口，根据操作系统使用不同的标题栏样式
       let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
@@ -562,7 +610,10 @@ pub fn run() {
         call_plugin_service,
         enable_native_plugin,
         list_native_plugins,
-        send_message_to_plugin
+        send_message_to_plugin,
+        upload_plugin,
+        delete_uploaded_plugin,
+        get_stored_plugins
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
