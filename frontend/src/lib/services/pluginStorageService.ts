@@ -1,5 +1,6 @@
 import { platformService } from './platformService';
 import { invoke } from '@tauri-apps/api/core';
+import JSZip from 'jszip';
 
 export interface PluginFiles {
     id: string;
@@ -182,9 +183,7 @@ class PluginStorageService {
 
     // Extract ZIP file to memory (for web)
     async extractZipToMemory(zipFile: File): Promise<PluginFiles> {
-        // Import JSZip dynamically
-        const JSZip = await import('jszip');
-        const zip = new JSZip.default();
+        const zip = new JSZip();
         
         const content = await zipFile.arrayBuffer();
         const loadedZip = await zip.loadAsync(content);
