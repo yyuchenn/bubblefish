@@ -171,7 +171,7 @@ class PluginService {
     }
 
     private async loadWasmPlugin(pluginId: string, wasmUrl?: string): Promise<void> {
-        const url = wasmUrl || `/plugins/${pluginId}/pkg/${pluginId.replace(/-/g, '_')}_plugin.js`;
+        const url = wasmUrl || `/plugins/${pluginId}/pkg/${pluginId.replace(/-/g, '_')}.js`;
         
         // Create a worker for this plugin using dynamic import
         const worker = new Worker(
