@@ -50,6 +50,31 @@ pub trait Plugin {
     fn get_metadata(&self) -> PluginMetadata;
 }
 
+/// 用于自动生成 PluginMetadata 的宏
+#[macro_export]
+macro_rules! plugin_metadata {
+    () => {
+        $crate::PluginMetadata {
+            id: env!("CARGO_PKG_NAME").to_string(),
+            name: env!("CARGO_PKG_NAME").to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            description: env!("CARGO_PKG_DESCRIPTION").to_string(),
+            author: env!("CARGO_PKG_AUTHORS").to_string(),
+            subscribed_events: vec![],
+        }
+    };
+    ($($event:expr),* $(,)?) => {
+        $crate::PluginMetadata {
+            id: env!("CARGO_PKG_NAME").to_string(),
+            name: env!("CARGO_PKG_NAME").to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            description: env!("CARGO_PKG_DESCRIPTION").to_string(),
+            author: env!("CARGO_PKG_AUTHORS").to_string(),
+            subscribed_events: vec![$($event.to_string()),*],
+        }
+    };
+}
+
 /// 导出插件的宏 - WASM版本
 #[cfg(feature = "wasm")]
 #[macro_export]

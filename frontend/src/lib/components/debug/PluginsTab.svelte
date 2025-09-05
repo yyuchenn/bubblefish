@@ -136,10 +136,13 @@
 		<div class="bg-theme-surface-variant/30 rounded-lg p-3 mb-3">
 			<p class="text-theme-on-surface-variant mb-2 text-sm font-medium">上传插件</p>
 			<div 
+				role="button"
+				tabindex="0"
 				class="border-2 border-dashed rounded-lg p-4 text-center transition-colors {dragOver ? 'border-theme-primary bg-theme-primary/10' : 'border-theme-outline'}"
 				ondragover={handleDragOver}
 				ondragleave={handleDragLeave}
 				ondrop={handleDrop}
+				onkeydown={(e) => e.key === 'Enter' && uploadInput.click()}
 			>
 				<input
 					type="file"
