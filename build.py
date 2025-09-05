@@ -254,7 +254,9 @@ class BuildScript:
     def frontend_install_deps(self, force: bool = False) -> bool:
         """Install frontend dependencies if needed"""
         node_modules = self.frontend_dir / "node_modules"
-        if not node_modules.exists() or force:
+        # Always install in CI environment
+        is_ci = os.environ.get('CI') == 'true' or os.environ.get('GITHUB_ACTIONS') == 'true'
+        if not node_modules.exists() or force or is_ci:
             log_info("Installing frontend dependencies...")
             return self.run_command(["yarn", "install"], cwd=self.frontend_dir)
         else:
