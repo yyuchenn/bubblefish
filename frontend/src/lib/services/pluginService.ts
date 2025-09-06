@@ -3,6 +3,7 @@ import { pluginBridge } from './pluginBridge';
 import { platformService } from './platformService';
 import { pluginStorageService } from './pluginStorageService';
 import { invoke } from '@tauri-apps/api/core';
+import { fetchWasmResource } from '../utils/wasmLoader';
 
 export interface PluginMetadata {
     id: string;
@@ -252,7 +253,8 @@ class PluginService {
     }
 
     private async loadWasmPlugin(pluginId: string, wasmUrl?: string): Promise<void> {
-        const url = wasmUrl || `/plugins/${pluginId}/pkg/${pluginId.replace(/-/g, '_')}.js`;
+        const moduleUrl = wasmUrl || `/plugins/${pluginId}/pkg/${pluginId.replace(/-/g, '_')}.js`;
+        const wasmBgUrl = moduleUrl.replace('.js', '_bg.wasm');
         
         // Create a worker for this plugin using dynamic import
         const worker = new Worker(
@@ -276,13 +278,18 @@ class PluginService {
         // Start monitoring requests if not already started
         sharedBufferHandler.start();
         
-        // Initialize the plugin in the worker
+        // Fetch WASM bytes in main thread (so service worker can intercept)
+        const wasmBytes = await fetchWasmResource(wasmBgUrl);
+        
+        // Transfer WASM bytes to worker
+        const transferableBuffer = wasmBytes.slice(0);
         worker.postMessage({
-            type: 'LOAD_PLUGIN',
+            type: 'PLUGIN_WASM_TRANSFER',
             pluginId,
-            wasmUrl: url,
+            wasmBytes: transferableBuffer,
+            moduleUrl,
             sharedBuffer
-        });
+        }, [transferableBuffer]);
 
         // Wait for plugin to load
         await new Promise<void>((resolve, reject) => {
@@ -748,22 +755,23 @@ class PluginService {
             throw new Error(`No WASM file found for plugin ${pluginId}`);
         }
         
-        // Create blob URL for WASM file
-        const wasmUrl = await pluginStorageService.createBlobUrl(pluginId, wasmFilename);
+        // Get WASM bytes directly from storage
+        const wasmBytes = storedPlugin.files[wasmFilename];
         
-        // Patch the JS to use the blob URL for WASM
+        // For the patched JS, we need to disable WASM fetching since we'll provide it
         let patchedJs = jsContent;
         
-        // Replace WASM import with blob URL
+        // Replace the default WASM initialization to skip fetching
+        // The plugin will receive WASM bytes directly via message
         patchedJs = patchedJs.replace(
             /import\.meta\.url\.replace\(\/\\\.js\$\/,[^)]+\)/g,
-            `'${wasmUrl}'`
+            `'skip-wasm-fetch'` // Placeholder URL that won't be used
         );
         
         // Also handle direct wasm file references
         patchedJs = patchedJs.replace(
             new RegExp(`['"\`]\\.\/${wasmFilename.replace('.', '\\.')}['"\`]`, 'g'),
-            `'${wasmUrl}'`
+            `'skip-wasm-fetch'`
         );
         
         // Check if the JS file has snippet imports (if not bundled)
@@ -807,15 +815,78 @@ class PluginService {
         const jsUrl = URL.createObjectURL(patchedJsBlob);
         
         try {
-            // Use the existing loadWasmPlugin method with patched JS URL
-            await this.loadWasmPlugin(pluginId, jsUrl);
+            // Create a worker for this plugin
+            const worker = new Worker(
+                new URL('../workers/pluginWorker.ts', import.meta.url),
+                { type: 'module' }
+            );
             
-            // Mark as uploaded
-            this.updatePlugin(pluginId, { source: 'uploaded' });
+            // Store worker reference
+            this.workers.set(pluginId, worker);
+            this.serviceCallHandlers.set(worker, new Map());
+            
+            // Create SharedArrayBuffer (required)
+            if (typeof SharedArrayBuffer === 'undefined') {
+                throw new Error('SharedArrayBuffer is not supported in this environment. Please ensure CORS headers are properly configured.');
+            }
+            
+            // Import and initialize SharedBufferHandler
+            const { sharedBufferHandler } = await import('./sharedBufferHandler');
+            const sharedBuffer = sharedBufferHandler.getBuffer();
+            
+            // Start monitoring requests if not already started
+            sharedBufferHandler.start();
+            
+            // Transfer WASM bytes to worker
+            const transferableBuffer = wasmBytes.slice(0);
+            worker.postMessage({
+                type: 'PLUGIN_WASM_TRANSFER',
+                pluginId,
+                wasmBytes: transferableBuffer,
+                moduleUrl: jsUrl,
+                sharedBuffer
+            }, [transferableBuffer]);
+            
+            // Wait for plugin to load
+            await new Promise<void>((resolve, reject) => {
+                const handler = (event: MessageEvent) => {
+                    if (event.data.type === 'PLUGIN_LOADED' && event.data.pluginId === pluginId) {
+                        worker.removeEventListener('message', handler);
+                        
+                        const metadata = event.data.metadata;
+                        const pluginInfo: PluginInfo = {
+                            metadata,
+                            enabled: true,
+                            loaded: true,
+                            worker,
+                            isNative: false,
+                            source: 'uploaded'
+                        };
+                        
+                        this.plugins.update(plugins => {
+                            plugins.set(pluginId, pluginInfo);
+                            return plugins;
+                        });
+                        
+                        // Save state after successfully loading
+                        this.savePluginState();
+                        resolve();
+                    } else if (event.data.type === 'PLUGIN_ERROR' && event.data.pluginId === pluginId) {
+                        worker.removeEventListener('message', handler);
+                        reject(new Error(event.data.error || 'Failed to load plugin'));
+                    }
+                };
+                
+                worker.addEventListener('message', handler);
+            });
+            
+            // Set up ongoing message handling
+            worker.addEventListener('message', (event) => {
+                this.handleWorkerMessage(pluginId, worker, event);
+            });
         } finally {
-            // Clean up blob URLs
+            // Clean up blob URL
             URL.revokeObjectURL(jsUrl);
-            URL.revokeObjectURL(wasmUrl);
         }
     }
 

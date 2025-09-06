@@ -4,6 +4,7 @@ import { browser } from '$app/environment';
 import type { ImageMetadata, ImageFormat, Marker, TranslationProject, OpeningProjectInfo, UndoRedoResult, Language } from '../types';
 import { eventSystem, type LogEvent } from './events';
 import type { WasmWorkerMessage, WasmWorkerResponse, WasmWorkerEvent } from '../workers/wasmWorker';
+import { fetchWasmResource, transferWasmToWorker } from '../utils/wasmLoader';
 
 // WASM module interface definition
 export interface WasmModule {
@@ -870,6 +871,11 @@ class WasmWorkerAdapter extends BaseCoreAPI implements ThumbnailAPI {
 				new URL('../workers/wasmWorker.ts', import.meta.url),
 				{ type: 'module' }
 			);
+
+			// 在主线程获取WASM资源并传输到Worker
+			const wasmUrl = new URL('../wasm-pkg/bubblefish_core_bg.wasm', import.meta.url);
+			const wasmBytes = await fetchWasmResource(wasmUrl);
+			transferWasmToWorker(this.worker, wasmBytes, 'INIT_WITH_WASM');
 
 			// 设置消息处理
 			this.worker.onmessage = (event: MessageEvent) => {
