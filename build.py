@@ -959,7 +959,12 @@ class BuildScript:
             bundled_dir.mkdir(exist_ok=True)
             
             # Read the main JS file
-            js_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
+            # Handle plugin names that already end with -plugin
+            if plugin_name.endswith('-plugin'):
+                base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                js_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin.js"
+            else:
+                js_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
             if not js_file.exists():
                 log_warning(f"JS file not found: {js_file}")
                 return False
@@ -991,7 +996,12 @@ class BuildScript:
                     bundled_js = '\n'.join(snippets_content) + '\n\n' + bundled_js
                 
                 # Replace WASM file reference to use relative path
-                wasm_filename = f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
+                # Handle plugin names that already end with -plugin
+                if plugin_name.endswith('-plugin'):
+                    base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                    wasm_filename = f"{base_name.replace('-', '_')}_plugin_bg.wasm"
+                else:
+                    wasm_filename = f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
                 # Replace the URL constructor pattern
                 bundled_js = re.sub(
                     r"new URL\(['\"]" + re.escape(wasm_filename) + r"['\"],\s*import\.meta\.url\)",
@@ -1000,7 +1010,12 @@ class BuildScript:
                 )
                 
                 # Write bundled JS
-                bundled_js_file = bundled_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
+                # Handle plugin names that already end with -plugin
+                if plugin_name.endswith('-plugin'):
+                    base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                    bundled_js_file = bundled_dir / f"{base_name.replace('-', '_')}_plugin.js"
+                else:
+                    bundled_js_file = bundled_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
                 bundled_js_file.write_text(bundled_js)
                 
                 log_success(f"Created bundled JS file: {bundled_js_file}")
@@ -1009,7 +1024,12 @@ class BuildScript:
                 shutil.copy2(js_file, bundled_dir)
             
             # Copy WASM file
-            wasm_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
+            # Handle plugin names that already end with -plugin
+            if plugin_name.endswith('-plugin'):
+                base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                wasm_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin_bg.wasm"
+            else:
+                wasm_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
             if wasm_file.exists():
                 shutil.copy2(wasm_file, bundled_dir)
             

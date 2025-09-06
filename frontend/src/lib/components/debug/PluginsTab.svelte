@@ -10,8 +10,8 @@
 	let dragOver = $state(false);
 	
 	const availablePlugins = [
-		{ id: 'marker-logger', name: 'Marker Logger', description: '监听和记录 Marker 事件' },
-		{ id: 'md5-calculator', name: 'MD5 Calculator', description: '计算文件的 MD5 哈希值' }
+		{ id: 'marker-logger-plugin', name: 'Marker Logger', description: '监听和记录 Marker 事件' },
+		{ id: 'md5-calculator-plugin', name: 'MD5 Calculator', description: '计算文件的 MD5 哈希值' }
 	];
 	
 	// Get expected file extension for current platform
