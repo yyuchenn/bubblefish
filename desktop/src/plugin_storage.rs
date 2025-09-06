@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, Emitter};
 
@@ -29,10 +29,6 @@ impl PluginStorage {
         }
         
         Ok(Self { storage_dir })
-    }
-    
-    pub fn get_storage_dir(&self) -> &Path {
-        &self.storage_dir
     }
     
     pub fn save_plugin(&self, file_data: Vec<u8>, filename: String) -> Result<PathBuf, String> {

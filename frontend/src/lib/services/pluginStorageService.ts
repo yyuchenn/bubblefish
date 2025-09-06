@@ -67,7 +67,7 @@ class PluginStorageService {
         // Convert files to ArrayBuffer for storage
         const filesForStorage: { [key: string]: ArrayBuffer } = {};
         pluginFiles.files.forEach((content, filename) => {
-            filesForStorage[filename] = content.buffer;
+            filesForStorage[filename] = content.buffer as ArrayBuffer;
         });
         
         const storedPlugin: StoredPlugin = {

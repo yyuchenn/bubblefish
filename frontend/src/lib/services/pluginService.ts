@@ -791,7 +791,6 @@ class PluginService {
             let match;
             
             while ((match = importRegex.exec(jsContent)) !== null) {
-                const importedName = match[1].trim();
                 const importPath = match[2];
                 
                 // Find the corresponding file in storedPlugin.files
