@@ -31,7 +31,11 @@ export interface CoreEvent {
 }
 
 const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
-const BUILTIN_PLUGINS_CONFIG_URL = '/plugins/plugins.conf.json';
+
+// Builtin plugins list - keep in sync with plugins/plugins.conf.json
+const BUILTIN_PLUGINS = [
+    'marker-logger-plugin'
+];
 
 interface PluginState {
     pluginId: string;
@@ -94,39 +98,23 @@ class PluginService {
     }
 
     private async loadBuiltinPlugins() {
-        try {
-            // Fetch the builtin plugins configuration
-            const response = await fetch(BUILTIN_PLUGINS_CONFIG_URL);
-            if (!response.ok) {
-                console.warn('[PluginService] No builtin plugins configuration found');
-                return;
+        // Use hardcoded list instead of fetching from file
+        const builtinPlugins = BUILTIN_PLUGINS;
+        
+        console.log(`[PluginService] Loading ${builtinPlugins.length} builtin plugins...`);
+        
+        // Load each builtin plugin
+        for (const pluginId of builtinPlugins) {
+            try {
+                await this.loadPlugin(pluginId);
+                
+                // Mark as builtin
+                this.updatePlugin(pluginId, { source: 'builtin' });
+                
+                console.log(`[PluginService] Loaded builtin plugin: ${pluginId}`);
+            } catch (error) {
+                console.error(`[PluginService] Failed to load builtin plugin ${pluginId}:`, error);
             }
-            
-            const config = await response.json();
-            const builtinPlugins = config.builtin_plugins || [];
-            
-            if (builtinPlugins.length === 0) {
-                console.log('[PluginService] No builtin plugins defined');
-                return;
-            }
-            
-            console.log(`[PluginService] Loading ${builtinPlugins.length} builtin plugins...`);
-            
-            // Load each builtin plugin
-            for (const pluginId of builtinPlugins) {
-                try {
-                    await this.loadPlugin(pluginId);
-                    
-                    // Mark as builtin
-                    this.updatePlugin(pluginId, { source: 'builtin' });
-                    
-                    console.log(`[PluginService] Loaded builtin plugin: ${pluginId}`);
-                } catch (error) {
-                    console.error(`[PluginService] Failed to load builtin plugin ${pluginId}:`, error);
-                }
-            }
-        } catch (error) {
-            console.error('[PluginService] Failed to load builtin plugins:', error);
         }
     }
 
@@ -849,22 +837,16 @@ class PluginService {
             
             // Check if this was overriding a builtin plugin
             // If so, reload the builtin plugin
-            try {
-                const response = await fetch(BUILTIN_PLUGINS_CONFIG_URL);
-                if (response.ok) {
-                    const config = await response.json();
-                    const builtinPlugins = config.builtin_plugins || [];
+            if (BUILTIN_PLUGINS.includes(pluginId as any)) {
+                try {
+                    console.log(`[PluginService] Reloading builtin plugin ${pluginId}`);
+                    await this.loadPlugin(pluginId);
                     
-                    if (builtinPlugins.includes(pluginId)) {
-                        console.log(`[PluginService] Reloading builtin plugin ${pluginId}`);
-                        await this.loadPlugin(pluginId);
-                        
-                        // Mark as builtin
-                        this.updatePlugin(pluginId, { source: 'builtin' });
-                    }
+                    // Mark as builtin
+                    this.updatePlugin(pluginId, { source: 'builtin' });
+                } catch (error) {
+                    console.error(`[PluginService] Failed to reload builtin plugin ${pluginId}:`, error);
                 }
-            } catch (error) {
-                console.error(`[PluginService] Failed to check/reload builtin plugin ${pluginId}:`, error);
             }
         } catch (error) {
             console.error(`[PluginService] Failed to delete plugin ${pluginId}:`, error);
