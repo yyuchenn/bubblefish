@@ -57,10 +57,12 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: require-corp
 
-# Service Worker
+# Service Worker - 绝对不缓存，确保每次都获取最新版本
 /sw.js
   Content-Type: application/javascript; charset=utf-8
   Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+  Expires: 0
   Service-Worker-Allowed: /
 
 # Manifest
