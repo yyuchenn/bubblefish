@@ -58,6 +58,14 @@ def is_windows() -> bool:
     import platform
     return platform.system().lower() == "windows"
 
+def is_macos() -> bool:
+    import platform
+    return platform.system() == "Darwin"
+
+def is_linux() -> bool:
+    import platform
+    return platform.system() == "Linux"
+
 class BuildScript:
     def __init__(self):
         self.root_dir = Path(__file__).parent.absolute()
@@ -246,7 +254,9 @@ class BuildScript:
     def frontend_install_deps(self, force: bool = False) -> bool:
         """Install frontend dependencies if needed"""
         node_modules = self.frontend_dir / "node_modules"
-        if not node_modules.exists() or force:
+        # Always install in CI environment
+        is_ci = os.environ.get('CI') == 'true' or os.environ.get('GITHUB_ACTIONS') == 'true'
+        if not node_modules.exists() or force or is_ci:
             log_info("Installing frontend dependencies...")
             return self.run_command(["yarn", "install"], cwd=self.frontend_dir)
         else:
@@ -384,6 +394,124 @@ class BuildScript:
         except Exception as e:
             log_error(f"Failed to copy WASM files: {e}")
             return False
+    
+    def build_builtin_plugins(self, release: bool = True, native: bool = True) -> bool:
+        """Build all builtin plugins defined in plugins.conf.json
+        
+        Args:
+            release: Build in release mode
+            native: If True, build native plugins for desktop. If False, build WASM for web.
+        """
+        import json
+        
+        target_type = "native" if native else "WASM"
+        log_info(f"Building builtin plugins ({target_type})...")
+        
+        # Read plugins configuration
+        config_file = self.plugins_dir / "plugins.conf.json"
+        if not config_file.exists():
+            log_warning("No plugins.conf.json found, skipping builtin plugins")
+            return True
+        
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                builtin_plugins = config.get('builtin_plugins', [])
+        except Exception as e:
+            log_error(f"Failed to read plugins.conf.json: {e}")
+            return False
+        
+        if not builtin_plugins:
+            log_info("No builtin plugins defined")
+            return True
+        
+        log_info(f"Found {len(builtin_plugins)} builtin plugins: {', '.join(builtin_plugins)}")
+        
+        if native:
+            # Build native plugins for desktop
+            for plugin_id in builtin_plugins:
+                plugin_dir = self.plugins_dir / plugin_id
+                
+                if not plugin_dir.exists():
+                    log_error(f"Plugin directory not found: {plugin_dir}")
+                    return False
+                
+                log_step(f"Building native plugin: {plugin_id}")
+                
+                # Build the plugin with native feature
+                build_cmd = ["cargo", "build", "--features", "native"]
+                if release:
+                    build_cmd.append("--release")
+                
+                if not self.run_command(build_cmd, cwd=plugin_dir):
+                    log_error(f"Failed to build plugin: {plugin_id}")
+                    return False
+                
+                # Copy the built plugin to resources directory
+                if not self.copy_builtin_plugin(plugin_id, release):
+                    return False
+        else:
+            # Build WASM plugins for web
+            for plugin_id in builtin_plugins:
+                plugin_dir = self.plugins_dir / plugin_id
+                
+                if not plugin_dir.exists():
+                    log_error(f"Plugin directory not found: {plugin_dir}")
+                    return False
+                
+                log_step(f"Building WASM plugin: {plugin_id}")
+                
+                # Build using wasm-pack
+                if not self.build_single_plugin_wasm(plugin_dir, plugin_id, dev=not release):
+                    log_error(f"Failed to build WASM plugin: {plugin_id}")
+                    return False
+        
+        log_success(f"Successfully built {len(builtin_plugins)} builtin plugins ({target_type})")
+        return True
+    
+    def copy_builtin_plugin(self, plugin_id: str, release: bool = True) -> bool:
+        """Copy built plugin to desktop resources directory"""
+        import platform
+        
+        mode = "release" if release else "debug"
+        
+        # Determine file extension and prefix based on platform
+        system = platform.system()
+        if system == "Darwin":
+            ext = "dylib"
+            prefix = "lib"
+        elif system == "Linux":
+            ext = "so"
+            prefix = "lib"
+        elif system == "Windows":
+            ext = "dll"
+            prefix = ""
+        else:
+            log_error(f"Unsupported platform: {system}")
+            return False
+        
+        # Convert plugin ID to library name (replace hyphens with underscores)
+        lib_name = plugin_id.replace('-', '_')
+        lib_filename = f"{prefix}{lib_name}.{ext}"
+        
+        # Source path
+        plugin_build_dir = self.root_dir / "target" / mode
+        source_file = plugin_build_dir / lib_filename
+        
+        if not source_file.exists():
+            log_error(f"Built plugin not found: {source_file}")
+            return False
+        
+        # Create resources/plugins directory if it doesn't exist
+        resources_plugins_dir = self.desktop_dir / "resources" / "plugins"
+        resources_plugins_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy to resources/plugins directory
+        dest_file = resources_plugins_dir / lib_filename
+        shutil.copy2(source_file, dest_file)
+        log_success(f"Copied {lib_filename} to resources/plugins directory")
+        
+        return True
 
     def wasm_dev(self) -> bool:
         """Build WASM for development"""
@@ -442,26 +570,36 @@ class BuildScript:
         """Start web development environment (WASM + Frontend)"""
         log_info("Starting web development environment...")
         
+        # Build builtin plugins for WASM
+        log_info("Step 1/3: Building builtin plugins for WASM...")
+        if not self.build_builtin_plugins(release=False, native=False):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
+        
         # 自动构建 WASM
-        log_info("Step 1/2: Building WASM module...")
+        log_info("Step 2/3: Building WASM module...")
         if not self.wasm_dev():
             return False
         
         # 启动前端开发服务器
-        log_info("Step 2/2: Starting frontend development server...")
+        log_info("Step 3/3: Starting frontend development server...")
         return self.frontend_dev()
 
     def web_build(self) -> bool:
         """Build web application for production (includes WASM core)"""
         log_info("Building complete web application...")
         
+        # Build builtin plugins for WASM
+        log_info("Step 1/3: Building builtin plugins for WASM...")
+        if not self.build_builtin_plugins(release=True, native=False):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
+        
         # 构建 WASM (生产版)
-        log_info("Step 1/2: Building WASM core for production...")
+        log_info("Step 2/3: Building WASM core for production...")
         if not self.wasm_build(dev=False):
             return False
         
         # 构建前端
-        log_info("Step 2/2: Building frontend for production...")
+        log_info("Step 3/3: Building frontend for production...")
         if not self.frontend_build():
             return False
         
@@ -478,18 +616,25 @@ class BuildScript:
         log_info(f"Working directory: {self.root_dir}")
         
         # 自动安装依赖和工具
-        log_info("Step 1/4: Checking dependencies...")
+        log_info("Step 1/5: Checking dependencies...")
         if not self.frontend_install_deps():
             return False
             
         if not self.install_tauri_cli():
             return False
 
-        # 构建前端开发版本（可选，Tauri 会自动处理）
-        log_info("Step 2/4: Preparing frontend...")
-        # 这里不需要完整构建，Tauri 会启动前端开发服务器
+        # 构建内置插件
+        log_info("Step 2/5: Building builtin plugins...")
+        if not self.build_builtin_plugins(release=False):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
 
-        log_info("Step 3/4: Starting frontend dev server in background...")
+        # 构建前端开发版本（可选，Tauri 会自动处理）
+        log_info("Step 3/5: Building plugin SDK...")
+        # Build SDK for development
+        if not self.build_plugin_sdk_native(dev=True):
+            log_warning("Failed to build plugin SDK, continuing anyway...")
+
+        log_info("Step 4/5: Starting frontend dev server in background...")
         
         # Start frontend dev server in background
         shell_flag = is_windows()
@@ -534,7 +679,7 @@ class BuildScript:
             log_info("Waiting for frontend server to start...")
             time.sleep(3)
             
-            log_info("Step 4/4: Starting Tauri desktop app...")
+            log_info("Step 5/5: Starting Tauri desktop app...")
             log_info("Note: When you close the desktop app, the frontend server will also be stopped.")
             
             result = self.run_command(["cargo", "tauri", "dev"], cwd=self.desktop_dir)
@@ -564,6 +709,16 @@ class BuildScript:
         log_info("Building WASM core for desktop...")
         if not self.wasm_build(dev=False):
             return False
+        
+        # Build builtin plugins
+        log_info("Building builtin plugins for desktop...")
+        if not self.build_builtin_plugins(release=release):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
+        
+        # Build plugin SDK as native library (needed for uploaded plugins)
+        log_info("Building plugin SDK for desktop...")
+        if not self.build_plugin_sdk_native(dev=not release):
+            log_warning("Failed to build plugin SDK, continuing anyway...")
             
         log_info("Building frontend...")
         if not self.frontend_build():
@@ -619,10 +774,21 @@ class BuildScript:
     # ===== Combined Commands =====
     
     def web_build_all(self) -> bool:
-        """Build web application"""
-        log_info("Building web application...")
+        """Build web application with plugins"""
+        log_info("Building web application with plugins...")
+        
+        # Build builtin plugins for WASM first
+        log_info("Step 1/3: Building builtin plugins for WASM...")
+        if not self.build_builtin_plugins(release=True, native=False):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
+        
+        # Build other plugins for WASM if needed
+        log_info("Step 2/3: Building additional plugins for WASM...")
+        if not self.plugin_build(dev=False, native=False):
+            log_warning("Failed to build some plugins, continuing with web build...")
         
         # Build web application
+        log_info("Step 3/3: Building web application...")
         return self.web_build()
 
     # ===== Utility Commands =====
@@ -896,7 +1062,7 @@ class BuildScript:
         """Build a single plugin as WASM"""
         log_step(f"Building WASM plugin: {plugin_name}")
         
-        # Use --no-opt to avoid wasm-opt issues
+        # Build with web target
         cmd = ["wasm-pack", "build", "--target", "web", "--out-dir", "pkg", "--no-opt"]
         
         if dev:
@@ -910,9 +1076,168 @@ class BuildScript:
         
         log_success(f"WASM plugin '{plugin_name}' built successfully")
         
-        # Copy to frontend static directory
+        # Copy to frontend static directory (for built-in plugins)
         if not self.copy_plugin_files(plugin_dir, plugin_name):
             log_warning(f"Failed to copy plugin files to frontend, but build succeeded")
+        
+        # Bundle the plugin to create a self-contained version for uploads
+        if not self.bundle_plugin_for_upload(plugin_dir, plugin_name):
+            log_warning(f"Failed to bundle plugin for upload, continuing anyway")
+        
+        return True
+    
+    def bundle_plugin_for_upload(self, plugin_dir: Path, plugin_name: str) -> bool:
+        """Bundle a plugin into a self-contained format for uploads"""
+        log_step(f"Bundling plugin '{plugin_name}' for uploads...")
+        
+        pkg_dir = plugin_dir / "pkg"
+        bundled_dir = plugin_dir / "pkg-bundled"
+        
+        if not pkg_dir.exists():
+            log_warning(f"Package directory not found: {pkg_dir}")
+            return False
+        
+        try:
+            # Create bundled directory
+            bundled_dir.mkdir(exist_ok=True)
+            
+            # Read the main JS file
+            # Handle plugin names that already end with -plugin
+            if plugin_name.endswith('-plugin'):
+                base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                js_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin.js"
+            else:
+                js_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
+            if not js_file.exists():
+                log_warning(f"JS file not found: {js_file}")
+                return False
+            
+            js_content = js_file.read_text()
+            
+            # Inline all snippet imports
+            snippets_dir = pkg_dir / "snippets"
+            if snippets_dir.exists():
+                # Find all snippet imports in the JS file
+                import re
+                import_pattern = r'import\s*\{\s*([^}]+)\s*\}\s*from\s*[\'"`](\.\/snippets\/[^\'"`]+)[\'"`];?'
+                
+                bundled_js = js_content
+                snippets_content = []
+                
+                for match in re.finditer(import_pattern, js_content):
+                    import_path = match.group(2).replace('./', '')
+                    snippet_file = pkg_dir / import_path
+                    
+                    if snippet_file.exists():
+                        snippet_content = snippet_file.read_text()
+                        snippets_content.append(f"// Inlined from {import_path}\n{snippet_content}")
+                        # Remove the import statement
+                        bundled_js = bundled_js.replace(match.group(0), '')
+                
+                # Add snippets at the beginning
+                if snippets_content:
+                    bundled_js = '\n'.join(snippets_content) + '\n\n' + bundled_js
+                
+                # Replace WASM file reference to use relative path
+                # Handle plugin names that already end with -plugin
+                if plugin_name.endswith('-plugin'):
+                    base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                    wasm_filename = f"{base_name.replace('-', '_')}_plugin_bg.wasm"
+                else:
+                    wasm_filename = f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
+                # Replace the URL constructor pattern
+                bundled_js = re.sub(
+                    r"new URL\(['\"]" + re.escape(wasm_filename) + r"['\"],\s*import\.meta\.url\)",
+                    f"'./{wasm_filename}'",
+                    bundled_js
+                )
+                
+                # Write bundled JS
+                # Handle plugin names that already end with -plugin
+                if plugin_name.endswith('-plugin'):
+                    base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                    bundled_js_file = bundled_dir / f"{base_name.replace('-', '_')}_plugin.js"
+                else:
+                    bundled_js_file = bundled_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
+                bundled_js_file.write_text(bundled_js)
+                
+                log_success(f"Created bundled JS file: {bundled_js_file}")
+            else:
+                # Just copy the JS file if no snippets
+                shutil.copy2(js_file, bundled_dir)
+            
+            # Copy WASM file
+            # Handle plugin names that already end with -plugin
+            if plugin_name.endswith('-plugin'):
+                base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                wasm_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin_bg.wasm"
+            else:
+                wasm_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
+            if wasm_file.exists():
+                shutil.copy2(wasm_file, bundled_dir)
+            
+            # Copy package.json
+            package_json = pkg_dir / "package.json"
+            if package_json.exists():
+                shutil.copy2(package_json, bundled_dir)
+            
+            # Create ZIP for easy upload (in pkg directory)
+            import zipfile
+            zip_path = pkg_dir / f"{plugin_name}-bundled.zip"
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for file in bundled_dir.iterdir():
+                    if file.is_file():
+                        zf.write(file, file.name)
+            
+            log_success(f"Created bundled plugin ZIP: {zip_path}")
+            
+            # Clean up the temporary bundled directory
+            shutil.rmtree(bundled_dir)
+            log_info(f"Cleaned up temporary bundled directory")
+            
+            return True
+            
+        except Exception as e:
+            log_error(f"Failed to bundle plugin: {e}")
+            return False
+    
+    def get_dynamic_lib_name(self, name: str) -> str:
+        """Get the platform-specific dynamic library name"""
+        if is_windows():
+            return f"{name}.dll"
+        elif is_macos():
+            return f"lib{name}.dylib"
+        else:  # Linux
+            return f"lib{name}.so"
+    
+    def build_plugin_sdk_native(self, dev: bool = False) -> bool:
+        """Build the plugin SDK as a native dynamic library"""
+        log_step("Building plugin SDK as native library...")
+        
+        sdk_dir = self.plugins_dir / "plugin-sdk"
+        if not sdk_dir.exists():
+            log_error(f"Plugin SDK not found at {sdk_dir}")
+            return False
+        
+        cmd = ["cargo", "build", "--lib", "--features", "native"]
+        if not dev:
+            cmd.append("--release")
+        
+        if not self.run_command(cmd, cwd=sdk_dir):
+            return False
+        
+        # Copy SDK to desktop resources
+        mode = "debug" if dev else "release"
+        lib_name = self.get_dynamic_lib_name("bubblefish_plugin_sdk")
+        
+        src = self.root_dir / "target" / mode / lib_name
+        if src.exists():
+            resources_dir = self.desktop_dir / "resources" / "plugins"
+            resources_dir.mkdir(parents=True, exist_ok=True)
+            
+            dst = resources_dir / lib_name
+            shutil.copy2(src, dst)
+            log_success(f"Plugin SDK copied to {dst}")
         
         return True
     

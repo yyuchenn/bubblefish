@@ -1,5 +1,5 @@
 use bubblefish_plugin_sdk::{
-    export_plugin, Plugin, PluginContext, ServiceProxyManager, 
+    export_plugin, plugin_metadata, Plugin, PluginContext, ServiceProxyManager, 
     CoreEvent, PluginMetadata
 };
 use std::collections::HashMap;
@@ -7,7 +7,6 @@ use std::collections::HashMap;
 pub struct EnhancedMarkerLogger {
     context: Option<PluginContext>,
     services: Option<ServiceProxyManager>,
-    metadata: PluginMetadata,
     stats: HashMap<String, u32>,
 }
 
@@ -16,22 +15,6 @@ impl EnhancedMarkerLogger {
         Self {
             context: None,
             services: None,
-            metadata: PluginMetadata {
-                id: "marker-logger".to_string(),
-                name: "Marker Logger Plugin".to_string(),
-                version: "1.0.0".to_string(),
-                description: "一个插件示例。它将选中的标记的内容输出到控制台。".to_string(),
-                author: "yyuchenn".to_string(),
-                subscribed_events: vec![
-                    "MarkerSelected".to_string(),
-                    "MarkerDeselected".to_string(),
-                    "MarkerCreated".to_string(),
-                    "MarkerUpdated".to_string(),
-                    "MarkerDeleted".to_string(),
-                    "ProjectOpened".to_string(),
-                    "SystemReady".to_string(),
-                ],
-            },
             stats: HashMap::new(),
         }
     }
@@ -238,7 +221,15 @@ impl Plugin for EnhancedMarkerLogger {
     }
 
     fn get_metadata(&self) -> PluginMetadata {
-        self.metadata.clone()
+        plugin_metadata![
+            "MarkerSelected",
+            "MarkerDeselected",
+            "MarkerCreated",
+            "MarkerUpdated",
+            "MarkerDeleted",
+            "ProjectOpened",
+            "SystemReady"
+        ]
     }
 }
 

@@ -1,0 +1,5 @@
+{
+  "builtin_plugins": [
+    "marker-logger-plugin"
+  ]
+}

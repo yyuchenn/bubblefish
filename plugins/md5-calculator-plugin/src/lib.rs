@@ -1,12 +1,11 @@
 use bubblefish_plugin_sdk::{
-    export_plugin, Plugin, PluginContext, ServiceProxyManager, 
+    export_plugin, plugin_metadata, Plugin, PluginContext, ServiceProxyManager, 
     CoreEvent, PluginMetadata
 };
 
 pub struct MD5CalculatorPlugin {
     context: Option<PluginContext>,
     services: Option<ServiceProxyManager>,
-    metadata: PluginMetadata,
     current_image_id: Option<String>,
 }
 
@@ -15,17 +14,6 @@ impl MD5CalculatorPlugin {
         Self {
             context: None,
             services: None,
-            metadata: PluginMetadata {
-                id: "md5-calculator".to_string(),
-                name: "MD5 Calculator Plugin".to_string(),
-                version: "1.0.0".to_string(),
-                description: "Calculate and log MD5 hash of images when switching".to_string(),
-                author: "Bubblefish".to_string(),
-                subscribed_events: vec![
-                    "ImageSelected".to_string(),
-                    "ProjectOpened".to_string(),
-                ],
-            },
             current_image_id: None,
         }
     }
@@ -142,7 +130,10 @@ impl Plugin for MD5CalculatorPlugin {
     }
 
     fn get_metadata(&self) -> PluginMetadata {
-        self.metadata.clone()
+        plugin_metadata![
+            "ImageSelected",
+            "ProjectOpened"
+        ]
     }
 }
 

@@ -82,6 +82,14 @@ impl PluginLoader {
 
     /// Load a native plugin from dynamic library
     pub fn load_plugin(&self, plugin_path: &str) -> Result<PluginMetadata, String> {
+        // If it's an absolute path, load directly
+        if plugin_path.starts_with('/') || plugin_path.starts_with("\\") || plugin_path.contains(':') {
+            let path = PathBuf::from(plugin_path);
+            if path.exists() {
+                return self.load_plugin_from_path(&path);
+            }
+        }
+        
         // First check if we should load from bundled resources
         // This happens when plugin_path is just a filename or plugins/filename
         if !plugin_path.contains('/') || plugin_path.starts_with("plugins/") {
@@ -92,7 +100,15 @@ impl PluginLoader {
                 plugin_path
             };
             
-            // Try to load from Tauri resources directory first (for packaged app)
+            // Try to load from app data directory first (for uploaded plugins)
+            if let Ok(data_dir) = self._app_handle.path().app_data_dir() {
+                let uploaded_path = data_dir.join("plugins").join(file_name);
+                if uploaded_path.exists() {
+                    return self.load_plugin_from_path(&uploaded_path);
+                }
+            }
+            
+            // Try to load from Tauri resources directory (for bundled plugins)
             if let Some(resource_path) = self.resolve_resource_path(file_name) {
                 if resource_path.exists() {
                     return self.load_plugin_from_path(&resource_path);
@@ -278,6 +294,18 @@ impl PluginLoader {
             // Store the loaded plugin with the metadata's ID (not the generated one)
             let mut plugins = self.plugins.lock().unwrap();
             let stored_id = metadata.id.clone(); // Use the ID from metadata
+            
+            // Check if there's already a plugin with this ID
+            if let Some(existing_plugin) = plugins.get(&stored_id) {
+                // If there's an existing plugin, we need to deactivate it first
+                if let Ok(deactivate) = existing_plugin.library.get::<Symbol<extern "C" fn() -> i32>>(b"plugin_deactivate") {
+                    let _ = deactivate();
+                }
+                if let Ok(cleanup) = existing_plugin.library.get::<Symbol<extern "C" fn()>>(b"plugin_cleanup") {
+                    cleanup();
+                }
+                log::info!("Replaced existing plugin with ID: {}", stored_id);
+            }
             
             plugins.insert(
                 stored_id,

@@ -1,7 +1,9 @@
 [package]
 name = "marker-logger-plugin"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
+description = "一个插件示例。它将选中的标记的内容输出到控制台。"
+authors = ["yyuchenn"]
 
 [dependencies]
 bubblefish-plugin-sdk = { path = "../plugin-sdk", default-features = false }

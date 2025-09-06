@@ -25,15 +25,5 @@
 	<body data-sveltekit-preload-data="hover">
 		<div style="display: contents">%sveltekit.body%</div>
 		
-		<!-- Service Worker Registration -->
-		<script>
-			if ('serviceWorker' in navigator) {
-				window.addEventListener('load', () => {
-					navigator.serviceWorker.register('/sw.js', { scope: '/' })
-						.then(registration => console.log('SW registered:', registration))
-						.catch(error => console.log('SW registration failed:', error));
-				});
-			}
-		</script>
 	</body>
 </html>

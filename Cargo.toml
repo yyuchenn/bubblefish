@@ -3,8 +3,8 @@ members = [
     "core", 
     "desktop",
     "plugins/plugin-sdk",
-    "plugins/marker-logger",
-    "plugins/md5-calculator"
+    "plugins/marker-logger-plugin",
+    "plugins/md5-calculator-plugin"
 ]
 resolver = "2"
 

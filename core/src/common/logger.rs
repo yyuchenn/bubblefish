@@ -7,6 +7,17 @@ use std::fmt;
 use wasm_bindgen::prelude::*;
 
 #[cfg(feature = "wasm")]
+#[wasm_bindgen(inline_js = "
+    export function get_js_stack_trace() {
+        const err = new Error();
+        return err.stack || 'No stack trace available';
+    }
+")]
+extern "C" {
+    fn get_js_stack_trace() -> String;
+}
+
+#[cfg(feature = "wasm")]
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_namespace = console)]
@@ -14,15 +25,6 @@ extern "C" {
     
     #[wasm_bindgen(js_namespace = console)]
     fn error(s: &str);
-    
-    // 获取当前JavaScript调用堆栈
-    #[wasm_bindgen(inline_js = "
-        export function get_js_stack_trace() {
-            const err = new Error();
-            return err.stack || 'No stack trace available';
-        }
-    ")]
-    fn get_js_stack_trace() -> String;
 }
 
 pub struct Logger;
