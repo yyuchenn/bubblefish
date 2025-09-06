@@ -295,6 +295,18 @@ impl PluginLoader {
             let mut plugins = self.plugins.lock().unwrap();
             let stored_id = metadata.id.clone(); // Use the ID from metadata
             
+            // Check if there's already a plugin with this ID
+            if let Some(existing_plugin) = plugins.get(&stored_id) {
+                // If there's an existing plugin, we need to deactivate it first
+                if let Ok(deactivate) = existing_plugin.library.get::<Symbol<extern "C" fn() -> i32>>(b"plugin_deactivate") {
+                    let _ = deactivate();
+                }
+                if let Ok(cleanup) = existing_plugin.library.get::<Symbol<extern "C" fn()>>(b"plugin_cleanup") {
+                    cleanup();
+                }
+                log::info!("Replaced existing plugin with ID: {}", stored_id);
+            }
+            
             plugins.insert(
                 stored_id,
                 LoadedPlugin {

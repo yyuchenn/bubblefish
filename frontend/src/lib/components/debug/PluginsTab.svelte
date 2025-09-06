@@ -1,18 +1,10 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { pluginService, type PluginInfo } from '../../services/pluginService';
 	import { platformService } from '../../services/platformService';
 	
-	let loading = $state(false);
-	let selectedPlugin = $state<string>('');
 	let uploadInput: HTMLInputElement;
 	let uploading = $state(false);
 	let dragOver = $state(false);
-	
-	const availablePlugins = [
-		{ id: 'marker-logger-plugin', name: 'Marker Logger', description: '监听和记录 Marker 事件' },
-		{ id: 'md5-calculator-plugin', name: 'MD5 Calculator', description: '计算文件的 MD5 哈希值' }
-	];
 	
 	// Get expected file extension for current platform
 	const getExpectedExtension = () => {
@@ -29,30 +21,12 @@
 	const pluginsStore = pluginService.getPlugins();
 	const plugins = $derived($pluginsStore);
 	
-	onMount(() => {
-		if (availablePlugins.length > 0) {
-			selectedPlugin = availablePlugins[0].id;
-		}
-	});
 	
 	function handleWheel(event: WheelEvent) {
 		// Stop propagation to prevent parent elements from handling the wheel event
 		event.stopPropagation();
 	}
 	
-	async function loadPlugin() {
-		if (!selectedPlugin) return;
-		
-		loading = true;
-		try {
-			await pluginService.loadPlugin(selectedPlugin);
-			console.log(`Plugin ${selectedPlugin} loaded`);
-		} catch (error) {
-			console.log(`Could not load ${selectedPlugin} plugin:`, error);
-		} finally {
-			loading = false;
-		}
-	}
 	
 	async function togglePlugin(plugin: PluginInfo) {
 		if (plugin.enabled) {
@@ -63,13 +37,13 @@
 	}
 	
 	async function unloadPlugin(plugin: PluginInfo) {
-		if (plugin.isUploaded) {
+		// Only uploaded plugins can be unloaded/deleted
+		if (plugin.source === 'uploaded') {
 			if (confirm(`确定要删除上传的插件 "${plugin.metadata.name}" 吗？这将从本地存储中永久删除该插件。`)) {
 				await pluginService.deleteUploadedPlugin(plugin.metadata.id);
 			}
-		} else {
-			await pluginService.unloadPlugin(plugin.metadata.id);
 		}
+		// Builtin plugins cannot be unloaded
 	}
 	
 	async function handleFileUpload(event: Event) {
@@ -166,31 +140,6 @@
 				{/if}
 			</div>
 		</div>
-		
-		<!-- Available Plugins -->
-		<div class="bg-theme-surface-variant/30 rounded-lg p-3">
-			<p class="text-theme-on-surface-variant mb-2 text-sm font-medium">内置插件</p>
-			<div class="flex items-center gap-2">
-				<select
-					class="bg-theme-surface border-theme-outline text-theme-on-surface flex-1 rounded border px-3 py-1.5 text-sm"
-					bind:value={selectedPlugin}
-					disabled={loading}
-				>
-					{#each availablePlugins as plugin (plugin.id)}
-						<option value={plugin.id}>
-							{plugin.name} - {plugin.description}
-						</option>
-					{/each}
-				</select>
-				<button
-					class="bg-theme-primary text-theme-on-primary hover-theme rounded px-4 py-1.5 text-sm font-medium transition-colors"
-					onclick={loadPlugin}
-					disabled={loading || !selectedPlugin || plugins.some(p => p.metadata.id === selectedPlugin)}
-				>
-					{loading ? '加载中...' : '加载插件'}
-				</button>
-			</div>
-		</div>
 	</div>
 	
 	<!-- Plugin List -->
@@ -202,7 +151,7 @@
 			<div class="text-theme-on-surface-variant flex h-full items-center justify-center text-center">
 				<div>
 					<p class="mb-2 text-lg">暂无已加载的插件</p>
-					<p class="text-sm">从上方列表中选择并加载插件</p>
+					<p class="text-sm">内置插件将在启动时自动加载</p>
 				</div>
 			</div>
 		{:else}
@@ -213,7 +162,9 @@
 							<div>
 								<h4 class="text-theme-on-surface font-semibold">
 									{plugin.metadata.name}
-									{#if plugin.isUploaded}
+									{#if plugin.source === 'builtin'}
+										<span class="text-theme-secondary text-xs font-normal ml-2">[内置]</span>
+									{:else if plugin.source === 'uploaded'}
 										<span class="text-theme-primary text-xs font-normal ml-2">[已上传]</span>
 									{/if}
 								</h4>
@@ -250,12 +201,14 @@
 							>
 								{plugin.enabled ? '禁用' : '启用'}
 							</button>
-							<button
-								class="text-theme-error hover:bg-theme-error/10 rounded px-3 py-1 text-sm transition-colors"
-								onclick={() => unloadPlugin(plugin)}
-							>
-								{plugin.isUploaded ? '删除' : '卸载'}
-							</button>
+							{#if plugin.source === 'uploaded'}
+								<button
+									class="text-theme-error hover:bg-theme-error/10 rounded px-3 py-1 text-sm transition-colors"
+									onclick={() => unloadPlugin(plugin)}
+								>
+									删除
+								</button>
+							{/if}
 						</div>
 					</div>
 				{/each}

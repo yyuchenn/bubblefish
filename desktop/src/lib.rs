@@ -397,6 +397,39 @@ async fn download_and_install_update(app: tauri::AppHandle, source: String) -> R
     }
 }
 
+// 加载内置插件
+async fn load_builtin_plugins_on_startup(_app_handle: tauri::AppHandle) {
+    // List of builtin plugins to load
+    let builtin_plugins = vec![
+        "libmarker_logger_plugin",
+        "libmd5_calculator_plugin",
+    ];
+    
+    // Get the appropriate file extension for this platform
+    let extension = if cfg!(target_os = "windows") {
+        ".dll"
+    } else if cfg!(target_os = "linux") {
+        ".so"
+    } else {
+        ".dylib"
+    };
+    
+    if let Some(loader) = get_plugin_loader() {
+        for plugin_name in builtin_plugins {
+            let plugin_file = format!("{}{}", plugin_name, extension);
+            // Try to load from bundled resources
+            match loader.load_plugin(&plugin_file) {
+                Ok(metadata) => {
+                    log::info!("Loaded builtin plugin: {} ({})", metadata.name, metadata.id);
+                }
+                Err(e) => {
+                    log::warn!("Failed to load builtin plugin {}: {}", plugin_file, e);
+                }
+            }
+        }
+    }
+}
+
 // 插件管理命令
 #[tauri::command]
 async fn load_native_plugin(plugin_path: String) -> Result<PluginMetadata, String> {
@@ -552,7 +585,13 @@ pub fn run() {
       // 初始化插件加载器
       init_plugin_loader(app.handle().clone());
       
-      // 自动加载已存储的插件
+      // 自动加载内置插件
+      let app_handle_builtin = app.handle().clone();
+      tauri::async_runtime::spawn(async move {
+          load_builtin_plugins_on_startup(app_handle_builtin).await;
+      });
+      
+      // 自动加载已存储的插件（用户上传的）
       let app_handle_clone = app.handle().clone();
       tauri::async_runtime::spawn(async move {
           if let Err(e) = plugin_storage::load_stored_plugins_on_startup(app_handle_clone).await {

@@ -394,6 +394,124 @@ class BuildScript:
         except Exception as e:
             log_error(f"Failed to copy WASM files: {e}")
             return False
+    
+    def build_builtin_plugins(self, release: bool = True, native: bool = True) -> bool:
+        """Build all builtin plugins defined in plugins.conf.json
+        
+        Args:
+            release: Build in release mode
+            native: If True, build native plugins for desktop. If False, build WASM for web.
+        """
+        import json
+        
+        target_type = "native" if native else "WASM"
+        log_info(f"Building builtin plugins ({target_type})...")
+        
+        # Read plugins configuration
+        config_file = self.plugins_dir / "plugins.conf.json"
+        if not config_file.exists():
+            log_warning("No plugins.conf.json found, skipping builtin plugins")
+            return True
+        
+        try:
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                builtin_plugins = config.get('builtin_plugins', [])
+        except Exception as e:
+            log_error(f"Failed to read plugins.conf.json: {e}")
+            return False
+        
+        if not builtin_plugins:
+            log_info("No builtin plugins defined")
+            return True
+        
+        log_info(f"Found {len(builtin_plugins)} builtin plugins: {', '.join(builtin_plugins)}")
+        
+        if native:
+            # Build native plugins for desktop
+            for plugin_id in builtin_plugins:
+                plugin_dir = self.plugins_dir / plugin_id
+                
+                if not plugin_dir.exists():
+                    log_error(f"Plugin directory not found: {plugin_dir}")
+                    return False
+                
+                log_step(f"Building native plugin: {plugin_id}")
+                
+                # Build the plugin with native feature
+                build_cmd = ["cargo", "build", "--features", "native"]
+                if release:
+                    build_cmd.append("--release")
+                
+                if not self.run_command(build_cmd, cwd=plugin_dir):
+                    log_error(f"Failed to build plugin: {plugin_id}")
+                    return False
+                
+                # Copy the built plugin to resources directory
+                if not self.copy_builtin_plugin(plugin_id, release):
+                    return False
+        else:
+            # Build WASM plugins for web
+            for plugin_id in builtin_plugins:
+                plugin_dir = self.plugins_dir / plugin_id
+                
+                if not plugin_dir.exists():
+                    log_error(f"Plugin directory not found: {plugin_dir}")
+                    return False
+                
+                log_step(f"Building WASM plugin: {plugin_id}")
+                
+                # Build using wasm-pack
+                if not self.build_single_plugin_wasm(plugin_dir, plugin_id, dev=not release):
+                    log_error(f"Failed to build WASM plugin: {plugin_id}")
+                    return False
+        
+        log_success(f"Successfully built {len(builtin_plugins)} builtin plugins ({target_type})")
+        return True
+    
+    def copy_builtin_plugin(self, plugin_id: str, release: bool = True) -> bool:
+        """Copy built plugin to desktop resources directory"""
+        import platform
+        
+        mode = "release" if release else "debug"
+        
+        # Determine file extension and prefix based on platform
+        system = platform.system()
+        if system == "Darwin":
+            ext = "dylib"
+            prefix = "lib"
+        elif system == "Linux":
+            ext = "so"
+            prefix = "lib"
+        elif system == "Windows":
+            ext = "dll"
+            prefix = ""
+        else:
+            log_error(f"Unsupported platform: {system}")
+            return False
+        
+        # Convert plugin ID to library name (replace hyphens with underscores)
+        lib_name = plugin_id.replace('-', '_')
+        lib_filename = f"{prefix}{lib_name}.{ext}"
+        
+        # Source path
+        plugin_build_dir = self.root_dir / "target" / mode
+        source_file = plugin_build_dir / lib_filename
+        
+        if not source_file.exists():
+            log_error(f"Built plugin not found: {source_file}")
+            return False
+        
+        # Create resources/plugins directory if it doesn't exist
+        resources_plugins_dir = self.desktop_dir / "resources" / "plugins"
+        resources_plugins_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Copy to resources/plugins directory
+        dest_file = resources_plugins_dir / lib_filename
+        shutil.copy2(source_file, dest_file)
+        log_success(f"Copied {lib_filename} to resources/plugins directory")
+        
+        return True
 
     def wasm_dev(self) -> bool:
         """Build WASM for development"""
@@ -452,26 +570,36 @@ class BuildScript:
         """Start web development environment (WASM + Frontend)"""
         log_info("Starting web development environment...")
         
+        # Build builtin plugins for WASM
+        log_info("Step 1/3: Building builtin plugins for WASM...")
+        if not self.build_builtin_plugins(release=False, native=False):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
+        
         # 自动构建 WASM
-        log_info("Step 1/2: Building WASM module...")
+        log_info("Step 2/3: Building WASM module...")
         if not self.wasm_dev():
             return False
         
         # 启动前端开发服务器
-        log_info("Step 2/2: Starting frontend development server...")
+        log_info("Step 3/3: Starting frontend development server...")
         return self.frontend_dev()
 
     def web_build(self) -> bool:
         """Build web application for production (includes WASM core)"""
         log_info("Building complete web application...")
         
+        # Build builtin plugins for WASM
+        log_info("Step 1/3: Building builtin plugins for WASM...")
+        if not self.build_builtin_plugins(release=True, native=False):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
+        
         # 构建 WASM (生产版)
-        log_info("Step 1/2: Building WASM core for production...")
+        log_info("Step 2/3: Building WASM core for production...")
         if not self.wasm_build(dev=False):
             return False
         
         # 构建前端
-        log_info("Step 2/2: Building frontend for production...")
+        log_info("Step 3/3: Building frontend for production...")
         if not self.frontend_build():
             return False
         
@@ -488,20 +616,25 @@ class BuildScript:
         log_info(f"Working directory: {self.root_dir}")
         
         # 自动安装依赖和工具
-        log_info("Step 1/4: Checking dependencies...")
+        log_info("Step 1/5: Checking dependencies...")
         if not self.frontend_install_deps():
             return False
             
         if not self.install_tauri_cli():
             return False
 
+        # 构建内置插件
+        log_info("Step 2/5: Building builtin plugins...")
+        if not self.build_builtin_plugins(release=False):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
+
         # 构建前端开发版本（可选，Tauri 会自动处理）
-        log_info("Step 2/4: Building plugin SDK...")
+        log_info("Step 3/5: Building plugin SDK...")
         # Build SDK for development
         if not self.build_plugin_sdk_native(dev=True):
             log_warning("Failed to build plugin SDK, continuing anyway...")
 
-        log_info("Step 3/4: Starting frontend dev server in background...")
+        log_info("Step 4/5: Starting frontend dev server in background...")
         
         # Start frontend dev server in background
         shell_flag = is_windows()
@@ -546,7 +679,7 @@ class BuildScript:
             log_info("Waiting for frontend server to start...")
             time.sleep(3)
             
-            log_info("Step 4/4: Starting Tauri desktop app...")
+            log_info("Step 5/5: Starting Tauri desktop app...")
             log_info("Note: When you close the desktop app, the frontend server will also be stopped.")
             
             result = self.run_command(["cargo", "tauri", "dev"], cwd=self.desktop_dir)
@@ -576,6 +709,11 @@ class BuildScript:
         log_info("Building WASM core for desktop...")
         if not self.wasm_build(dev=False):
             return False
+        
+        # Build builtin plugins
+        log_info("Building builtin plugins for desktop...")
+        if not self.build_builtin_plugins(release=release):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
         
         # Build plugin SDK as native library (needed for uploaded plugins)
         log_info("Building plugin SDK for desktop...")
@@ -639,13 +777,18 @@ class BuildScript:
         """Build web application with plugins"""
         log_info("Building web application with plugins...")
         
-        # Build plugins for WASM first
-        log_info("Step 1/2: Building plugins for WASM...")
+        # Build builtin plugins for WASM first
+        log_info("Step 1/3: Building builtin plugins for WASM...")
+        if not self.build_builtin_plugins(release=True, native=False):
+            log_warning("Failed to build builtin plugins, continuing anyway...")
+        
+        # Build other plugins for WASM if needed
+        log_info("Step 2/3: Building additional plugins for WASM...")
         if not self.plugin_build(dev=False, native=False):
             log_warning("Failed to build some plugins, continuing with web build...")
         
         # Build web application
-        log_info("Step 2/2: Building web application...")
+        log_info("Step 3/3: Building web application...")
         return self.web_build()
 
     # ===== Utility Commands =====

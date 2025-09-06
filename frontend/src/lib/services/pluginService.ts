@@ -13,13 +13,15 @@ export interface PluginMetadata {
     subscribed_events: string[];
 }
 
+export type PluginSource = 'builtin' | 'uploaded' | 'external';  // external for future use (e.g., from URL)
+
 export interface PluginInfo {
     metadata: PluginMetadata;
     enabled: boolean;
     loaded: boolean;
     worker?: Worker;
-    isNative?: boolean;  // 标记是否为原生插件
-    isUploaded?: boolean; // 标记是否为上传的插件
+    isNative?: boolean;  // 标记是否为原生插件（vs WASM）
+    source: PluginSource; // 插件来源：内置、用户上传或外部
     storageId?: string;   // ID used in storage system (from filename)
 }
 
@@ -29,10 +31,16 @@ export interface CoreEvent {
 }
 
 const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
+const BUILTIN_PLUGINS_CONFIG_URL = '/plugins/plugins.conf.json';
 
 interface PluginState {
     pluginId: string;
     enabled: boolean;
+}
+
+interface PluginStates {
+    builtin_plugins: Record<string, { enabled: boolean }>;
+    user_plugins: Record<string, { enabled: boolean; loaded: boolean }>;
 }
 
 class PluginService {
@@ -44,10 +52,18 @@ class PluginService {
         this.initializeEventBridge();
         // Only restore state in browser environment
         if (typeof window !== 'undefined') {
-            this.restorePluginState();
-            // Load stored plugins on startup
-            this.loadStoredPlugins().catch(console.error);
+            // Load builtin plugins first, then user plugins
+            this.initializePlugins().catch(console.error);
         }
+    }
+
+    private async initializePlugins() {
+        // Load builtin plugins first
+        await this.loadBuiltinPlugins();
+        // Then restore plugin state
+        await this.restorePluginState();
+        // Finally load stored user plugins
+        await this.loadStoredPlugins();
     }
 
     private initializeEventBridge() {
@@ -57,25 +73,88 @@ class PluginService {
         });
     }
 
+    // Helper method to update plugin properties with reactivity
+    private updatePlugin(pluginId: string, updates: Partial<PluginInfo>) {
+        this.plugins.update(plugins => {
+            const plugin = plugins.get(pluginId);
+            if (plugin) {
+                // Create new object with updates for reactivity
+                plugins.set(pluginId, { ...plugin, ...updates });
+            }
+            return new Map(plugins);
+        });
+    }
+
+    // Helper method to remove a plugin with reactivity
+    private removePlugin(pluginId: string) {
+        this.plugins.update(plugins => {
+            plugins.delete(pluginId);
+            return new Map(plugins);
+        });
+    }
+
+    private async loadBuiltinPlugins() {
+        try {
+            // Fetch the builtin plugins configuration
+            const response = await fetch(BUILTIN_PLUGINS_CONFIG_URL);
+            if (!response.ok) {
+                console.warn('[PluginService] No builtin plugins configuration found');
+                return;
+            }
+            
+            const config = await response.json();
+            const builtinPlugins = config.builtin_plugins || [];
+            
+            if (builtinPlugins.length === 0) {
+                console.log('[PluginService] No builtin plugins defined');
+                return;
+            }
+            
+            console.log(`[PluginService] Loading ${builtinPlugins.length} builtin plugins...`);
+            
+            // Load each builtin plugin
+            for (const pluginId of builtinPlugins) {
+                try {
+                    await this.loadPlugin(pluginId);
+                    
+                    // Mark as builtin
+                    this.updatePlugin(pluginId, { source: 'builtin' });
+                    
+                    console.log(`[PluginService] Loaded builtin plugin: ${pluginId}`);
+                } catch (error) {
+                    console.error(`[PluginService] Failed to load builtin plugin ${pluginId}:`, error);
+                }
+            }
+        } catch (error) {
+            console.error('[PluginService] Failed to load builtin plugins:', error);
+        }
+    }
+
     private savePluginState() {
         // Only save state in browser environment
         if (typeof window === 'undefined') return;
         
         const plugins = get(this.plugins);
-        const state: PluginState[] = [];
+        const states: PluginStates = {
+            builtin_plugins: {},
+            user_plugins: {}
+        };
         
         plugins.forEach((plugin) => {
-            // Only save state for non-uploaded plugins (built-in plugins)
-            // Uploaded plugins are restored via loadStoredPlugins()
-            if (!plugin.isUploaded) {
-                state.push({
-                    pluginId: plugin.metadata.id,
-                    enabled: plugin.enabled
-                });
+            if (plugin.source === 'builtin') {
+                // Only save enabled state for builtin plugins
+                states.builtin_plugins[plugin.metadata.id] = { enabled: plugin.enabled };
+            } else if (plugin.source === 'external') {
+                // For external plugins (future use)
+                states.user_plugins[plugin.metadata.id] = { 
+                    enabled: plugin.enabled,
+                    loaded: true
+                };
             }
+            // Uploaded plugins are restored via loadStoredPlugins()
         });
         
-        localStorage.setItem(PLUGIN_STATE_KEY, JSON.stringify(state));
+        localStorage.setItem(PLUGIN_STATE_KEY, JSON.stringify(states));
     }
 
     private async restorePluginState() {
@@ -86,23 +165,36 @@ class PluginService {
             const savedState = localStorage.getItem(PLUGIN_STATE_KEY);
             if (!savedState) return;
             
-            const state: PluginState[] = JSON.parse(savedState);
+            let states: PluginStates;
             
-            for (const pluginState of state) {
-                try {
-                    // Try to load the plugin
-                    await this.loadPlugin(pluginState.pluginId);
-                    
-                    // Set enabled state
-                    if (!pluginState.enabled) {
-                        this.disablePlugin(pluginState.pluginId);
+            // Handle old format for backwards compatibility
+            const parsed = JSON.parse(savedState);
+            if (Array.isArray(parsed)) {
+                // Old format - migrate to new format
+                states = {
+                    builtin_plugins: {},
+                    user_plugins: {}
+                };
+                parsed.forEach((s: PluginState) => {
+                    states.user_plugins[s.pluginId] = { enabled: s.enabled, loaded: true };
+                });
+            } else {
+                states = parsed as PluginStates;
+            }
+            
+            // Restore builtin plugin states
+            const plugins = get(this.plugins);
+            for (const [pluginId, state] of Object.entries(states.builtin_plugins || {})) {
+                const plugin = plugins.get(pluginId);
+                if (plugin && plugin.source === 'builtin') {
+                    if (!state.enabled) {
+                        await this.disablePlugin(pluginId);
                     }
-                    
-                } catch (error) {
-                    console.warn(`[PluginService] Failed to restore plugin ${pluginState.pluginId}:`, error);
-                    // Continue with other plugins even if one fails
                 }
             }
+            
+            // User plugin states will be handled when they are loaded
+            
         } catch (error) {
             console.error('[PluginService] Failed to restore plugin state:', error);
         }
@@ -152,7 +244,8 @@ class PluginService {
                 metadata,
                 enabled: true,
                 loaded: true,
-                isNative: true
+                isNative: true,
+                source: 'external'  // Default source, will be overridden if builtin or uploaded
             };
             
             this.plugins.update(plugins => {
@@ -215,7 +308,8 @@ class PluginService {
                         enabled: true,
                         loaded: true,
                         worker,
-                        isNative: false
+                        isNative: false,
+                        source: 'external'  // Default source, will be overridden if builtin or uploaded
                     };
                     
                     this.plugins.update(plugins => {
@@ -350,10 +444,7 @@ class PluginService {
             }
         }
         
-        this.plugins.update(plugins => {
-            plugins.delete(pluginId);
-            return plugins;
-        });
+        this.removePlugin(pluginId);
         
         // Save state after unloading
         this.savePluginState();
@@ -373,18 +464,7 @@ class PluginService {
             }
         }
         
-        this.plugins.update(plugins => {
-            const newPlugins = new Map(plugins);
-            const plugin = newPlugins.get(pluginId);
-            if (plugin) {
-                // Create a new plugin object to trigger reactivity
-                newPlugins.set(pluginId, {
-                    ...plugin,
-                    enabled: true
-                });
-            }
-            return newPlugins;
-        });
+        this.updatePlugin(pluginId, { enabled: true });
         
         // Save state after enabling
         this.savePluginState();
@@ -403,18 +483,7 @@ class PluginService {
             }
         }
         
-        this.plugins.update(plugins => {
-            const newPlugins = new Map(plugins);
-            const plugin = newPlugins.get(pluginId);
-            if (plugin) {
-                // Create a new plugin object to trigger reactivity
-                newPlugins.set(pluginId, {
-                    ...plugin,
-                    enabled: false
-                });
-            }
-            return newPlugins;
-        });
+        this.updatePlugin(pluginId, { enabled: false });
         
         // Save state after disabling
         this.savePluginState();
@@ -564,8 +633,49 @@ class PluginService {
                     throw new Error(`Invalid plugin file. Expected ${expectedExt} file for ${platform}`);
                 }
                 
-                // Upload and load the plugin
+                // Check for conflicts BEFORE uploading
+                // First, try to extract plugin ID from filename to check conflicts
+                const tempStorageId = file.name
+                    .replace(/^lib/, '')
+                    .replace(/\.(dylib|so|dll)$/, '');
+                
+                // Check if there's an existing plugin with this ID
+                const plugins = get(this.plugins);
+                let existingPlugin: PluginInfo | undefined = undefined;
+                let shouldUnloadFirst = false;
+                
+                // Try to find existing plugin by matching storage ID pattern
+                for (const [id, plugin] of plugins) {
+                    if (plugin.storageId === tempStorageId || id === tempStorageId.replace(/_/g, '-')) {
+                        existingPlugin = plugin;
+                        break;
+                    }
+                }
+                
+                if (existingPlugin) {
+                    if (existingPlugin.source === 'builtin') {
+                        // Overriding a builtin plugin
+                        console.log(`[PluginService] User plugin will override builtin plugin ${existingPlugin.metadata.id}`);
+                        shouldUnloadFirst = true;
+                    } else if (existingPlugin.source === 'uploaded') {
+                        // Overriding another uploaded plugin
+                        if (!confirm(`插件 "${existingPlugin.metadata.name}" 已存在。是否覆盖？`)) {
+                            throw new Error('User cancelled plugin upload');
+                        }
+                        // Delete the old uploaded plugin first
+                        await this.deleteUploadedPlugin(existingPlugin.metadata.id);
+                        existingPlugin = undefined; // It's been deleted
+                    }
+                }
+                
+                // Now upload and load the plugin
                 const metadata = await pluginStorageService.savePlugin(file);
+                
+                // If we need to unload a builtin plugin, do it after loading the new one
+                if (shouldUnloadFirst && existingPlugin) {
+                    // Just remove from frontend store, don't unload from backend
+                    this.removePlugin(existingPlugin.metadata.id);
+                }
                 
                 // Extract storage ID from filename
                 const storageId = file.name
@@ -578,7 +688,7 @@ class PluginService {
                     enabled: true,
                     loaded: true,
                     isNative: true,
-                    isUploaded: true,
+                    source: 'uploaded',
                     storageId: storageId
                 };
                 
@@ -593,8 +703,28 @@ class PluginService {
                     throw new Error('Invalid plugin file. Expected ZIP file for web platform');
                 }
                 
-                // Save to IndexedDB
+                // Save to IndexedDB - this will return the plugin ID
                 const pluginId = await pluginStorageService.savePlugin(file);
+                
+                // Check for conflicts before loading
+                const existingPlugin = get(this.plugins).get(pluginId);
+                if (existingPlugin) {
+                    if (existingPlugin.source === 'builtin') {
+                        // Overriding a builtin plugin
+                        console.log(`[PluginService] User plugin ${pluginId} overrides builtin plugin`);
+                        // Just remove from frontend store for Web, don't unload worker
+                        this.removePlugin(pluginId);
+                    } else if (existingPlugin.source === 'uploaded') {
+                        // Overriding another uploaded plugin
+                        if (!confirm(`插件 "${existingPlugin.metadata.name}" 已存在。是否覆盖？`)) {
+                            // Clean up the saved plugin
+                            await pluginStorageService.deletePlugin(pluginId);
+                            throw new Error('User cancelled plugin upload');
+                        }
+                        // Delete the old uploaded plugin
+                        await this.deleteUploadedPlugin(pluginId);
+                    }
+                }
                 
                 // Load the plugin from IndexedDB
                 await this.loadUploadedWasmPlugin(pluginId);
@@ -694,13 +824,7 @@ class PluginService {
             await this.loadWasmPlugin(pluginId, jsUrl);
             
             // Mark as uploaded
-            this.plugins.update(plugins => {
-                const plugin = plugins.get(pluginId);
-                if (plugin) {
-                    plugin.isUploaded = true;
-                }
-                return plugins;
-            });
+            this.updatePlugin(pluginId, { source: 'uploaded' });
         } finally {
             // Clean up blob URLs
             URL.revokeObjectURL(jsUrl);
@@ -723,6 +847,26 @@ class PluginService {
             await pluginStorageService.deletePlugin(storageId);
             
             console.log(`[PluginService] Deleted uploaded plugin ${pluginId}`);
+            
+            // Check if this was overriding a builtin plugin
+            // If so, reload the builtin plugin
+            try {
+                const response = await fetch(BUILTIN_PLUGINS_CONFIG_URL);
+                if (response.ok) {
+                    const config = await response.json();
+                    const builtinPlugins = config.builtin_plugins || [];
+                    
+                    if (builtinPlugins.includes(pluginId)) {
+                        console.log(`[PluginService] Reloading builtin plugin ${pluginId}`);
+                        await this.loadPlugin(pluginId);
+                        
+                        // Mark as builtin
+                        this.updatePlugin(pluginId, { source: 'builtin' });
+                    }
+                }
+            } catch (error) {
+                console.error(`[PluginService] Failed to check/reload builtin plugin ${pluginId}:`, error);
+            }
         } catch (error) {
             console.error(`[PluginService] Failed to delete plugin ${pluginId}:`, error);
             throw error;
@@ -749,7 +893,7 @@ class PluginService {
                                 enabled: true,
                                 loaded: true,
                                 isNative: true,
-                                isUploaded: true,
+                                source: 'uploaded',
                                 storageId: storedPluginInfo.id  // Save the storage ID for deletion
                             };
                             
