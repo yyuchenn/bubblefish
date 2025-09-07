@@ -33,9 +33,9 @@ export interface CoreEvent {
 
 const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
 
-// Builtin plugins list - keep in sync with plugins/plugins.conf.json
+// Builtin plugins list with versions - keep in sync with plugins/plugins.conf.json
 const BUILTIN_PLUGINS = [
-    'marker-logger-plugin'
+    { id: 'marker-logger-plugin', version: '1.0.0' }
 ];
 
 interface PluginState {
@@ -99,22 +99,22 @@ class PluginService {
     }
 
     private async loadBuiltinPlugins() {
-        // Use hardcoded list instead of fetching from file
+        // Use hardcoded list with versions
         const builtinPlugins = BUILTIN_PLUGINS;
         
         console.log(`[PluginService] Loading ${builtinPlugins.length} builtin plugins...`);
         
         // Load each builtin plugin
-        for (const pluginId of builtinPlugins) {
+        for (const plugin of builtinPlugins) {
             try {
-                await this.loadPlugin(pluginId);
+                await this.loadPlugin(plugin.id, undefined, plugin.version);
                 
                 // Mark as builtin
-                this.updatePlugin(pluginId, { source: 'builtin' });
+                this.updatePlugin(plugin.id, { source: 'builtin' });
                 
-                console.log(`[PluginService] Loaded builtin plugin: ${pluginId}`);
+                console.log(`[PluginService] Loaded builtin plugin: ${plugin.id} v${plugin.version}`);
             } catch (error) {
-                console.error(`[PluginService] Failed to load builtin plugin ${pluginId}:`, error);
+                console.error(`[PluginService] Failed to load builtin plugin ${plugin.id}:`, error);
             }
         }
     }
@@ -189,7 +189,7 @@ class PluginService {
         }
     }
 
-    async loadPlugin(pluginId: string, pluginPathOrUrl?: string): Promise<void> {
+    async loadPlugin(pluginId: string, pluginPathOrUrl?: string, version?: string): Promise<void> {
         try {
             // 检测平台
             if (platformService.isTauri()) {
@@ -197,7 +197,7 @@ class PluginService {
                 await this.loadNativePlugin(pluginId, pluginPathOrUrl);
             } else {
                 // Web端：加载WASM插件
-                await this.loadWasmPlugin(pluginId, pluginPathOrUrl);
+                await this.loadWasmPlugin(pluginId, pluginPathOrUrl, version);
             }
         } catch (error) {
             console.error(`[PluginService] Failed to load plugin ${pluginId}:`, error);
@@ -252,9 +252,24 @@ class PluginService {
         }
     }
 
-    private async loadWasmPlugin(pluginId: string, wasmUrl?: string): Promise<void> {
-        const moduleUrl = wasmUrl || `/plugins/${pluginId}/pkg/${pluginId.replace(/-/g, '_')}.js`;
-        const wasmBgUrl = moduleUrl.replace('.js', '_bg.wasm');
+    private async loadWasmPlugin(pluginId: string, wasmUrl?: string, version?: string): Promise<void> {
+        // Build URLs with version
+        let moduleUrl: string;
+        let wasmBgUrl: string;
+        
+        if (wasmUrl) {
+            moduleUrl = wasmUrl;
+            wasmBgUrl = moduleUrl.replace('.js', '_bg.wasm');
+        } else {
+            // Builtin plugins must have version
+            if (!version) {
+                throw new Error(`Version is required for builtin plugin ${pluginId}`);
+            }
+            const pluginBaseName = pluginId.replace(/-/g, '_');
+            const pluginDir = `/plugins/${pluginId}/pkg/`;
+            moduleUrl = `${pluginDir}${pluginBaseName}.${version}.js`;
+            wasmBgUrl = `${pluginDir}${pluginBaseName}_bg.${version}.wasm`;
+        }
         
         // Create a worker for this plugin using dynamic import
         const worker = new Worker(
@@ -740,16 +755,34 @@ class PluginService {
             throw new Error(`Stored plugin ${pluginId} not found`);
         }
         
+        // Extract version from version.json if it exists
+        let version = '0.0.0';
+        const versionFile = storedPlugin.files['version.json'];
+        if (versionFile) {
+            try {
+                const versionData = JSON.parse(new TextDecoder().decode(versionFile));
+                version = versionData.version;
+            } catch (e) {
+                console.warn('Failed to parse version.json, using default version');
+            }
+        }
+        
         // For uploaded plugins, we need to handle them differently
         // Since blob URLs don't support relative imports, we need to patch the JS file
-        const jsFilename = Object.keys(storedPlugin.files).find(f => f.endsWith('.js'));
+        // Look for versioned JS file first
+        let jsFilename = Object.keys(storedPlugin.files).find(f => 
+            f.endsWith(`.${version}.js`) || f.endsWith('.js')
+        );
         if (!jsFilename) {
             throw new Error(`No JS file found for plugin ${pluginId}`);
         }
         
         // Get the JS content and patch it
         const jsContent = new TextDecoder().decode(storedPlugin.files[jsFilename]);
-        const wasmFilename = Object.keys(storedPlugin.files).find(f => f.endsWith('.wasm'));
+        // Look for versioned WASM file first
+        const wasmFilename = Object.keys(storedPlugin.files).find(f => 
+            f.endsWith(`.${version}.wasm`) || f.endsWith('.wasm')
+        );
         
         if (!wasmFilename) {
             throw new Error(`No WASM file found for plugin ${pluginId}`);
@@ -908,10 +941,11 @@ class PluginService {
             
             // Check if this was overriding a builtin plugin
             // If so, reload the builtin plugin
-            if (BUILTIN_PLUGINS.includes(pluginId as any)) {
+            const builtinPlugin = BUILTIN_PLUGINS.find(p => p.id === pluginId);
+            if (builtinPlugin) {
                 try {
                     console.log(`[PluginService] Reloading builtin plugin ${pluginId}`);
-                    await this.loadPlugin(pluginId);
+                    await this.loadPlugin(pluginId, undefined, builtinPlugin.version);
                     
                     // Mark as builtin
                     this.updatePlugin(pluginId, { source: 'builtin' });
