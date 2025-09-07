@@ -23,7 +23,7 @@ export interface SnapshotMetadata {
 }
 
 class SnapshotStorage {
-	private dbName = 'BubblefishSnapshots';
+	private dbName = 'bubblefish_snapshots';
 	private storeName = 'snapshots';
 	private dbVersion = 1;
 	private maxStorageSize = 10 * 1024 * 1024; // 10MB
