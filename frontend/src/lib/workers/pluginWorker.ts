@@ -12,9 +12,18 @@ interface PluginInstance {
     send_message(to: string, message: any): void;
 }
 
+interface WasmTransferMessage {
+    type: 'PLUGIN_WASM_TRANSFER';
+    pluginId: string;
+    wasmBytes: ArrayBuffer;
+    moduleUrl: string;
+    sharedBuffer?: SharedArrayBuffer;
+}
+
 
 class PluginWorker {
     private plugins: Map<string, PluginInstance> = new Map();
+    private wasmCache: Map<string, ArrayBuffer> = new Map();
 
     async loadPlugin(pluginId: string, wasmUrl: string, sharedBuffer?: SharedArrayBuffer) {
         try {
@@ -23,10 +32,22 @@ class PluginWorker {
             const moduleUrl = wasmUrl.replace('_bg.wasm', '.js');
             const pluginModule = await import(/* @vite-ignore */ moduleUrl);
             
-            // Initialize the WASM module if needed
-            if (pluginModule.default && typeof pluginModule.default === 'function') {
-                await pluginModule.default();
+            // Initialize the WASM module with cached bytes from main thread
+            const cachedWasmBytes = this.wasmCache.get(pluginId);
+            if (!cachedWasmBytes) {
+                throw new Error(`WASM bytes not provided for plugin ${pluginId}`);
             }
+            
+            // Use transferred WASM bytes
+            if (pluginModule.initSync) {
+                const compiledModule = await WebAssembly.compile(cachedWasmBytes);
+                pluginModule.initSync({ module: compiledModule });
+            } else {
+                throw new Error(`Plugin ${pluginId} does not support initSync`);
+            }
+            
+            // Clear cache after use
+            this.wasmCache.delete(pluginId);
 
             // Create plugin instance
             const PluginWrapper = pluginModule.PluginWrapper;
@@ -150,8 +171,12 @@ self.addEventListener('message', async (event) => {
     const { type, ...data } = event.data;
     
     switch (type) {
-        case 'LOAD_PLUGIN':
-            await worker.loadPlugin(data.pluginId, data.wasmUrl, data.sharedBuffer);
+        case 'PLUGIN_WASM_TRANSFER':
+            // Store transferred WASM bytes for later use
+            const transferData = event.data as WasmTransferMessage;
+            (worker as any).wasmCache.set(transferData.pluginId, transferData.wasmBytes);
+            // Now load the plugin with the cached WASM
+            await worker.loadPlugin(transferData.pluginId, transferData.moduleUrl.replace('.js', '_bg.wasm'), transferData.sharedBuffer);
             break;
             
         case 'UNLOAD_PLUGIN':

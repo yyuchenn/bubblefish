@@ -1062,6 +1062,9 @@ class BuildScript:
         """Build a single plugin as WASM"""
         log_step(f"Building WASM plugin: {plugin_name}")
         
+        # Get plugin version from Cargo.toml
+        version = self.get_plugin_version(plugin_dir)
+        
         # Build with web target
         cmd = ["wasm-pack", "build", "--target", "web", "--out-dir", "pkg", "--no-opt"]
         
@@ -1074,7 +1077,11 @@ class BuildScript:
         if not self.run_command(cmd, cwd=plugin_dir):
             return False
         
-        log_success(f"WASM plugin '{plugin_name}' built successfully")
+        # Rename files to include version
+        if not self.rename_plugin_files_with_version(plugin_dir, plugin_name, version):
+            log_warning(f"Failed to rename plugin files with version, continuing with original names")
+        
+        log_success(f"WASM plugin '{plugin_name}' version {version} built successfully")
         
         # Copy to frontend static directory (for built-in plugins)
         if not self.copy_plugin_files(plugin_dir, plugin_name):
@@ -1097,17 +1104,24 @@ class BuildScript:
             log_warning(f"Package directory not found: {pkg_dir}")
             return False
         
+        # Get plugin version
+        version = self.get_plugin_version(plugin_dir)
+        
         try:
             # Create bundled directory
             bundled_dir.mkdir(exist_ok=True)
             
-            # Read the main JS file
+            # Read the main JS file (look for versioned file first)
             # Handle plugin names that already end with -plugin
             if plugin_name.endswith('-plugin'):
                 base_name = plugin_name[:-7]  # Remove '-plugin' suffix
-                js_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin.js"
+                js_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin.{version}.js"
+                if not js_file.exists():
+                    js_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin.js"
             else:
-                js_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
+                js_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin.{version}.js"
+                if not js_file.exists():
+                    js_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
             if not js_file.exists():
                 log_warning(f"JS file not found: {js_file}")
                 return False
@@ -1142,23 +1156,30 @@ class BuildScript:
                 # Handle plugin names that already end with -plugin
                 if plugin_name.endswith('-plugin'):
                     base_name = plugin_name[:-7]  # Remove '-plugin' suffix
+                    wasm_filename_versioned = f"{base_name.replace('-', '_')}_plugin_bg.{version}.wasm"
                     wasm_filename = f"{base_name.replace('-', '_')}_plugin_bg.wasm"
                 else:
+                    wasm_filename_versioned = f"{plugin_name.replace('-', '_')}_plugin_bg.{version}.wasm"
                     wasm_filename = f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
-                # Replace the URL constructor pattern
+                # Replace the URL constructor pattern (handle both versioned and non-versioned)
+                bundled_js = re.sub(
+                    r"new URL\(['\"]" + re.escape(wasm_filename_versioned) + r"['\"],\s*import\.meta\.url\)",
+                    f"'./{wasm_filename_versioned}'",
+                    bundled_js
+                )
                 bundled_js = re.sub(
                     r"new URL\(['\"]" + re.escape(wasm_filename) + r"['\"],\s*import\.meta\.url\)",
                     f"'./{wasm_filename}'",
                     bundled_js
                 )
                 
-                # Write bundled JS
+                # Write bundled JS with version
                 # Handle plugin names that already end with -plugin
                 if plugin_name.endswith('-plugin'):
                     base_name = plugin_name[:-7]  # Remove '-plugin' suffix
-                    bundled_js_file = bundled_dir / f"{base_name.replace('-', '_')}_plugin.js"
+                    bundled_js_file = bundled_dir / f"{base_name.replace('-', '_')}_plugin.{version}.js"
                 else:
-                    bundled_js_file = bundled_dir / f"{plugin_name.replace('-', '_')}_plugin.js"
+                    bundled_js_file = bundled_dir / f"{plugin_name.replace('-', '_')}_plugin.{version}.js"
                 bundled_js_file.write_text(bundled_js)
                 
                 log_success(f"Created bundled JS file: {bundled_js_file}")
@@ -1166,13 +1187,17 @@ class BuildScript:
                 # Just copy the JS file if no snippets
                 shutil.copy2(js_file, bundled_dir)
             
-            # Copy WASM file
+            # Copy WASM file (look for versioned file first)
             # Handle plugin names that already end with -plugin
             if plugin_name.endswith('-plugin'):
                 base_name = plugin_name[:-7]  # Remove '-plugin' suffix
-                wasm_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin_bg.wasm"
+                wasm_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin_bg.{version}.wasm"
+                if not wasm_file.exists():
+                    wasm_file = pkg_dir / f"{base_name.replace('-', '_')}_plugin_bg.wasm"
             else:
-                wasm_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
+                wasm_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin_bg.{version}.wasm"
+                if not wasm_file.exists():
+                    wasm_file = pkg_dir / f"{plugin_name.replace('-', '_')}_plugin_bg.wasm"
             if wasm_file.exists():
                 shutil.copy2(wasm_file, bundled_dir)
             
@@ -1180,6 +1205,16 @@ class BuildScript:
             package_json = pkg_dir / "package.json"
             if package_json.exists():
                 shutil.copy2(package_json, bundled_dir)
+            
+            # Create version.json for bundled plugin
+            import json
+            version_info = {
+                "plugin_id": plugin_name,
+                "version": version
+            }
+            version_file = bundled_dir / "version.json"
+            with open(version_file, 'w') as f:
+                json.dump(version_info, f, indent=2)
             
             # Create ZIP for easy upload (in pkg directory)
             import zipfile
@@ -1295,6 +1330,70 @@ class BuildScript:
         log_success(f"Native plugin '{plugin_name}' built successfully at {source_lib}")
         return True
     
+    def get_plugin_version(self, plugin_dir: Path) -> str:
+        """Extract version from plugin's Cargo.toml"""
+        cargo_toml = plugin_dir / "Cargo.toml"
+        if not cargo_toml.exists():
+            return "0.0.0"
+        
+        try:
+            import toml
+            with open(cargo_toml, 'r') as f:
+                cargo_data = toml.load(f)
+                return cargo_data.get('package', {}).get('version', '0.0.0')
+        except ImportError:
+            # Fallback to regex if toml library is not available
+            import re
+            with open(cargo_toml, 'r') as f:
+                content = f.read()
+                match = re.search(r'^version\s*=\s*["\']([^"\']*)["\']', content, re.MULTILINE)
+                return match.group(1) if match else '0.0.0'
+        except Exception as e:
+            log_warning(f"Failed to read version from Cargo.toml: {e}")
+            return '0.0.0'
+    
+    def rename_plugin_files_with_version(self, plugin_dir: Path, plugin_name: str, version: str) -> bool:
+        """Rename plugin files to include version number"""
+        pkg_dir = plugin_dir / "pkg"
+        if not pkg_dir.exists():
+            return False
+        
+        try:
+            # Original filenames
+            base_name = plugin_name.replace('-', '_')
+            if plugin_name.endswith('-plugin'):
+                base_name = plugin_name[:-7].replace('-', '_') + '_plugin'
+            
+            js_file = pkg_dir / f"{base_name}.js"
+            wasm_file = pkg_dir / f"{base_name}_bg.wasm"
+            
+            # New filenames with version
+            js_file_versioned = pkg_dir / f"{base_name}.{version}.js"
+            wasm_file_versioned = pkg_dir / f"{base_name}_bg.{version}.wasm"
+            
+            # Rename files
+            if js_file.exists():
+                js_file.rename(js_file_versioned)
+                log_info(f"Renamed {js_file.name} to {js_file_versioned.name}")
+                
+                # Update the JS file to reference the versioned WASM file
+                js_content = js_file_versioned.read_text()
+                js_content = js_content.replace(
+                    f"{base_name}_bg.wasm",
+                    f"{base_name}_bg.{version}.wasm"
+                )
+                js_file_versioned.write_text(js_content)
+            
+            if wasm_file.exists():
+                wasm_file.rename(wasm_file_versioned)
+                log_info(f"Renamed {wasm_file.name} to {wasm_file_versioned.name}")
+            
+            return True
+            
+        except Exception as e:
+            log_error(f"Failed to rename plugin files with version: {e}")
+            return False
+    
     def copy_plugin_files(self, plugin_dir: Path, plugin_name: str) -> bool:
         """Copy plugin files to frontend static directory"""
         log_info(f"Copying plugin files for {plugin_name} to frontend...")
@@ -1303,6 +1402,9 @@ class BuildScript:
         if not plugin_pkg_dir.exists():
             log_warning(f"Plugin package directory not found: {plugin_pkg_dir}")
             return False
+        
+        # Get plugin version
+        version = self.get_plugin_version(plugin_dir)
         
         # Create plugin directory in frontend/static/plugins
         frontend_plugin_dir = self.frontend_dir / "static" / "plugins" / plugin_name / "pkg"
@@ -1331,6 +1433,18 @@ class BuildScript:
                 dest_snippets = frontend_plugin_dir / "snippets"
                 shutil.copytree(snippets_dir, dest_snippets, dirs_exist_ok=True)
                 log_info(f"Copied snippets directory")
+            
+            # Create manifest.json with version info
+            import json
+            manifest = {
+                "version": version,
+                "plugin_id": plugin_name,
+                "timestamp": time.time()
+            }
+            manifest_path = frontend_plugin_dir / "manifest.json"
+            with open(manifest_path, 'w') as f:
+                json.dump(manifest, f, indent=2)
+            log_info(f"Created manifest.json with version {version}")
             
             log_success(f"Plugin files copied to frontend/static/plugins/{plugin_name}/pkg")
             return True

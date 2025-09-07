@@ -3,6 +3,7 @@ import type { WasmModule } from '../core/adapter';
 
 // Worker消息类型定义
 export interface WasmWorkerMessage {
+	type?: 'WASM_METHOD';
 	id: number;
 	method: string;
 	args: unknown[];
@@ -22,7 +23,13 @@ export interface WasmWorkerEvent {
 	data: unknown;
 }
 
+export interface WasmTransferMessage {
+	type: 'INIT_WITH_WASM';
+	wasmBytes: ArrayBuffer;
+}
+
 let wasmModule: WasmModule | null = null;
+let wasmBytesBuffer: ArrayBuffer | null = null;
 
 // 定义全局函数供WASM调用（在Worker上下文中）
 declare const self: DedicatedWorkerGlobalScope;
@@ -33,15 +40,16 @@ async function initWasmInWorker(): Promise<boolean> {
 		// 动态导入WASM模块
 		const module = await import('../wasm-pkg/bubblefish_core.js');
 
-		// 使用URL import导入WASM二进制文件
-		const wasmUrl = new URL('../wasm-pkg/bubblefish_core_bg.wasm', import.meta.url);
+		// 使用从主线程传递的WASM bytes
+		if (!wasmBytesBuffer) {
+			throw new Error('WASM bytes not provided by main thread');
+		}
+		
+		const compiledModule = await WebAssembly.compile(wasmBytesBuffer);
+		// 清理buffer引用
+		wasmBytesBuffer = null;
 
-		// 使用fetch加载WASM，这样可以被Service Worker拦截并缓存
-		const wasmResponse = await fetch(wasmUrl.href);
-		const wasmBytes = await wasmResponse.arrayBuffer();
-
-		// 使用initSync同步初始化，避免再次fetch
-		const compiledModule = await WebAssembly.compile(wasmBytes);
+		// 使用initSync同步初始化
 		module.initSync({ module: compiledModule });
 
 		wasmModule = module as unknown as WasmModule;
@@ -173,8 +181,18 @@ async function callWasmMethod(method: string, args: unknown[]): Promise<unknown>
 }
 
 // Worker消息处理
-self.onmessage = async (event: MessageEvent<WasmWorkerMessage>) => {
-	const { id, method, args } = event.data;
+self.onmessage = async (event: MessageEvent<WasmWorkerMessage | WasmTransferMessage>) => {
+	const data = event.data;
+	
+	// 处理WASM字节传输消息
+	if ('type' in data && data.type === 'INIT_WITH_WASM') {
+		const transferMessage = data as WasmTransferMessage;
+		wasmBytesBuffer = transferMessage.wasmBytes;
+		return;
+	}
+
+	// 处理常规Worker消息
+	const { id, method, args } = data as WasmWorkerMessage;
 
 	try {
 		// 特殊处理初始化请求

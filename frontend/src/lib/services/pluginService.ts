@@ -3,6 +3,7 @@ import { pluginBridge } from './pluginBridge';
 import { platformService } from './platformService';
 import { pluginStorageService } from './pluginStorageService';
 import { invoke } from '@tauri-apps/api/core';
+import { fetchWasmResource } from '../utils/wasmLoader';
 
 export interface PluginMetadata {
     id: string;
@@ -31,7 +32,11 @@ export interface CoreEvent {
 }
 
 const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
-const BUILTIN_PLUGINS_CONFIG_URL = '/plugins/plugins.conf.json';
+
+// Builtin plugins list with versions - keep in sync with plugins/plugins.conf.json
+const BUILTIN_PLUGINS = [
+    { id: 'marker-logger-plugin', version: '1.0.0' }
+];
 
 interface PluginState {
     pluginId: string;
@@ -94,39 +99,23 @@ class PluginService {
     }
 
     private async loadBuiltinPlugins() {
-        try {
-            // Fetch the builtin plugins configuration
-            const response = await fetch(BUILTIN_PLUGINS_CONFIG_URL);
-            if (!response.ok) {
-                console.warn('[PluginService] No builtin plugins configuration found');
-                return;
+        // Use hardcoded list with versions
+        const builtinPlugins = BUILTIN_PLUGINS;
+        
+        console.log(`[PluginService] Loading ${builtinPlugins.length} builtin plugins...`);
+        
+        // Load each builtin plugin
+        for (const plugin of builtinPlugins) {
+            try {
+                await this.loadPlugin(plugin.id, undefined, plugin.version);
+                
+                // Mark as builtin
+                this.updatePlugin(plugin.id, { source: 'builtin' });
+                
+                console.log(`[PluginService] Loaded builtin plugin: ${plugin.id} v${plugin.version}`);
+            } catch (error) {
+                console.error(`[PluginService] Failed to load builtin plugin ${plugin.id}:`, error);
             }
-            
-            const config = await response.json();
-            const builtinPlugins = config.builtin_plugins || [];
-            
-            if (builtinPlugins.length === 0) {
-                console.log('[PluginService] No builtin plugins defined');
-                return;
-            }
-            
-            console.log(`[PluginService] Loading ${builtinPlugins.length} builtin plugins...`);
-            
-            // Load each builtin plugin
-            for (const pluginId of builtinPlugins) {
-                try {
-                    await this.loadPlugin(pluginId);
-                    
-                    // Mark as builtin
-                    this.updatePlugin(pluginId, { source: 'builtin' });
-                    
-                    console.log(`[PluginService] Loaded builtin plugin: ${pluginId}`);
-                } catch (error) {
-                    console.error(`[PluginService] Failed to load builtin plugin ${pluginId}:`, error);
-                }
-            }
-        } catch (error) {
-            console.error('[PluginService] Failed to load builtin plugins:', error);
         }
     }
 
@@ -200,7 +189,7 @@ class PluginService {
         }
     }
 
-    async loadPlugin(pluginId: string, pluginPathOrUrl?: string): Promise<void> {
+    async loadPlugin(pluginId: string, pluginPathOrUrl?: string, version?: string): Promise<void> {
         try {
             // 检测平台
             if (platformService.isTauri()) {
@@ -208,7 +197,7 @@ class PluginService {
                 await this.loadNativePlugin(pluginId, pluginPathOrUrl);
             } else {
                 // Web端：加载WASM插件
-                await this.loadWasmPlugin(pluginId, pluginPathOrUrl);
+                await this.loadWasmPlugin(pluginId, pluginPathOrUrl, version);
             }
         } catch (error) {
             console.error(`[PluginService] Failed to load plugin ${pluginId}:`, error);
@@ -263,8 +252,24 @@ class PluginService {
         }
     }
 
-    private async loadWasmPlugin(pluginId: string, wasmUrl?: string): Promise<void> {
-        const url = wasmUrl || `/plugins/${pluginId}/pkg/${pluginId.replace(/-/g, '_')}.js`;
+    private async loadWasmPlugin(pluginId: string, wasmUrl?: string, version?: string): Promise<void> {
+        // Build URLs with version
+        let moduleUrl: string;
+        let wasmBgUrl: string;
+        
+        if (wasmUrl) {
+            moduleUrl = wasmUrl;
+            wasmBgUrl = moduleUrl.replace('.js', '_bg.wasm');
+        } else {
+            // Builtin plugins must have version
+            if (!version) {
+                throw new Error(`Version is required for builtin plugin ${pluginId}`);
+            }
+            const pluginBaseName = pluginId.replace(/-/g, '_');
+            const pluginDir = `/plugins/${pluginId}/pkg/`;
+            moduleUrl = `${pluginDir}${pluginBaseName}.${version}.js`;
+            wasmBgUrl = `${pluginDir}${pluginBaseName}_bg.${version}.wasm`;
+        }
         
         // Create a worker for this plugin using dynamic import
         const worker = new Worker(
@@ -288,13 +293,18 @@ class PluginService {
         // Start monitoring requests if not already started
         sharedBufferHandler.start();
         
-        // Initialize the plugin in the worker
+        // Fetch WASM bytes in main thread (so service worker can intercept)
+        const wasmBytes = await fetchWasmResource(wasmBgUrl);
+        
+        // Transfer WASM bytes to worker
+        const transferableBuffer = wasmBytes.slice(0);
         worker.postMessage({
-            type: 'LOAD_PLUGIN',
+            type: 'PLUGIN_WASM_TRANSFER',
             pluginId,
-            wasmUrl: url,
+            wasmBytes: transferableBuffer,
+            moduleUrl,
             sharedBuffer
-        });
+        }, [transferableBuffer]);
 
         // Wait for plugin to load
         await new Promise<void>((resolve, reject) => {
@@ -745,37 +755,56 @@ class PluginService {
             throw new Error(`Stored plugin ${pluginId} not found`);
         }
         
+        // Extract version from version.json if it exists
+        let version = '0.0.0';
+        const versionFile = storedPlugin.files['version.json'];
+        if (versionFile) {
+            try {
+                const versionData = JSON.parse(new TextDecoder().decode(versionFile));
+                version = versionData.version;
+            } catch (e) {
+                console.warn('Failed to parse version.json, using default version');
+            }
+        }
+        
         // For uploaded plugins, we need to handle them differently
         // Since blob URLs don't support relative imports, we need to patch the JS file
-        const jsFilename = Object.keys(storedPlugin.files).find(f => f.endsWith('.js'));
+        // Look for versioned JS file first
+        let jsFilename = Object.keys(storedPlugin.files).find(f => 
+            f.endsWith(`.${version}.js`) || f.endsWith('.js')
+        );
         if (!jsFilename) {
             throw new Error(`No JS file found for plugin ${pluginId}`);
         }
         
         // Get the JS content and patch it
         const jsContent = new TextDecoder().decode(storedPlugin.files[jsFilename]);
-        const wasmFilename = Object.keys(storedPlugin.files).find(f => f.endsWith('.wasm'));
+        // Look for versioned WASM file first
+        const wasmFilename = Object.keys(storedPlugin.files).find(f => 
+            f.endsWith(`.${version}.wasm`) || f.endsWith('.wasm')
+        );
         
         if (!wasmFilename) {
             throw new Error(`No WASM file found for plugin ${pluginId}`);
         }
         
-        // Create blob URL for WASM file
-        const wasmUrl = await pluginStorageService.createBlobUrl(pluginId, wasmFilename);
+        // Get WASM bytes directly from storage
+        const wasmBytes = storedPlugin.files[wasmFilename];
         
-        // Patch the JS to use the blob URL for WASM
+        // For the patched JS, we need to disable WASM fetching since we'll provide it
         let patchedJs = jsContent;
         
-        // Replace WASM import with blob URL
+        // Replace the default WASM initialization to skip fetching
+        // The plugin will receive WASM bytes directly via message
         patchedJs = patchedJs.replace(
             /import\.meta\.url\.replace\(\/\\\.js\$\/,[^)]+\)/g,
-            `'${wasmUrl}'`
+            `'skip-wasm-fetch'` // Placeholder URL that won't be used
         );
         
         // Also handle direct wasm file references
         patchedJs = patchedJs.replace(
             new RegExp(`['"\`]\\.\/${wasmFilename.replace('.', '\\.')}['"\`]`, 'g'),
-            `'${wasmUrl}'`
+            `'skip-wasm-fetch'`
         );
         
         // Check if the JS file has snippet imports (if not bundled)
@@ -819,15 +848,78 @@ class PluginService {
         const jsUrl = URL.createObjectURL(patchedJsBlob);
         
         try {
-            // Use the existing loadWasmPlugin method with patched JS URL
-            await this.loadWasmPlugin(pluginId, jsUrl);
+            // Create a worker for this plugin
+            const worker = new Worker(
+                new URL('../workers/pluginWorker.ts', import.meta.url),
+                { type: 'module' }
+            );
             
-            // Mark as uploaded
-            this.updatePlugin(pluginId, { source: 'uploaded' });
+            // Store worker reference
+            this.workers.set(pluginId, worker);
+            this.serviceCallHandlers.set(worker, new Map());
+            
+            // Create SharedArrayBuffer (required)
+            if (typeof SharedArrayBuffer === 'undefined') {
+                throw new Error('SharedArrayBuffer is not supported in this environment. Please ensure CORS headers are properly configured.');
+            }
+            
+            // Import and initialize SharedBufferHandler
+            const { sharedBufferHandler } = await import('./sharedBufferHandler');
+            const sharedBuffer = sharedBufferHandler.getBuffer();
+            
+            // Start monitoring requests if not already started
+            sharedBufferHandler.start();
+            
+            // Transfer WASM bytes to worker
+            const transferableBuffer = wasmBytes.slice(0);
+            worker.postMessage({
+                type: 'PLUGIN_WASM_TRANSFER',
+                pluginId,
+                wasmBytes: transferableBuffer,
+                moduleUrl: jsUrl,
+                sharedBuffer
+            }, [transferableBuffer]);
+            
+            // Wait for plugin to load
+            await new Promise<void>((resolve, reject) => {
+                const handler = (event: MessageEvent) => {
+                    if (event.data.type === 'PLUGIN_LOADED' && event.data.pluginId === pluginId) {
+                        worker.removeEventListener('message', handler);
+                        
+                        const metadata = event.data.metadata;
+                        const pluginInfo: PluginInfo = {
+                            metadata,
+                            enabled: true,
+                            loaded: true,
+                            worker,
+                            isNative: false,
+                            source: 'uploaded'
+                        };
+                        
+                        this.plugins.update(plugins => {
+                            plugins.set(pluginId, pluginInfo);
+                            return plugins;
+                        });
+                        
+                        // Save state after successfully loading
+                        this.savePluginState();
+                        resolve();
+                    } else if (event.data.type === 'PLUGIN_ERROR' && event.data.pluginId === pluginId) {
+                        worker.removeEventListener('message', handler);
+                        reject(new Error(event.data.error || 'Failed to load plugin'));
+                    }
+                };
+                
+                worker.addEventListener('message', handler);
+            });
+            
+            // Set up ongoing message handling
+            worker.addEventListener('message', (event) => {
+                this.handleWorkerMessage(pluginId, worker, event);
+            });
         } finally {
-            // Clean up blob URLs
+            // Clean up blob URL
             URL.revokeObjectURL(jsUrl);
-            URL.revokeObjectURL(wasmUrl);
         }
     }
 
@@ -849,22 +941,17 @@ class PluginService {
             
             // Check if this was overriding a builtin plugin
             // If so, reload the builtin plugin
-            try {
-                const response = await fetch(BUILTIN_PLUGINS_CONFIG_URL);
-                if (response.ok) {
-                    const config = await response.json();
-                    const builtinPlugins = config.builtin_plugins || [];
+            const builtinPlugin = BUILTIN_PLUGINS.find(p => p.id === pluginId);
+            if (builtinPlugin) {
+                try {
+                    console.log(`[PluginService] Reloading builtin plugin ${pluginId}`);
+                    await this.loadPlugin(pluginId, undefined, builtinPlugin.version);
                     
-                    if (builtinPlugins.includes(pluginId)) {
-                        console.log(`[PluginService] Reloading builtin plugin ${pluginId}`);
-                        await this.loadPlugin(pluginId);
-                        
-                        // Mark as builtin
-                        this.updatePlugin(pluginId, { source: 'builtin' });
-                    }
+                    // Mark as builtin
+                    this.updatePlugin(pluginId, { source: 'builtin' });
+                } catch (error) {
+                    console.error(`[PluginService] Failed to reload builtin plugin ${pluginId}:`, error);
                 }
-            } catch (error) {
-                console.error(`[PluginService] Failed to check/reload builtin plugin ${pluginId}:`, error);
             }
         } catch (error) {
             console.error(`[PluginService] Failed to delete plugin ${pluginId}:`, error);
