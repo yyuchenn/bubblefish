@@ -41,10 +41,12 @@ export interface UndoRedoService {
     clearAllHistory(): Promise<void>;
     initialize(): () => void;
     getUndoActionDisplayName(actionName: string | null): string | null;
+    setBeforeUndoRedoCallback(callback: (() => Promise<void>) | null): void;
 }
 
 class UndoRedoServiceImpl implements UndoRedoService {
     private unsubscribeEventListener: (() => void) | null = null;
+    private beforeUndoRedoCallback: (() => Promise<void>) | null = null;
 
     private getCurrentProjectId(): number | null {
         const state = get(projectStore);
@@ -97,6 +99,11 @@ class UndoRedoServiceImpl implements UndoRedoService {
     
     async undo(): Promise<void> {
         try {
+            // 在执行撤销前，先执行回调（比如保存待处理的编辑）
+            if (this.beforeUndoRedoCallback) {
+                await this.beforeUndoRedoCallback();
+            }
+            
             const projectId = this.getCurrentProjectId();
             if (!projectId) {
                 console.error('No project selected');
@@ -116,6 +123,11 @@ class UndoRedoServiceImpl implements UndoRedoService {
 
     async redo(): Promise<void> {
         try {
+            // 在执行重做前，先执行回调（比如保存待处理的编辑）
+            if (this.beforeUndoRedoCallback) {
+                await this.beforeUndoRedoCallback();
+            }
+            
             const projectId = this.getCurrentProjectId();
             if (!projectId) {
                 console.error('No project selected');
@@ -195,6 +207,10 @@ class UndoRedoServiceImpl implements UndoRedoService {
         
         // Return the mapped Chinese name, or the original name if not found
         return actionNameMap[actionName] || actionName;
+    }
+    
+    setBeforeUndoRedoCallback(callback: (() => Promise<void>) | null): void {
+        this.beforeUndoRedoCallback = callback;
     }
 }
 

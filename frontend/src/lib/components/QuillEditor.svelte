@@ -29,7 +29,8 @@
 
 
 	// Expose a function to imperatively set the value
-	export function setValue(newValue: string) {
+	// cursorPosition: 'end' = 移到末尾, 'preserve' = 保持当前位置, number = 指定位置
+	export function setValue(newValue: string, cursorPosition: 'end' | 'preserve' | number = 'preserve') {
 		if (quillEditor) {
 			isInternalUpdate = true;
 			// 保存当前光标位置
@@ -37,27 +38,29 @@
 			// 解析Bubblefish文本并设置内容
 			const delta = bubblefishText2quillDelta(newValue);
 			quillEditor.setContents(delta);
-			// 恢复光标位置或移到末尾
+			// 根据参数设置光标位置
 			const length = quillEditor.getLength();
-			if (currentSelection && currentSelection.index < length) {
-				quillEditor.setSelection(currentSelection.index, 0);
-			} else {
+			
+			if (cursorPosition === 'end') {
+				// 移到末尾
 				quillEditor.setSelection(length - 1, 0);
+			} else if (cursorPosition === 'preserve') {
+				// 保持原位置（如果有效）
+				if (currentSelection && currentSelection.index < length) {
+					quillEditor.setSelection(currentSelection.index, 0);
+				} else {
+					quillEditor.setSelection(length - 1, 0);
+				}
+			} else if (typeof cursorPosition === 'number') {
+				// 移到指定位置
+				const validIndex = Math.min(Math.max(0, cursorPosition), length - 1);
+				quillEditor.setSelection(validIndex, 0);
 			}
+			
 			isInternalUpdate = false;
 		}
 	}
 
-	// Expose a function to focus the editor and move cursor to end
-	export function focusEnd() {
-		if (quillEditor) {
-			// Focus the editor
-			quillEditor.focus();
-			// Move cursor to the end of the text
-			const length = quillEditor.getLength();
-			quillEditor.setSelection(length - 1, 0);
-		}
-	}
 
 	// Context menu state
 	let contextMenuVisible = $state(false);
