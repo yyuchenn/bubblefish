@@ -126,7 +126,19 @@
 	$effect(() => {
 		const selected = $selectedMarker;
 		
-		// 只在 marker 内容真正改变时才处理
+		// 处理样式更新（独立于文本更新，总是响应）
+		if (selected && selectedMarkerId === selected.id) {
+			const overlayText = selected.style?.overlayText ?? false;
+			const horizontal = selected.style?.horizontal ?? false;
+			if (isOverlayText !== overlayText) {
+				isOverlayText = overlayText;
+			}
+			if (isHorizontal !== horizontal) {
+				isHorizontal = horizontal;
+			}
+		}
+		
+		// 只在 marker 内容真正改变时才处理文本更新
 		const currentMarkerData = selected ? { 
 			id: selected.id, 
 			translation: selected.translation ?? ''
@@ -136,7 +148,7 @@
 		const isMarkerSwitch = currentMarkerData && lastProcessedMarker && 
 			currentMarkerData.id !== lastProcessedMarker.id;
 			
-		// 检查内容是否真正改变（只关注 id 和 translation，样式属性不需要检查）
+		// 检查内容是否真正改变（只关注 id 和 translation）
 		const hasRealChange = !lastProcessedMarker || !currentMarkerData ||
 			lastProcessedMarker.id !== currentMarkerData.id ||
 			lastProcessedMarker.translation !== currentMarkerData.translation;
@@ -192,8 +204,6 @@
 			} else {
 				// 即使ID相同，也要检查内容是否变化（比如撤销重做时）
 				const text = selected.translation ?? '';
-				const overlayText = selected.style?.overlayText ?? false;
-				const horizontal = selected.style?.horizontal ?? false;
 				
 				// 更新文本内容
 				// 如果文本不同，需要更新编辑器
@@ -210,14 +220,6 @@
 					
 					inputValue = text;
 					editorComponent?.setValue(text, 'preserve'); // 撤销重做时保持光标位置
-				}
-				
-				// 更新样式
-				if (isOverlayText !== overlayText) {
-					isOverlayText = overlayText;
-				}
-				if (isHorizontal !== horizontal) {
-					isHorizontal = horizontal;
 				}
 			}
 		}
