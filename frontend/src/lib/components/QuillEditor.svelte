@@ -27,16 +27,6 @@
 	let quillEditor = $state<Quill | null>(null);
 	let isInternalUpdate = false;
 
-	// 获取当前主题的文字颜色
-	function getThemeTextColor(): string {
-		// 先尝试从container元素获取，如果没有则从document获取
-		const element = container || document.documentElement;
-		const computedStyle = getComputedStyle(element);
-		const color = computedStyle.getPropertyValue('--color-on-surface').trim();
-		// 如果CSS变量不存在，尝试获取计算后的color属性
-		return color || computedStyle.color || '#000000';
-	}
-
 
 	// Expose a function to imperatively set the value
 	export function setValue(newValue: string) {
@@ -47,12 +37,8 @@
 			// 解析Bubblefish文本并设置内容
 			const delta = bubblefishText2quillDelta(newValue);
 			quillEditor.setContents(delta);
-			// 设置文字颜色
-			const textColor = getThemeTextColor();
-			const length = quillEditor.getLength();
-			quillEditor.setSelection(0, length);
-			quillEditor.format('color', textColor);
 			// 恢复光标位置或移到末尾
+			const length = quillEditor.getLength();
 			if (currentSelection && currentSelection.index < length) {
 				quillEditor.setSelection(currentSelection.index, 0);
 			} else {
@@ -194,10 +180,6 @@
 				isInternalUpdate = false;
 			}
 
-			// 设置初始文字颜色
-			const textColor = getThemeTextColor();
-			editor.format('color', textColor);
-
 			// 移动工具栏到外部容器
 			const toolbar = editorWrapper.querySelector('.ql-toolbar');
 			if (toolbar && container) {
@@ -302,36 +284,6 @@
 				cleanupFns.push(() => qlEditor.removeEventListener('contextmenu', handleContextMenu));
 			}
 			
-			// 监听主题变化
-			const observer = new MutationObserver(() => {
-				if (editor) {
-					isInternalUpdate = true; // 防止触发onChange
-					const textColor = getThemeTextColor();
-					// 保存当前内容和光标位置
-					const currentSelection = editor.getSelection();
-					const currentLength = editor.getLength();
-					
-					// 选择所有内容并设置颜色
-					editor.setSelection(0, currentLength);
-					editor.format('color', textColor);
-					
-					// 恢复光标位置
-					if (currentSelection) {
-						editor.setSelection(currentSelection);
-					}
-					isInternalUpdate = false;
-				}
-			});
-
-			// 监听document的class变化（通常主题切换会改变class）
-			observer.observe(document.documentElement, {
-				attributes: true,
-				attributeFilter: ['class', 'data-theme']
-			});
-			
-			// 在组件销毁时断开观察
-			cleanupFns.push(() => observer.disconnect());
-			
 			// Assign editor to state variable
 			quillEditor = editor;
 		});
@@ -412,10 +364,11 @@
 		fill: var(--color-on-primary) !important;
 	}
 	
-	/* Quill editor font size */
+	/* Quill editor font size and color */
 	:global(.ql-editor) {
 		font-size: 1rem !important; /* Tailwind's text-base */
 		line-height: 1.5rem !important;
+		color: var(--color-on-surface) !important; /* Use theme color */
 	}
 	
 	/* Quill placeholder styles to follow theme */
