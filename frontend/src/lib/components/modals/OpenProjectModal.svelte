@@ -7,12 +7,16 @@
 
 	interface Props {
 		visible?: boolean;
+		initialFilePath?: string;  // 初始文件路径（双击打开时传入）
+		autoProcess?: boolean;      // 是否自动处理（双击打开时为true）
 		onSuccess?: (detail: { projectId: number; projectName: string; imageCount: number }) => void;
 		onCancel?: () => void;
 	}
 
 	let { 
 		visible = false,
+		initialFilePath,
+		autoProcess = false,
 		onSuccess,
 		onCancel
 	}: Props = $props();
@@ -70,6 +74,27 @@
 			}
 		};
 	});
+
+	// 处理通过双击文件打开的情况
+	$effect(() => {
+		if (initialFilePath && autoProcess && visible && currentStep === 'upload-project') {
+			handleDirectFileOpen(initialFilePath);
+		}
+	});
+
+	async function handleDirectFileOpen(filePath: string) {
+		console.log('Direct file open:', filePath);
+		projectFilePath = filePath;
+		// 从文件路径提取项目名
+		const pathParts = filePath.replace(/\\/g, '/').split('/');
+		const fileName = pathParts[pathParts.length - 1];
+		projectName = fileName.replace(/\.bf$/i, '');
+		// 双击打开时默认启用自动扫描
+		enableAutoScan = true;
+		
+		// 立即执行解析，不需要延迟
+		await handleParseProjectFile();
+	}
 
 	function handleProjectFileSelected(detail: {file?: File, path?: string, fileName?: string}) {
 		if (detail.file) {

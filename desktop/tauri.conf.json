@@ -29,6 +29,15 @@
     "resources": [
       "resources/plugins/*"
     ],
+    "fileAssociations": [
+      {
+        "ext": ["bf"],
+        "name": "Bubblefish Project",
+        "description": "Bubblefish Translation Project",
+        "role": "Editor",
+        "mimeType": "application/x-bubblefish"
+      }
+    ],
     "windows": {
       "nsis": {
         "installMode": "perMachine",

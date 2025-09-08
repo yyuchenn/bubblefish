@@ -1,4 +1,4 @@
-use tauri::{Manager, Emitter, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, Emitter, Listener, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItemBuilder, CheckMenuItemBuilder};
@@ -542,10 +542,33 @@ async fn get_plugin_path(app_handle: tauri::AppHandle, plugin_id: String) -> Res
     Ok(storage.get_plugin_path(&plugin_id).and_then(|p| p.to_str().map(|s| s.to_string())))
 }
 
+use std::sync::Mutex;
+
+// 存储待打开的文件路径
+struct PendingFile(Mutex<Option<String>>);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  // 创建一个共享的待打开文件状态
+  let pending_file = std::sync::Arc::new(PendingFile(Mutex::new(None)));
+  let pending_file_clone = pending_file.clone();
+  
   tauri::Builder::default()
-    .setup(|app| {
+    .setup(move |app| {
+      // 在 setup 中检查是否有待打开的文件
+      // 使用 listen 监听前端准备就绪的信号，而不是固定延迟
+      let app_handle_ready = app.handle().clone();
+      let pending_file_ready = pending_file_clone.clone();
+      app.listen("frontend-ready", move |_event| {
+          if let Ok(mut guard) = pending_file_ready.0.lock() {
+              if let Some(file_path) = guard.take() {
+                  log::info!("Frontend ready, emitting open-file event for: {}", file_path);
+                  if let Err(e) = app_handle_ready.emit("open-file", &file_path) {
+                      log::error!("Failed to emit open-file event: {}", e);
+                  }
+              }
+          }
+      });
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -598,6 +621,38 @@ pub fn run() {
               log::error!("Failed to load stored plugins: {}", e);
           }
       });
+
+      // 检查启动参数（用于命令行直接传递文件路径的情况，比如 Windows 的右键打开）
+      // 注意：大多数平台的文件关联会通过 RunEvent::Opened 事件传递，但保留这个作为备用
+      let args: Vec<String> = std::env::args().collect();
+      // 从第二个参数开始检查（第一个是程序路径）
+      for i in 1..args.len() {
+          let file_path = &args[i];
+          // 检查是否是.bf文件（支持带引号的路径）
+          let cleaned_path = file_path.trim_matches('"');
+          if cleaned_path.ends_with(".bf") || cleaned_path.ends_with(".BF") {
+              // 转换为绝对路径
+              let path = std::path::Path::new(cleaned_path);
+              let absolute_path = if path.is_absolute() {
+                  cleaned_path.to_string()
+              } else {
+                  match std::env::current_dir() {
+                      Ok(cwd) => cwd.join(cleaned_path).to_string_lossy().to_string(),
+                      Err(_) => cleaned_path.to_string()
+                  }
+              };
+              
+              if std::path::Path::new(&absolute_path).exists() {
+                  log::info!("Opening file from command line: {}", absolute_path);
+                  // 存储文件路径，等待前端准备好
+                  if let Ok(mut guard) = pending_file_clone.0.lock() {
+                      *guard = Some(absolute_path);
+                  }
+                  break; // 只处理第一个.bf文件
+              }
+          }
+      }
+
 
       // 创建主窗口，根据操作系统使用不同的标题栏样式
       let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
@@ -661,8 +716,52 @@ pub fn run() {
         get_stored_plugins,
         get_plugin_path
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(move |app_handle, event| match event {
+        // 处理文件打开事件（所有平台：macOS、Windows、Linux）
+        // 当用户通过文件关联（双击、右键打开等）打开文件时触发
+        tauri::RunEvent::Opened { urls, .. } => {
+            log::info!("Received Opened event with URLs: {:?}", urls);
+            for url in urls {
+                let path = url.to_string();
+                // 移除 file:// 前缀
+                let file_path = if path.starts_with("file://") {
+                    path.strip_prefix("file://").unwrap_or(&path).to_string()
+                } else if path.starts_with("file:") {
+                    path.strip_prefix("file:").unwrap_or(&path).to_string()
+                } else {
+                    path
+                };
+                
+                // URL decode (处理文件路径中的特殊字符，如中文、空格等)
+                let decoded_path = percent_encoding::percent_decode_str(&file_path)
+                    .decode_utf8()
+                    .unwrap_or(std::borrow::Cow::Borrowed(&file_path))
+                    .to_string();
+                
+                if decoded_path.ends_with(".bf") || decoded_path.ends_with(".BF") {
+                    log::info!("Opening .bf file from Opened event: {}", decoded_path);
+                    
+                    // 检查前端是否已准备好
+                    if app_handle.webview_windows().is_empty() {
+                        // 如果窗口还没创建，存储文件路径
+                        if let Ok(mut guard) = pending_file.0.lock() {
+                            *guard = Some(decoded_path);
+                        }
+                    } else {
+                        // 如果窗口已存在，立即发送事件（前端应该已经准备好了）
+                        log::info!("Window exists, emitting open-file event immediately for: {}", decoded_path);
+                        if let Err(e) = app_handle.emit("open-file", &decoded_path) {
+                            log::error!("Failed to emit open-file event: {}", e);
+                        }
+                    }
+                    break; // 只处理第一个.bf文件
+                }
+            }
+        }
+        _ => {}
+    });
 }
 
 fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {

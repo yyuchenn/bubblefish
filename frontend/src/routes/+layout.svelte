@@ -16,6 +16,7 @@
 	import { undoRedoService } from '$lib/services/undoRedoService';
 	import { coordinatorService } from '$lib/services/coordinatorService';
 	import { imageService } from '$lib/services/imageService';
+	import { fileAssociationService } from '$lib/services/fileAssociationService';
 
 	// 创建响应式引用
 	const activeProgress = $derived(progressManager.activeProgress);
@@ -45,6 +46,9 @@
 
 		// Initialize coordinator service for managing side effects
 		coordinatorService.initialize();
+
+		// Initialize file association service (for handling .bf file double-click)
+		fileAssociationService.init();
 
 		isInTauri = platformService.isTauri();
 		if (isInTauri) {
