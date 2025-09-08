@@ -10,6 +10,7 @@ export interface ModalData {
 	confirmText?: string;
 	cancelText?: string;
 	onCancel?: () => void;
+	[key: string]: any;  // 允许扩展属性，保持灵活性
 }
 
 export interface ModalState {

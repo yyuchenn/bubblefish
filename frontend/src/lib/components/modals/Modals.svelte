@@ -45,6 +45,9 @@
 {:else if $modalStore.activeModal === 'openProject'}
 	<OpenProjectModal
 		visible={true}
+		initialFilePath={$modalStore.modalData.initialFilePath}
+		autoProcess={$modalStore.modalData.autoProcess}
+		errorMessage={$modalStore.modalData.errorMessage}
 		onSuccess={handleOpenProjectSuccess}
 		onCancel={() => modalStore.hideModal()}
 	/>

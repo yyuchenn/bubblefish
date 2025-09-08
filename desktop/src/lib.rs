@@ -1,4 +1,4 @@
-use tauri::{Manager, Emitter, WebviewUrl, WebviewWindowBuilder};
+use tauri::{Manager, Emitter, Listener, WebviewUrl, WebviewWindowBuilder};
 #[cfg(target_os = "macos")]
 use tauri::TitleBarStyle;
 use tauri::menu::{MenuBuilder, SubmenuBuilder, MenuItemBuilder, CheckMenuItemBuilder};
@@ -305,6 +305,95 @@ async fn get_app_info() -> Result<String, String> {
     Ok("Bubblefish Desktop App v0.1.0".to_string())
 }
 
+// 检查文件是否存在
+#[tauri::command]
+async fn check_file_exists(path: String) -> Result<bool, String> {
+    Ok(std::path::Path::new(&path).exists())
+}
+
+// 打开最近的项目
+#[tauri::command]
+async fn open_recent_project(app_handle: tauri::AppHandle, path: String) -> Result<(), String> {
+    // 发送事件到前端
+    if let Err(e) = app_handle.emit("open-recent-file", &path) {
+        return Err(format!("Failed to emit open-recent-file event: {}", e));
+    }
+    Ok(())
+}
+
+// 更新最近打开菜单（macOS）
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn update_recent_projects_menu(app_handle: tauri::AppHandle, projects: Vec<serde_json::Value>) -> Result<(), String> {
+    use tauri::menu::MenuItemBuilder;
+    
+    if let Some(menu) = app_handle.menu() {
+        // 找到文件菜单
+        if let Ok(items) = menu.items() {
+            for item in items {
+                if let Some(submenu) = item.as_submenu() {
+                    if let Ok(text) = submenu.text() {
+                        if text == "文件" {
+                            // 找到最近打开子菜单
+                            if let Some(recent_item) = submenu.get("recent-projects") {
+                                if let Some(recent_submenu) = recent_item.as_submenu() {
+                                    // 只删除项目相关的菜单项（recent-0到recent-4，以及recent-empty）
+                                    if let Ok(recent_items) = recent_submenu.items() {
+                                        for r_item in recent_items {
+                                            let id = r_item.id();
+                                            let id_str = id.as_ref();
+                                            // 只删除项目项和空提示，保留分隔线和清空按钮
+                                            if id_str.starts_with("recent-") && id_str != "clear-recent" {
+                                                let _ = recent_submenu.remove(&r_item);
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 如果有项目，添加它们
+                                    if !projects.is_empty() {
+                                        // 添加项目（倒序添加，因为 insert 是在位置 0）
+                                        for (index, project) in projects.iter().enumerate().rev() {
+                                            if let Some(_path) = project.get("path").and_then(|p| p.as_str()) {
+                                                if let Some(name) = project.get("name").and_then(|n| n.as_str()) {
+                                                    if let Ok(menu_item) = MenuItemBuilder::new(name)
+                                                        .id(format!("recent-{}", index))
+                                                        .build(&app_handle) 
+                                                    {
+                                                        let _ = recent_submenu.insert(&menu_item, 0);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // 如果没有项目，添加提示
+                                        if let Ok(empty_item) = MenuItemBuilder::new("暂无最近打开的项目")
+                                            .id("recent-empty")
+                                            .enabled(false)
+                                            .build(&app_handle)
+                                        {
+                                            let _ = recent_submenu.insert(&empty_item, 0);
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
+// 更新最近打开菜单（非macOS平台的空实现）
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+async fn update_recent_projects_menu(_app_handle: tauri::AppHandle, _projects: Vec<serde_json::Value>) -> Result<(), String> {
+    Ok(())
+}
+
 // 检查更新（支持动态选择更新源）
 #[tauri::command]
 async fn check_for_updates_with_source(app: tauri::AppHandle, source: String) -> Result<serde_json::Value, String> {
@@ -542,10 +631,33 @@ async fn get_plugin_path(app_handle: tauri::AppHandle, plugin_id: String) -> Res
     Ok(storage.get_plugin_path(&plugin_id).and_then(|p| p.to_str().map(|s| s.to_string())))
 }
 
+use std::sync::Mutex;
+
+// 存储待打开的文件路径
+struct PendingFile(Mutex<Option<String>>);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  // 创建一个共享的待打开文件状态
+  let pending_file = std::sync::Arc::new(PendingFile(Mutex::new(None)));
+  let pending_file_clone = pending_file.clone();
+  
   tauri::Builder::default()
-    .setup(|app| {
+    .setup(move |app| {
+      // 在 setup 中检查是否有待打开的文件
+      // 使用 listen 监听前端准备就绪的信号，而不是固定延迟
+      let app_handle_ready = app.handle().clone();
+      let pending_file_ready = pending_file_clone.clone();
+      app.listen("frontend-ready", move |_event| {
+          if let Ok(mut guard) = pending_file_ready.0.lock() {
+              if let Some(file_path) = guard.take() {
+                  log::info!("Frontend ready, emitting open-file event for: {}", file_path);
+                  if let Err(e) = app_handle_ready.emit("open-file", &file_path) {
+                      log::error!("Failed to emit open-file event: {}", e);
+                  }
+              }
+          }
+      });
       if cfg!(debug_assertions) {
         app.handle().plugin(
           tauri_plugin_log::Builder::default()
@@ -599,6 +711,38 @@ pub fn run() {
           }
       });
 
+      // 检查启动参数（用于命令行直接传递文件路径的情况，比如 Windows 的右键打开）
+      // 注意：大多数平台的文件关联会通过 RunEvent::Opened 事件传递，但保留这个作为备用
+      let args: Vec<String> = std::env::args().collect();
+      // 从第二个参数开始检查（第一个是程序路径）
+      for i in 1..args.len() {
+          let file_path = &args[i];
+          // 检查是否是.bf文件（支持带引号的路径）
+          let cleaned_path = file_path.trim_matches('"');
+          if cleaned_path.ends_with(".bf") || cleaned_path.ends_with(".BF") {
+              // 转换为绝对路径
+              let path = std::path::Path::new(cleaned_path);
+              let absolute_path = if path.is_absolute() {
+                  cleaned_path.to_string()
+              } else {
+                  match std::env::current_dir() {
+                      Ok(cwd) => cwd.join(cleaned_path).to_string_lossy().to_string(),
+                      Err(_) => cleaned_path.to_string()
+                  }
+              };
+              
+              if std::path::Path::new(&absolute_path).exists() {
+                  log::info!("Opening file from command line: {}", absolute_path);
+                  // 存储文件路径，等待前端准备好
+                  if let Ok(mut guard) = pending_file_clone.0.lock() {
+                      *guard = Some(absolute_path);
+                  }
+                  break; // 只处理第一个.bf文件
+              }
+          }
+      }
+
+
       // 创建主窗口，根据操作系统使用不同的标题栏样式
       let window_builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::default())
         .title("")  // 设置标题为空，使用自定义标题栏，如果标题栏有文字，在macOS上会遮挡
@@ -644,6 +788,9 @@ pub fn run() {
         read_file_content,
         scan_directory_for_images,
         get_app_info,
+        check_file_exists,
+        open_recent_project,
+        update_recent_projects_menu,
         check_for_updates_with_source,
         download_and_install_update,
         update_menu_checked_state,
@@ -661,8 +808,52 @@ pub fn run() {
         get_stored_plugins,
         get_plugin_path
     ])
-    .run(tauri::generate_context!())
-    .expect("error while running tauri application");
+    .build(tauri::generate_context!())
+    .expect("error while building tauri application")
+    .run(move |#[cfg_attr(not(target_os = "macos"), allow(unused_variables))] app_handle, event| match event {
+        // 处理文件打开事件（仅macOS支持Opened事件）
+        #[cfg(target_os = "macos")]
+        tauri::RunEvent::Opened { urls, .. } => {
+            log::info!("Received Opened event with URLs: {:?}", urls);
+            for url in urls {
+                let path = url.to_string();
+                // 移除 file:// 前缀
+                let file_path = if path.starts_with("file://") {
+                    path.strip_prefix("file://").unwrap_or(&path).to_string()
+                } else if path.starts_with("file:") {
+                    path.strip_prefix("file:").unwrap_or(&path).to_string()
+                } else {
+                    path
+                };
+                
+                // URL decode (处理文件路径中的特殊字符，如中文、空格等)
+                let decoded_path = percent_encoding::percent_decode_str(&file_path)
+                    .decode_utf8()
+                    .unwrap_or(std::borrow::Cow::Borrowed(&file_path))
+                    .to_string();
+                
+                if decoded_path.ends_with(".bf") || decoded_path.ends_with(".BF") {
+                    log::info!("Opening .bf file from Opened event: {}", decoded_path);
+                    
+                    // 检查前端是否已准备好
+                    if app_handle.webview_windows().is_empty() {
+                        // 如果窗口还没创建，存储文件路径
+                        if let Ok(mut guard) = pending_file.0.lock() {
+                            *guard = Some(decoded_path);
+                        }
+                    } else {
+                        // 如果窗口已存在，立即发送事件（前端应该已经准备好了）
+                        log::info!("Window exists, emitting open-file event immediately for: {}", decoded_path);
+                        if let Err(e) = app_handle.emit("open-file", &decoded_path) {
+                            log::error!("Failed to emit open-file event: {}", e);
+                        }
+                    }
+                    break; // 只处理第一个.bf文件
+                }
+            }
+        }
+        _ => {}
+    });
 }
 
 fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
@@ -671,6 +862,19 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
         .id("export-submenu")
         .item(&MenuItemBuilder::new("Labelplus文件")
             .id("export-labelplus")
+            .build(app)?)
+        .build()?;
+
+    // 创建最近打开子菜单
+    let recent_submenu = SubmenuBuilder::new(app, "最近打开")
+        .id("recent-projects")
+        .item(&MenuItemBuilder::new("暂无最近打开的项目")
+            .id("recent-empty")
+            .enabled(false)
+            .build(app)?)
+        .separator()
+        .item(&MenuItemBuilder::new("清空最近打开")
+            .id("clear-recent")
             .build(app)?)
         .build()?;
 
@@ -684,6 +888,7 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
             .id("open-project")
             .accelerator("CmdOrCtrl+O")
             .build(app)?)
+        .item(&recent_submenu)
         .separator()
         .item(&MenuItemBuilder::new("保存")
             .id("save")
@@ -785,7 +990,27 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
 
     // 添加菜单事件处理器
     app.on_menu_event(move |app, event| {
-        let event_name = match event.id().0.as_str() {
+        let event_id = event.id().0.as_str();
+        
+        // 处理清空最近打开
+        if event_id == "clear-recent" {
+            if let Err(e) = app.emit("menu:file:clear-recent", ()) {
+                eprintln!("Failed to emit clear-recent event: {}", e);
+            }
+            return;
+        }
+        
+        // 处理最近打开的项目
+        if event_id.starts_with("recent-") && event_id != "recent-empty" && event_id != "recent-projects" {
+            // 打开最近的项目（需要从菜单项获取路径）
+            // 这里我们发送事件索引，前端会处理
+            if let Err(e) = app.emit("menu:file:open-recent", event_id) {
+                eprintln!("Failed to emit open-recent event: {}", e);
+            }
+            return;
+        }
+        
+        let event_name = match event_id {
             "new-project" => "menu:file:new-project",
             "open-project" => "menu:file:open-project",
             "save" => "menu:file:save",
