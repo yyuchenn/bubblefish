@@ -59,6 +59,9 @@ export const recentProjectsService = {
 			// 保存到 localStorage
 			localStorage.setItem(STORAGE_KEY, JSON.stringify(projects));
 			
+			// 触发自定义事件，通知其他组件更新
+			window.dispatchEvent(new CustomEvent('recent-projects-updated'));
+			
 			// 如果在 Tauri 环境，同步到后端
 			if (platformService.isTauri()) {
 				this.syncToBackend();
@@ -74,6 +77,9 @@ export const recentProjectsService = {
 		
 		try {
 			localStorage.removeItem(STORAGE_KEY);
+			
+			// 触发自定义事件，通知其他组件更新
+			window.dispatchEvent(new CustomEvent('recent-projects-updated'));
 			
 			// 如果在 Tauri 环境，同步到后端
 			if (platformService.isTauri()) {

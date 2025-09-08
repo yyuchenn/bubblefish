@@ -127,6 +127,29 @@
 		modifierSymbols = keyboardShortcutService.getModifierSymbols();
 		// Load recent projects
 		recentProjects = recentProjectsService.getRecentProjects();
+		
+		// Listen for storage changes to update recent projects in real-time
+		const handleStorageChange = (e: StorageEvent) => {
+			if (e.key === 'recentProjects') {
+				// Reload recent projects when localStorage changes
+				recentProjects = recentProjectsService.getRecentProjects();
+			}
+		};
+		
+		// Add event listener for storage changes
+		window.addEventListener('storage', handleStorageChange);
+		
+		// Also listen for custom events within the same window
+		const handleRecentProjectsUpdate = () => {
+			recentProjects = recentProjectsService.getRecentProjects();
+		};
+		window.addEventListener('recent-projects-updated', handleRecentProjectsUpdate);
+		
+		// Cleanup on component destroy
+		return () => {
+			window.removeEventListener('storage', handleStorageChange);
+			window.removeEventListener('recent-projects-updated', handleRecentProjectsUpdate);
+		};
 	});
 	
 	function handleOpenRecent(path: string) {
