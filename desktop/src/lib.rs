@@ -322,19 +322,18 @@ async fn open_recent_project(app_handle: tauri::AppHandle, path: String) -> Resu
 }
 
 // 更新最近打开菜单（macOS）
+#[cfg(target_os = "macos")]
 #[tauri::command]
 async fn update_recent_projects_menu(app_handle: tauri::AppHandle, projects: Vec<serde_json::Value>) -> Result<(), String> {
     use tauri::menu::MenuItemBuilder;
     
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(menu) = app_handle.menu() {
-            // 找到文件菜单
-            if let Ok(items) = menu.items() {
-                for item in items {
-                    if let Some(submenu) = item.as_submenu() {
-                        if let Ok(text) = submenu.text() {
-                            if text == "文件" {
+    if let Some(menu) = app_handle.menu() {
+        // 找到文件菜单
+        if let Ok(items) = menu.items() {
+            for item in items {
+                if let Some(submenu) = item.as_submenu() {
+                    if let Ok(text) = submenu.text() {
+                        if text == "文件" {
                             // 找到最近打开子菜单
                             if let Some(recent_item) = submenu.get("recent-projects") {
                                 if let Some(recent_submenu) = recent_item.as_submenu() {
@@ -376,7 +375,6 @@ async fn update_recent_projects_menu(app_handle: tauri::AppHandle, projects: Vec
                                         }
                                     }
                                 }
-                            }
                                 break;
                             }
                         }
@@ -386,6 +384,13 @@ async fn update_recent_projects_menu(app_handle: tauri::AppHandle, projects: Vec
         }
     }
     
+    Ok(())
+}
+
+// 更新最近打开菜单（非macOS平台的空实现）
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+async fn update_recent_projects_menu(_app_handle: tauri::AppHandle, _projects: Vec<serde_json::Value>) -> Result<(), String> {
     Ok(())
 }
 
@@ -805,9 +810,9 @@ pub fn run() {
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
-    .run(move |app_handle, event| match event {
-        // 处理文件打开事件（所有平台：macOS、Windows、Linux）
-        // 当用户通过文件关联（双击、右键打开等）打开文件时触发
+    .run(move |#[cfg_attr(not(target_os = "macos"), allow(unused_variables))] app_handle, event| match event {
+        // 处理文件打开事件（仅macOS支持Opened事件）
+        #[cfg(target_os = "macos")]
         tauri::RunEvent::Opened { urls, .. } => {
             log::info!("Received Opened event with URLs: {:?}", urls);
             for url in urls {
