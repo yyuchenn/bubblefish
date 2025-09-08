@@ -80,6 +80,14 @@
 			}
 			lastUpdateTime = Date.now();
 			pendingUpdate = null;
+			
+			// 更新 lastProcessedMarker，避免后续重复处理
+			if (selectedMarkerId !== null) {
+				lastProcessedMarker = {
+					id: selectedMarkerId,
+					translation: inputValue
+				};
+			}
 		}
 	}
 	
@@ -121,6 +129,9 @@
 		id: number; 
 		translation: string;
 	} | null>(null);
+	
+	// 保存撤销/重做前的文本，用于计算光标位置
+	let textBeforeUndoRedo = '';
 	
 	// 当全局选中标记变化时，同步本地 UI
 	$effect(() => {
@@ -218,8 +229,17 @@
 						pendingUpdate = null;
 					}
 					
+					// 检测是否是撤销/重做操作导致的文本变化
+					const isUndoRedo = textBeforeUndoRedo && textBeforeUndoRedo !== text;
+					
 					inputValue = text;
-					editorComponent?.setValue(text, 'preserve'); // 撤销重做时保持光标位置
+					if (isUndoRedo) {
+						// 撤销重做时，将光标移到变化内容之后
+						editorComponent?.setValue(text, 'afterChange', textBeforeUndoRedo);
+						textBeforeUndoRedo = ''; // 重置
+					} else {
+						editorComponent?.setValue(text, 'preserve'); // 其他情况保持光标位置
+					}
 				}
 			}
 		}
@@ -770,7 +790,14 @@
 	// 组件挂载时注册撤销/重做前的回调
 	onMount(() => {
 		// 注册回调，在撤销/重做前保存待处理的更新
-		undoRedoService.setBeforeUndoRedoCallback(flushPendingUpdate);
+		undoRedoService.setBeforeUndoRedoCallback(async () => {
+			// 保存当前编辑器中的文本（可能包含未保存的更改）
+			// 这很重要，因为用户可能输入了文本但还未触发防抖保存
+			if (selectedMarkerId !== null) {
+				textBeforeUndoRedo = inputValue; // 使用 inputValue 而不是 marker.translation
+			}
+			await flushPendingUpdate();
+		});
 		
 		return () => {
 			// 组件销毁时清理回调
