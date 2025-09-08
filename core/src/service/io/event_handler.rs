@@ -37,14 +37,48 @@ fn handle_parse_labelplus(project_id: ProjectId, content: String) {
     );
     
     match parse_labelplus_file(&content) {
-        Ok(labelplus_data) => {
+        Ok(mut labelplus_data) => {
+            // 去除重复的图片
+            let mut seen_images = std::collections::HashSet::new();
+            let mut unique_images: Vec<String> = Vec::new();
+            let mut duplicate_count = 0;
+            
+            for img_name in labelplus_data.image_order {
+                if seen_images.insert(img_name.clone()) {
+                    unique_images.push(img_name);
+                } else {
+                    duplicate_count += 1;
+                    Logger::warn_with_data(
+                        "忽略重复的图片文件",
+                        serde_json::json!({
+                            "project_id": project_id,
+                            "filename": img_name
+                        })
+                    );
+                }
+            }
+            
+            if duplicate_count > 0 {
+                Logger::info_with_data(
+                    "发现并忽略了重复的图片文件",
+                    serde_json::json!({
+                        "project_id": project_id,
+                        "duplicate_count": duplicate_count,
+                        "unique_images": unique_images.len()
+                    })
+                );
+            }
+            
+            // 更新labelplus_data的image_order为去重后的列表
+            labelplus_data.image_order = unique_images.clone();
+            
             // 将解析结果存储到临时项目中
             let _ = OPENING_PROJECTS.get_mut(project_id, |opening_project| {
                 opening_project.labelplus_data = Some(labelplus_data.clone());
                 
                 // 更新 required_images
-                opening_project.required_images = labelplus_data.image_order.clone();
-                opening_project.pending_images = labelplus_data.image_order.clone();
+                opening_project.required_images = unique_images.clone();
+                opening_project.pending_images = unique_images;
             });
             
             Logger::info_with_data(
@@ -80,11 +114,38 @@ fn handle_parse_bf(project_id: ProjectId, data: Vec<u8>) {
         Ok(bf_data) => {
             // 将解析结果存储到临时项目中
             let _ = OPENING_PROJECTS.get_mut(project_id, |opening_project| {
-                // 从BF文件的images列表构建需要的图片列表
-                let required_images: Vec<String> = bf_data.images
-                    .iter()
-                    .map(|img| img.filename.clone())
-                    .collect();
+                // 从BF文件的images列表构建需要的图片列表，去除重复项
+                let mut seen_images = std::collections::HashSet::new();
+                let mut required_images: Vec<String> = Vec::new();
+                let mut duplicate_count = 0;
+                
+                for img in &bf_data.images {
+                    let filename = img.filename.clone();
+                    if seen_images.insert(filename.clone()) {
+                        // 只有当成功插入到集合中（即不重复）时才添加到列表
+                        required_images.push(filename);
+                    } else {
+                        duplicate_count += 1;
+                        Logger::warn_with_data(
+                            "忽略重复的图片文件",
+                            serde_json::json!({
+                                "project_id": project_id,
+                                "filename": filename
+                            })
+                        );
+                    }
+                }
+                
+                if duplicate_count > 0 {
+                    Logger::info_with_data(
+                        "发现并忽略了重复的图片文件",
+                        serde_json::json!({
+                            "project_id": project_id,
+                            "duplicate_count": duplicate_count,
+                            "unique_images": required_images.len()
+                        })
+                    );
+                }
                 
                 // 使用BF文件中的项目名称更新项目
                 opening_project.project.name = bf_data.metadata.project_name.clone();

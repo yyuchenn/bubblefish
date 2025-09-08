@@ -27,6 +27,26 @@ pub fn add_image_from_path_to_project(project_id: u32, path: PathBuf) -> Option<
         .to_string();
     let name = Some(file_name.clone());
     
+    // 检查是否为重复的图片（基于文件名），如果是则返回已存在的图片ID
+    if let Ok(Some(project)) = get_project_storage(ProjectId::from(project_id)) {
+        // 检查正式项目中是否已存在同名图片
+        for &img_id in &project.image_ids {
+            if let Ok(Some(img)) = get_image_storage(img_id) {
+                if img.metadata.name.as_ref().map_or(false, |n| n == &file_name) {
+                    crate::common::Logger::warn_with_data(
+                        "忽略重复的图片文件，返回已存在的图片ID",
+                        serde_json::json!({
+                            "project_id": project_id,
+                            "filename": file_name,
+                            "existing_image_id": img_id.0
+                        })
+                    );
+                    return Some(img_id.0);
+                }
+            }
+        }
+    }
+    
     // API层直接处理业务逻辑，而不是调用Coordinator
     let result = if service.opening_project_service.is_opening_project(project_id) {
         // 临时项目路径
@@ -100,6 +120,28 @@ pub fn add_image_from_binary_to_project(project_id: u32, format: ImageFormat, da
     })));
     
     let service = get_service();
+    
+    // 检查是否为重复的图片（基于文件名），如果是则返回已存在的图片ID
+    if let Some(ref img_name) = name {
+        if let Ok(Some(project)) = get_project_storage(ProjectId::from(project_id)) {
+            // 检查正式项目中是否已存在同名图片
+            for &img_id in &project.image_ids {
+                if let Ok(Some(img)) = get_image_storage(img_id) {
+                    if img.metadata.name.as_ref().map_or(false, |n| n == img_name) {
+                        crate::common::Logger::warn_with_data(
+                            "忽略重复的图片文件，返回已存在的图片ID",
+                            serde_json::json!({
+                                "project_id": project_id,
+                                "filename": img_name,
+                                "existing_image_id": img_id.0
+                            })
+                        );
+                        return Some(img_id.0);
+                    }
+                }
+            }
+        }
+    }
     
     // API层直接处理业务逻辑
     if service.opening_project_service.is_opening_project(project_id) {
