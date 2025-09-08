@@ -29,8 +29,9 @@
 
 
 	// Expose a function to imperatively set the value
-	// cursorPosition: 'end' = 移到末尾, 'preserve' = 保持当前位置, number = 指定位置
-	export function setValue(newValue: string, cursorPosition: 'end' | 'preserve' | number = 'preserve') {
+	// cursorPosition: 'end' = 移到末尾, 'preserve' = 保持当前位置, 'afterChange' = 移到变化内容之后, number = 指定位置
+	// oldValue: 用于计算变化位置（仅在 cursorPosition 为 'afterChange' 时使用）
+	export function setValue(newValue: string, cursorPosition: 'end' | 'preserve' | 'afterChange' | number = 'preserve', oldValue?: string) {
 		if (quillEditor) {
 			isInternalUpdate = true;
 			// 保存当前光标位置
@@ -51,6 +52,12 @@
 				} else {
 					quillEditor.setSelection(length - 1, 0);
 				}
+			} else if (cursorPosition === 'afterChange' && oldValue !== undefined) {
+				// 计算变化位置并移动光标到变化内容之后
+				const changePos = findChangePosition(oldValue, newValue);
+				// 设置光标到变化内容的末尾
+				const targetIndex = Math.min(changePos.endPos, length - 1);
+				quillEditor.setSelection(targetIndex, 0);
 			} else if (typeof cursorPosition === 'number') {
 				// 移到指定位置
 				const validIndex = Math.min(Math.max(0, cursorPosition), length - 1);
@@ -58,6 +65,26 @@
 			}
 			
 			isInternalUpdate = false;
+		}
+	}
+	
+	// 辅助函数：查找两个字符串之间的变化位置
+	function findChangePosition(oldStr: string, newStr: string): { startPos: number; endPos: number } {
+		// 找到第一个不同的位置
+		let startPos = 0;
+		const minLen = Math.min(oldStr.length, newStr.length);
+		while (startPos < minLen && oldStr[startPos] === newStr[startPos]) {
+			startPos++;
+		}
+		
+		// 如果新字符串更长，变化结束位置是新字符串的相应位置
+		if (newStr.length >= oldStr.length) {
+			// 插入或替换：光标移到新内容的末尾
+			const lengthDiff = newStr.length - oldStr.length;
+			return { startPos, endPos: startPos + lengthDiff + 1 };
+		} else {
+			// 删除：光标移到删除位置
+			return { startPos, endPos: startPos };
 		}
 	}
 
