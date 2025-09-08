@@ -2,6 +2,7 @@
 	import { sidebarState } from '$lib/services/layoutService';
 	import { undoRedoActions } from '$lib/services/undoRedoService';
 	import { keyboardShortcutService } from '$lib/services/keyboardShortcutService';
+	import { recentProjectsService, type RecentProject } from '$lib/services/recentProjectsService';
 	import { onMount } from 'svelte';
 
 	interface Props {
@@ -118,11 +119,27 @@
 	
 	// Get modifier key symbols from keyboard shortcut service
 	let modifierSymbols = $state(keyboardShortcutService.getModifierSymbols());
+	let recentProjects = $state<RecentProject[]>([]);
+	let showRecentMenu = $state(false);
 	
 	onMount(() => {
 		// Update symbols on mount to ensure correct platform detection
 		modifierSymbols = keyboardShortcutService.getModifierSymbols();
+		// Load recent projects
+		recentProjects = recentProjectsService.getRecentProjects();
 	});
+	
+	function handleOpenRecent(path: string) {
+		showRecentMenu = false;
+		showFileMenu = false;
+		recentProjectsService.openRecentProject(path);
+	}
+	
+	function handleClearRecent() {
+		showRecentMenu = false;
+		recentProjectsService.clearRecentProjects();
+		recentProjects = [];
+	}
 	
 	let modifierKey = $derived(modifierSymbols.modifierKey);
 	let shiftKey = $derived(modifierSymbols.shiftKey);
@@ -162,6 +179,51 @@
 							<span>打开项目</span>
 							<span class="text-theme-on-surface-variant text-xs">{modifierKey}{keySeparator}O</span>
 						</button>
+						
+						<!-- 最近打开子菜单 -->
+						<div class="relative group">
+							<button
+								class="text-theme-on-surface hover:bg-theme-surface-variant block w-full cursor-pointer border-none bg-transparent px-4 py-2 text-left text-sm transition-colors flex items-center justify-between"
+								onmouseenter={() => showRecentMenu = true}
+								onmouseleave={() => showRecentMenu = false}
+							>
+								<span>最近打开</span>
+								<svg class="w-3 h-3" viewBox="0 0 12 12" fill="currentColor">
+									<path d="M4.5 3L7.5 6L4.5 9" stroke="var(--color-on-surface)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+								</svg>
+							</button>
+							{#if showRecentMenu}
+								<div 
+									class="bg-theme-background border-theme-outline absolute left-full top-0 z-[1003] min-w-[250px] rounded border shadow-lg"
+									role="menu"
+									onmouseenter={() => showRecentMenu = true}
+									onmouseleave={() => showRecentMenu = false}
+								>
+									{#if recentProjects.length > 0}
+										{#each recentProjects as project (project.path)}
+											<button
+												class="text-theme-on-surface hover:bg-theme-surface-variant block w-full cursor-pointer border-none bg-transparent px-4 py-2 text-left text-sm transition-colors truncate"
+												onclick={() => handleOpenRecent(project.path)}
+												title={project.path}
+											>
+												{project.name}
+											</button>
+										{/each}
+										<div class="bg-theme-outline-variant my-1 h-px"></div>
+										<button
+											class="text-theme-on-surface hover:bg-theme-surface-variant block w-full cursor-pointer border-none bg-transparent px-4 py-2 text-left text-sm transition-colors"
+											onclick={handleClearRecent}
+										>
+											清空最近打开
+										</button>
+									{:else}
+										<div class="text-theme-on-surface-variant px-4 py-2 text-sm">
+											暂无最近打开的项目
+										</div>
+									{/if}
+								</div>
+							{/if}
+						</div>
 						
 						<div class="bg-theme-outline-variant my-1 h-px"></div>
 						<button

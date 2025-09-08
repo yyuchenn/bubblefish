@@ -305,6 +305,90 @@ async fn get_app_info() -> Result<String, String> {
     Ok("Bubblefish Desktop App v0.1.0".to_string())
 }
 
+// 检查文件是否存在
+#[tauri::command]
+async fn check_file_exists(path: String) -> Result<bool, String> {
+    Ok(std::path::Path::new(&path).exists())
+}
+
+// 打开最近的项目
+#[tauri::command]
+async fn open_recent_project(app_handle: tauri::AppHandle, path: String) -> Result<(), String> {
+    // 发送事件到前端
+    if let Err(e) = app_handle.emit("open-recent-file", &path) {
+        return Err(format!("Failed to emit open-recent-file event: {}", e));
+    }
+    Ok(())
+}
+
+// 更新最近打开菜单（macOS）
+#[tauri::command]
+async fn update_recent_projects_menu(app_handle: tauri::AppHandle, projects: Vec<serde_json::Value>) -> Result<(), String> {
+    use tauri::menu::MenuItemBuilder;
+    
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(menu) = app_handle.menu() {
+            // 找到文件菜单
+            if let Ok(items) = menu.items() {
+                for item in items {
+                    if let Some(submenu) = item.as_submenu() {
+                        if let Ok(text) = submenu.text() {
+                            if text == "文件" {
+                            // 找到最近打开子菜单
+                            if let Some(recent_item) = submenu.get("recent-projects") {
+                                if let Some(recent_submenu) = recent_item.as_submenu() {
+                                    // 只删除项目相关的菜单项（recent-0到recent-4，以及recent-empty）
+                                    if let Ok(recent_items) = recent_submenu.items() {
+                                        for r_item in recent_items {
+                                            let id = r_item.id();
+                                            let id_str = id.as_ref();
+                                            // 只删除项目项和空提示，保留分隔线和清空按钮
+                                            if id_str.starts_with("recent-") && id_str != "clear-recent" {
+                                                let _ = recent_submenu.remove(&r_item);
+                                            }
+                                        }
+                                    }
+                                    
+                                    // 如果有项目，添加它们
+                                    if !projects.is_empty() {
+                                        // 添加项目（倒序添加，因为 insert 是在位置 0）
+                                        for (index, project) in projects.iter().enumerate().rev() {
+                                            if let Some(_path) = project.get("path").and_then(|p| p.as_str()) {
+                                                if let Some(name) = project.get("name").and_then(|n| n.as_str()) {
+                                                    if let Ok(menu_item) = MenuItemBuilder::new(name)
+                                                        .id(format!("recent-{}", index))
+                                                        .build(&app_handle) 
+                                                    {
+                                                        let _ = recent_submenu.insert(&menu_item, 0);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        // 如果没有项目，添加提示
+                                        if let Ok(empty_item) = MenuItemBuilder::new("暂无最近打开的项目")
+                                            .id("recent-empty")
+                                            .enabled(false)
+                                            .build(&app_handle)
+                                        {
+                                            let _ = recent_submenu.insert(&empty_item, 0);
+                                        }
+                                    }
+                                }
+                            }
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok(())
+}
+
 // 检查更新（支持动态选择更新源）
 #[tauri::command]
 async fn check_for_updates_with_source(app: tauri::AppHandle, source: String) -> Result<serde_json::Value, String> {
@@ -699,6 +783,9 @@ pub fn run() {
         read_file_content,
         scan_directory_for_images,
         get_app_info,
+        check_file_exists,
+        open_recent_project,
+        update_recent_projects_menu,
         check_for_updates_with_source,
         download_and_install_update,
         update_menu_checked_state,
@@ -773,6 +860,19 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
             .build(app)?)
         .build()?;
 
+    // 创建最近打开子菜单
+    let recent_submenu = SubmenuBuilder::new(app, "最近打开")
+        .id("recent-projects")
+        .item(&MenuItemBuilder::new("暂无最近打开的项目")
+            .id("recent-empty")
+            .enabled(false)
+            .build(app)?)
+        .separator()
+        .item(&MenuItemBuilder::new("清空最近打开")
+            .id("clear-recent")
+            .build(app)?)
+        .build()?;
+
     // 创建文件菜单
     let file_menu = SubmenuBuilder::new(app, "文件")
         .item(&MenuItemBuilder::new("新建项目")
@@ -783,6 +883,7 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
             .id("open-project")
             .accelerator("CmdOrCtrl+O")
             .build(app)?)
+        .item(&recent_submenu)
         .separator()
         .item(&MenuItemBuilder::new("保存")
             .id("save")
@@ -884,7 +985,27 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
 
     // 添加菜单事件处理器
     app.on_menu_event(move |app, event| {
-        let event_name = match event.id().0.as_str() {
+        let event_id = event.id().0.as_str();
+        
+        // 处理清空最近打开
+        if event_id == "clear-recent" {
+            if let Err(e) = app.emit("menu:file:clear-recent", ()) {
+                eprintln!("Failed to emit clear-recent event: {}", e);
+            }
+            return;
+        }
+        
+        // 处理最近打开的项目
+        if event_id.starts_with("recent-") && event_id != "recent-empty" && event_id != "recent-projects" {
+            // 打开最近的项目（需要从菜单项获取路径）
+            // 这里我们发送事件索引，前端会处理
+            if let Err(e) = app.emit("menu:file:open-recent", event_id) {
+                eprintln!("Failed to emit open-recent event: {}", e);
+            }
+            return;
+        }
+        
+        let event_name = match event_id {
             "new-project" => "menu:file:new-project",
             "open-project" => "menu:file:open-project",
             "save" => "menu:file:save",

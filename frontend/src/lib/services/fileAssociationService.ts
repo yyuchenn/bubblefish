@@ -1,5 +1,6 @@
 import { modalStore } from '../stores/modalStore';
 import { platformService } from './platformService';
+import { recentProjectsService } from './recentProjectsService';
 
 export const fileAssociationService = {
 	async init() {
@@ -15,6 +16,8 @@ export const fileAssociationService = {
 				
 				if (filePath && filePath.endsWith('.bf')) {
 					console.log('Opening project file:', filePath);
+					// 记录到最近打开
+					recentProjectsService.addRecentProject(filePath, 'bf');
 					// 立即显示模态框，不需要延迟
 					modalStore.showModal('openProject', {
 						initialFilePath: filePath,

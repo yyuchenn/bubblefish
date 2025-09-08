@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { projectService } from '$lib/services/projectService';
 	import { platformService } from '$lib/services/platformService';
+	import { recentProjectsService } from '$lib/services/recentProjectsService';
 	import Modal from './Modal.svelte';
 	import FileUpload from '../FileUpload.svelte';
 	import type { OpeningProjectInfo, ImageFile, ImageFormat } from '$lib/types';
@@ -9,6 +10,7 @@
 		visible?: boolean;
 		initialFilePath?: string;  // 初始文件路径（双击打开时传入）
 		autoProcess?: boolean;      // 是否自动处理（双击打开时为true）
+		errorMessage?: string;       // 错误提示信息（如路径失效）
 		onSuccess?: (detail: { projectId: number; projectName: string; imageCount: number }) => void;
 		onCancel?: () => void;
 	}
@@ -17,6 +19,7 @@
 		visible = false,
 		initialFilePath,
 		autoProcess = false,
+		errorMessage,
 		onSuccess,
 		onCancel
 	}: Props = $props();
@@ -64,7 +67,7 @@
 	let autoUploadProgress = $state(0);
 	
 	// 错误处理
-	let error = $state('');
+	let error = $state(errorMessage || '');
 
 	$effect(() => {
 		return () => {
@@ -364,6 +367,12 @@
 			const success = await projectService.finalizeOpeningProject(tempProjectId);
 
 			if (success) {
+				// 记录到最近打开（如果有文件路径）
+				if (projectFilePath) {
+					const projectType = recentProjectsService.getProjectType(projectFilePath);
+					recentProjectsService.addRecentProject(projectFilePath, projectType);
+				}
+				
 				onSuccess?.({
 					projectId: tempProjectId,
 					projectName: projectInfo?.projectName || projectName,
