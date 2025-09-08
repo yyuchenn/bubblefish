@@ -232,11 +232,11 @@ class BuildScript:
         
         return True
 
-    def check_rust_deps(self) -> bool:
-        """Check and fetch Rust dependencies"""
-        log_info("Checking Rust dependencies...")
+    def fetch_rust_deps(self) -> bool:
+        """Fetch Rust dependencies without compiling"""
+        log_info("Fetching Rust dependencies...")
         
-        # Check dependencies for each Rust workspace
+        # Fetch dependencies for each Rust workspace
         rust_projects = [
             (self.root_dir, "workspace"),
             (self.core_dir, "core"),
@@ -245,9 +245,10 @@ class BuildScript:
         
         for project_dir, project_name in rust_projects:
             if (project_dir / "Cargo.toml").exists():
-                log_info(f"Checking dependencies for {project_name}...")
-                if not self.run_command(["cargo", "check"], cwd=project_dir):
-                    log_warning(f"Dependency check failed for {project_name}, but continuing...")
+                log_info(f"Fetching dependencies for {project_name}...")
+                # Use cargo fetch to download dependencies without compiling
+                if not self.run_command(["cargo", "fetch"], cwd=project_dir):
+                    log_warning(f"Dependency fetch failed for {project_name}, but continuing...")
         
         return True
 
@@ -827,34 +828,29 @@ class BuildScript:
             return False
         
         # Step 2: Setup Rust targets and nightly toolchain
-        log_info("Step 2/7: Setting up Rust targets...")
+        log_info("Step 2/6: Setting up Rust targets...")
         if not self.setup_rust_targets():
             log_warning("Rust target setup failed, but continuing...")
         
-        log_info("Step 3/7: Setting up nightly Rust toolchain for WASM multithreading...")
+        log_info("Step 3/6: Setting up nightly Rust toolchain for WASM multithreading...")
         if not self.check_nightly_toolchain():
             if not self.install_nightly_toolchain():
                 log_warning("Nightly toolchain installation failed, but continuing...")
         
         # Step 4: Install/update frontend dependencies
-        log_info("Step 4/7: Installing frontend dependencies...")
+        log_info("Step 4/6: Installing frontend dependencies...")
         if not self.frontend_install_deps(force=True):
             log_error("Frontend dependency installation failed.")
             return False
         
-        # Step 5: Check and fetch Rust dependencies
-        log_info("Step 5/7: Checking Rust dependencies...")
-        if not self.check_rust_deps():
-            log_warning("Some Rust dependency checks failed, but continuing...")
-        
-        # Step 6: Install Tauri CLI
-        log_info("Step 6/7: Installing Tauri CLI...")
+        # Step 5: Install Tauri CLI
+        log_info("Step 5/6: Installing Tauri CLI...")
         if not self.install_tauri_cli():
             log_error("Tauri CLI installation failed.")
             return False
         
-        # Step 7: Install additional cargo tools
-        log_info("Step 7/7: Installing additional development tools...")
+        # Step 6: Install additional cargo tools
+        log_info("Step 6/6: Installing additional development tools...")
         if not self.install_cargo_tools():
             log_warning("Some cargo tools installation failed, but continuing...")
         
