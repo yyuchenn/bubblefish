@@ -196,6 +196,7 @@
 								<div 
 									class="bg-theme-background border-theme-outline absolute left-full top-0 z-[1003] min-w-[250px] rounded border shadow-lg"
 									role="menu"
+									tabindex="-1"
 									onmouseenter={() => showRecentMenu = true}
 									onmouseleave={() => showRecentMenu = false}
 								>
