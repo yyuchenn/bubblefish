@@ -6,6 +6,8 @@
 	import { currentImageId } from '$lib/services/imageService';
 	import { markerService, selectedMarker, markers } from '$lib/services/markerService';
 	import { derived, get } from 'svelte/store';
+	import { undoRedoService } from '$lib/services/undoRedoService';
+	import { onMount } from 'svelte';
 
 	// Derive markers from markerStore and sort by imageIndex
 	// markers is already a derived store from markerService, just sort it
@@ -67,6 +69,20 @@
 	// 保存待更新的信息
 	let pendingUpdate: { markerId: number; value: string } | null = null;
 	
+	// 立即保存待处理的更新（用于撤销/重做前）
+	async function flushPendingUpdate() {
+		if (debounceTimer && pendingUpdate) {
+			clearTimeout(debounceTimer);
+			debounceTimer = null;
+			// 保存到marker
+			if ($currentImageId) {
+				await markerService.updateMarkerTranslation(pendingUpdate.markerId, pendingUpdate.value, $currentImageId);
+			}
+			lastUpdateTime = Date.now();
+			pendingUpdate = null;
+		}
+	}
+	
 	// 滚动到选中的marker
 	function scrollToSelectedMarker(markerId: number) {
 		if (!scrollElement) return;
@@ -100,15 +116,75 @@
 		}
 	}
 
+	// 追踪上一次处理的 marker 数据，避免重复处理相同的内容
+	let lastProcessedMarker = $state<{ 
+		id: number; 
+		translation: string;
+	} | null>(null);
+	
 	// 当全局选中标记变化时，同步本地 UI
 	$effect(() => {
 		const selected = $selectedMarker;
+		
+		// 处理样式更新（独立于文本更新，总是响应）
+		if (selected && selectedMarkerId === selected.id) {
+			const overlayText = selected.style?.overlayText ?? false;
+			const horizontal = selected.style?.horizontal ?? false;
+			if (isOverlayText !== overlayText) {
+				isOverlayText = overlayText;
+			}
+			if (isHorizontal !== horizontal) {
+				isHorizontal = horizontal;
+			}
+		}
+		
+		// 只在 marker 内容真正改变时才处理文本更新
+		const currentMarkerData = selected ? { 
+			id: selected.id, 
+			translation: selected.translation ?? ''
+		} : null;
+		
+		// 检查是否是切换到不同的 marker
+		const isMarkerSwitch = currentMarkerData && lastProcessedMarker && 
+			currentMarkerData.id !== lastProcessedMarker.id;
+			
+		// 检查内容是否真正改变（只关注 id 和 translation）
+		const hasRealChange = !lastProcessedMarker || !currentMarkerData ||
+			lastProcessedMarker.id !== currentMarkerData.id ||
+			lastProcessedMarker.translation !== currentMarkerData.translation;
+		
+		// 如果没有真正的变化，直接返回
+		if (!hasRealChange) {
+			return;
+		}
+		
+		// 如果是切换 marker，清理防抖定时器并立即保存
+		if (isMarkerSwitch && debounceTimer && pendingUpdate) {
+			clearTimeout(debounceTimer);
+			debounceTimer = null;
+			// 保存到原来的marker
+			if ($currentImageId) {
+				markerService.updateMarkerTranslation(pendingUpdate.markerId, pendingUpdate.value, $currentImageId);
+			}
+			lastUpdateTime = Date.now();
+			pendingUpdate = null;
+		}
+		
+		// 如果正在输入同一个 marker 的内容（有防抖定时器且不是切换marker），不覆盖用户输入
+		if (debounceTimer && !isMarkerSwitch) {
+			// 但仍需要更新追踪的数据，避免下次触发
+			lastProcessedMarker = currentMarkerData;
+			return;
+		}
+		
+		lastProcessedMarker = currentMarkerData;
+		
 		if (!selected) {
 			// 无选中
 			if (selectedMarkerId !== null) {
 				selectedMarkerId = null;
 				inputValue = '';
-				editorComponent?.setValue('');
+				editorComponent?.setValue('', 'end');
 				isOverlayText = false;
 				isHorizontal = false;
 			}
@@ -118,33 +194,32 @@
 				selectedMarkerId = selected.id;
 				const text = selected.translation ?? '';
 				inputValue = text;
-				editorComponent?.setValue(text);
+				editorComponent?.setValue(text, 'end');
 				isOverlayText = selected.style?.overlayText ?? false;
 				isHorizontal = selected.style?.horizontal ?? false;
 				// 延迟执行滚动和聚焦，确保DOM已更新
 				setTimeout(() => {
 					scrollToSelectedMarker(selected.id);
-					editorComponent?.focusEnd();
-				}, 100);
+					}, 100);
 			} else {
 				// 即使ID相同，也要检查内容是否变化（比如撤销重做时）
 				const text = selected.translation ?? '';
-				const overlayText = selected.style?.overlayText ?? false;
-				const horizontal = selected.style?.horizontal ?? false;
 				
 				// 更新文本内容
-				// 只有当文本确实不同，且不是由用户正在输入导致的更新时，才更新编辑器
-				if (inputValue !== text && !pendingUpdate) {
-					inputValue = text;
-					editorComponent?.setValue(text);
-				}
+				// 如果文本不同，需要更新编辑器
+				// 但要检查是否是用户输入导致的差异（用户输入的文本会比 marker 中的文本多）
+				const isUserTyping = debounceTimer && inputValue.startsWith(text) && inputValue.length > text.length;
 				
-				// 更新样式
-				if (isOverlayText !== overlayText) {
-					isOverlayText = overlayText;
-				}
-				if (isHorizontal !== horizontal) {
-					isHorizontal = horizontal;
+				if (inputValue !== text && !isUserTyping) {
+					// 如果有防抖定时器，说明之前在输入，现在可能是撤销操作，需要清理
+					if (debounceTimer) {
+						clearTimeout(debounceTimer);
+						debounceTimer = null;
+						pendingUpdate = null;
+					}
+					
+					inputValue = text;
+					editorComponent?.setValue(text, 'preserve'); // 撤销重做时保持光标位置
 				}
 			}
 		}
@@ -170,7 +245,7 @@
 			selectedMarkerId = null;
 			markerService.setSelectedMarker(null);
 			inputValue = '';
-			editorComponent?.setValue(''); // Explicitly clear the editor
+			editorComponent?.setValue('', 'end'); // Explicitly clear the editor
 			isOverlayText = false;
 			isHorizontal = false;
 		}
@@ -194,7 +269,7 @@
 			selectedMarkerId = null;
 			markerService.setSelectedMarker(null);
 			inputValue = '';
-			editorComponent?.setValue(''); // Explicitly clear the editor
+			editorComponent?.setValue('', 'end'); // Explicitly clear the editor
 			isOverlayText = false;
 			isHorizontal = false;
 		} else {
@@ -206,7 +281,7 @@
 			inputValue = newText;
 			isOverlayText = currentStyle.overlayText;
 			isHorizontal = currentStyle.horizontal;
-			editorComponent?.setValue(newText); // Explicitly set the editor's content
+			editorComponent?.setValue(newText, 'end'); // Set content and move cursor to end
 
 			// 同步选中的标记到全局 store
 			markerService.setSelectedMarker(id);
@@ -214,7 +289,6 @@
 			// 延迟执行滚动和聚焦，确保DOM已更新
 			setTimeout(() => {
 				scrollToSelectedMarker(id);
-				editorComponent?.focusEnd();
 			}, 100);
 		}
 	}
@@ -326,7 +400,7 @@
 			// 清空编辑器状态
 			selectedMarkerId = null;
 			inputValue = '';
-			editorComponent?.setValue('');
+			editorComponent?.setValue('', 'end');
 			isOverlayText = false;
 			isHorizontal = false;
 			
@@ -398,7 +472,7 @@
 						selectedMarkerId = null;
 						markerService.setSelectedMarker(null);
 						inputValue = '';
-						editorComponent?.setValue('');
+						editorComponent?.setValue('', 'end');
 						isOverlayText = false;
 						isHorizontal = false;
 					}
@@ -692,6 +766,17 @@
 		// 停止自动滚动
 		stopAutoScroll();
 	}
+	
+	// 组件挂载时注册撤销/重做前的回调
+	onMount(() => {
+		// 注册回调，在撤销/重做前保存待处理的更新
+		undoRedoService.setBeforeUndoRedoCallback(flushPendingUpdate);
+		
+		return () => {
+			// 组件销毁时清理回调
+			undoRedoService.setBeforeUndoRedoCallback(null);
+		};
+	});
 	
 	// 组件销毁时清理定时器和保存待处理的更新
 	$effect(() => {
