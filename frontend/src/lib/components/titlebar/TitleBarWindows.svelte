@@ -531,9 +531,9 @@
 	<!-- 中间可拖拽区域 -->
 	<div class="h-full flex-1 [-webkit-app-region:drag]"></div>
 
-	<div class="flex h-full items-center gap-1 pr-1 [-webkit-app-region:no-drag]">
+	<div class="flex h-full items-center gap-1 [-webkit-app-region:no-drag]">
 		<!-- 布局控制按钮组 -->
-		<div class="flex items-center gap-1">
+		<div class="flex items-center gap-1 mr-1">
 			<button
 				class="text-theme-on-surface/60 hover:bg-theme-secondary-container/50 hover:text-theme-on-surface/80 cursor-pointer rounded-sm border-none bg-none p-1 transition-colors"
 				onclick={onToggleLeftSidebar}
@@ -576,7 +576,7 @@
 		</div>
 
 		<button
-			class="text-theme-on-surface/90 hover:bg-theme-secondary-container/50 flex h-full w-[46px] cursor-pointer items-center justify-center border-none bg-none transition-colors"
+			class="text-theme-on-surface/90 hover:bg-theme-secondary-container/50 flex h-full w-[46px] cursor-default items-center justify-center border-none bg-none transition-colors"
 			onclick={onMinimizeWindow}
 			aria-label="最小化"
 		>
@@ -585,7 +585,7 @@
 			</svg>
 		</button>
 		<button
-			class="text-theme-on-surface/90 hover:bg-theme-secondary-container/50 flex h-full w-[46px] cursor-pointer items-center justify-center border-none bg-none transition-colors"
+			class="text-theme-on-surface/90 hover:bg-theme-secondary-container/50 flex h-full w-[46px] cursor-default items-center justify-center border-none bg-none transition-colors"
 			onclick={onMaximizeWindow}
 			aria-label={isMaximized ? '向下还原' : '最大化'}
 		>
@@ -606,7 +606,7 @@
 			{/if}
 		</button>
 		<button
-			class="text-theme-on-surface/90 hover:bg-theme-error hover:text-theme-on-error flex h-full w-[46px] cursor-pointer items-center justify-center border-none bg-none transition-colors"
+			class="text-theme-on-surface/90 hover:bg-theme-error hover:text-theme-on-error flex h-full w-[46px] cursor-default items-center justify-center border-none bg-none transition-colors"
 			onclick={onCloseWindow}
 			aria-label="关闭"
 		>
