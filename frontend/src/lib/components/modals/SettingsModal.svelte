@@ -180,7 +180,7 @@
 									<div class="flex-1">
 										<p class="text-sm font-medium text-theme-on-surface mb-1">有新版本可用！</p>
 										{#if $updateInfo.notes}
-											<p class="text-sm text-theme-on-surface-variant">{$updateInfo.notes}</p>
+											<p class="text-sm text-theme-on-surface-variant whitespace-pre-wrap">{$updateInfo.notes}</p>
 										{/if}
 									</div>
 								</div>
