@@ -75,55 +75,26 @@
 		selfItems = [];
 	}
 
-	// 点击其他地方时隐藏菜单
-	$effect(() => {
-		if (actualVisible) {
-			const handleDocumentMouseDown = (event: MouseEvent) => {
-				// 检查点击是否在菜单外部
-				const target = event.target as HTMLElement;
-				if (!target.closest('.context-menu')) {
-					// 阻止事件传播和默认行为，防止其他事件处理器执行
-					event.preventDefault();
-					event.stopPropagation();
-					event.stopImmediatePropagation();
-					
-					handleClickOutside();
-					
-					// 设置一个短暂的标志来阻止后续的鼠标事件处理
-					// 这个标志会阻止图片上的点击事件创建新marker
-					(window as Window & { __contextMenuClosing?: boolean }).__contextMenuClosing = true;
-					setTimeout(() => {
-						(window as Window & { __contextMenuClosing?: boolean }).__contextMenuClosing = false;
-					}, 50); // 50ms的延迟足够阻止同一个点击事件的其他处理器
-				}
-			};
-
-			const handleDocumentContextMenu = (event: MouseEvent) => {
-				// 检查右键点击是否在菜单外部
-				const target = event.target as HTMLElement;
-				if (!target.closest('.context-menu')) {
-					// 关闭当前菜单
-					handleClickOutside();
-				}
-			};
-
-			// 使用捕获阶段来确保我们的事件处理器优先执行
-			// 延迟添加事件监听器，避免立即触发
-			const timeoutId = setTimeout(() => {
-				// 监听所有鼠标按键（左键、中键、右键）
-				document.addEventListener('mousedown', handleDocumentMouseDown, true);
-				// 单独监听右键菜单事件
-				document.addEventListener('contextmenu', handleDocumentContextMenu, true);
-			}, 0);
-
-			return () => {
-				clearTimeout(timeoutId);
-				document.removeEventListener('mousedown', handleDocumentMouseDown, true);
-				document.removeEventListener('contextmenu', handleDocumentContextMenu, true);
-			};
-		}
-		return () => {}; // 确保总是返回清理函数
-	});
+	// 点击遮罩层时的处理函数
+	function handleOverlayClick(event: MouseEvent) {
+		// 阻止事件传播，防止触发下层元素的点击事件
+		event.preventDefault();
+		event.stopPropagation();
+		event.stopImmediatePropagation();
+		
+		// 关闭菜单
+		handleClickOutside();
+	}
+	
+	// 右键点击遮罩层时的处理函数
+	function handleOverlayContextMenu(event: MouseEvent) {
+		// 阻止默认的右键菜单
+		event.preventDefault();
+		event.stopPropagation();
+		
+		// 关闭当前菜单
+		handleClickOutside();
+	}
 
 	// 暴露方法给父组件
 	$effect(() => {
@@ -139,6 +110,21 @@
 </script>
 
 {#if actualVisible}
+	<!-- 透明遮罩层，用于拦截点击事件 -->
+	<button
+		type="button"
+		class="fixed inset-0 z-[999] cursor-default"
+		style="background-color: transparent; border: none; padding: 0; margin: 0;"
+		aria-label="Close context menu"
+		onclick={handleOverlayClick}
+		oncontextmenu={handleOverlayContextMenu}
+		onmousedown={(e) => {
+			e.preventDefault();
+			e.stopPropagation();
+		}}
+	></button>
+	
+	<!-- Context Menu 本体 -->
 	<div
 		class="context-menu bg-theme-background border-theme-outline fixed z-[1000] min-w-[120px] rounded border py-1 shadow-lg"
 		role="menu"
