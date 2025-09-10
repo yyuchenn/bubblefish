@@ -27,6 +27,7 @@
 	let showWindowMenu = $derived($menuState.windowMenu);
 	let showMoreMenu = $derived($menuState.moreMenu);
 	let showProjectMenu = $derived($menuState.projectMenu);
+	let hasAnyMenuOpen = $derived(showFileMenu || showEditMenu || showWindowMenu || showMoreMenu || showProjectMenu);
 
 
 	// 监听布局状态变化，更新 macOS 菜单选中状态
@@ -124,11 +125,23 @@
 	const openWindowMenu = () => menuService.openMenu('windowMenu');
 	const openMoreMenu = () => menuService.openMenu('moreMenu');
 
-	function handleClickOutside(event: MouseEvent) {
-		const target = event.target as HTMLElement;
-		if (!target.closest('.title-bar')) {
-			menuService.closeAllMenus();
-		}
+	function handleOverlayClick(event: MouseEvent) {
+		// 阻止事件传播，防止触发下层元素的点击事件
+		event.preventDefault();
+		event.stopPropagation();
+		event.stopImmediatePropagation();
+		
+		// 关闭所有菜单
+		menuService.closeAllMenus();
+	}
+	
+	function handleOverlayContextMenu(event: MouseEvent) {
+		// 阻止默认的右键菜单
+		event.preventDefault();
+		event.stopPropagation();
+		
+		// 关闭所有菜单
+		menuService.closeAllMenus();
 	}
 
 
@@ -305,9 +318,22 @@
 	}
 </script>
 
-<svelte:window onclick={handleClickOutside} />
-
 {#if environmentReady}
+	{#if hasAnyMenuOpen}
+		<!-- 透明遮罩层，用于拦截点击事件 -->
+		<button
+			type="button"
+			class="fixed inset-0 z-[999] cursor-default"
+			style="background-color: transparent; border: none; padding: 0; margin: 0;"
+			aria-label="Close menu"
+			onclick={handleOverlayClick}
+			oncontextmenu={handleOverlayContextMenu}
+			onmousedown={(e) => {
+				e.preventDefault();
+				e.stopPropagation();
+			}}
+		></button>
+	{/if}
 		<!-- macOS 样式 -->
 		{#if isMac}
 		<TitleBarMac

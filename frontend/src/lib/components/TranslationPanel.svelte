@@ -205,13 +205,13 @@
 				selectedMarkerId = selected.id;
 				const text = selected.translation ?? '';
 				inputValue = text;
-				editorComponent?.setValue(text, 'end');
 				isOverlayText = selected.style?.overlayText ?? false;
 				isHorizontal = selected.style?.horizontal ?? false;
-				// 延迟执行滚动和聚焦，确保DOM已更新
+				// 延迟设置编辑器内容和执行滚动，确保DOM已更新
 				setTimeout(() => {
+					editorComponent?.setValue(text, 'end');
 					scrollToSelectedMarker(selected.id);
-					}, 100);
+				}, 0);
 			} else {
 				// 即使ID相同，也要检查内容是否变化（比如撤销重做时）
 				const text = selected.translation ?? '';
@@ -301,15 +301,15 @@
 			inputValue = newText;
 			isOverlayText = currentStyle.overlayText;
 			isHorizontal = currentStyle.horizontal;
-			editorComponent?.setValue(newText, 'end'); // Set content and move cursor to end
 
 			// 同步选中的标记到全局 store
 			markerService.setSelectedMarker(id);
 			
-			// 延迟执行滚动和聚焦，确保DOM已更新
+			// 延迟设置编辑器内容和执行滚动，确保DOM已更新
 			setTimeout(() => {
+				editorComponent?.setValue(newText, 'end'); // Set content, move cursor to end and focus
 				scrollToSelectedMarker(id);
-			}, 100);
+			}, 0);
 		}
 	}
 
