@@ -45,6 +45,8 @@
 			if (cursorPosition === 'end') {
 				// 移到末尾
 				quillEditor.setSelection(length - 1, 0);
+				// 聚焦编辑器
+				quillEditor.focus();
 			} else if (cursorPosition === 'preserve') {
 				// 保持原位置（如果有效）
 				if (currentSelection && currentSelection.index < length) {
