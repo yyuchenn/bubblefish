@@ -15,6 +15,12 @@ use crate::api::marker::{
     convert_rectangle_to_point_marker, convert_point_to_rectangle_marker
 };
 #[cfg(feature = "tauri")]
+use crate::api::bunny::{
+    request_ocr, request_translation, cancel_bunny_task,
+    get_bunny_task_status, get_bunny_queued_tasks,
+    get_ocr_result, get_translation_result
+};
+#[cfg(feature = "tauri")]
 use crate::common::dto::image::{ImageDataDTO, ImageFormat};
 
 // 临时项目相关命令
@@ -451,6 +457,57 @@ pub fn register_data_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> 
         tauri_validate_labelplus_file,
         tauri_import_labelplus_data,
         tauri_export_labelplus_data,
-        tauri_save_project
+        tauri_save_project,
+        // Bunny (海兔) OCR and translation commands
+        tauri_request_ocr,
+        tauri_request_translation,
+        tauri_cancel_bunny_task,
+        tauri_get_bunny_task_status,
+        tauri_get_bunny_queued_tasks,
+        tauri_get_ocr_result,
+        tauri_get_translation_result
     ])
+}
+
+// Bunny (海兔) OCR and translation commands
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_request_ocr(marker_id: u32, ocr_model: String) -> Result<String, String> {
+    request_ocr(marker_id, ocr_model)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_request_translation(marker_id: u32, service_name: String, source_lang: Option<String>, target_lang: String) -> Result<String, String> {
+    request_translation(marker_id, service_name, source_lang, target_lang)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_cancel_bunny_task(task_id: String) -> bool {
+    cancel_bunny_task(task_id)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_get_bunny_task_status(task_id: String) -> Option<crate::service::bunny::BunnyTask> {
+    get_bunny_task_status(task_id)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_get_bunny_queued_tasks(project_id: Option<u32>) -> Vec<crate::service::bunny::BunnyTask> {
+    get_bunny_queued_tasks(project_id)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_get_ocr_result(marker_id: u32) -> Option<String> {
+    get_ocr_result(marker_id)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_get_translation_result(marker_id: u32) -> Option<String> {
+    get_translation_result(marker_id)
 }

@@ -7,6 +7,7 @@ pub mod cleanup;
 pub mod undo_redo;
 pub mod thumbnail;
 pub mod io;
+pub mod bunny;
 
 pub use opening_project::*;
 pub use project::*;
@@ -17,3 +18,4 @@ pub use cleanup::*;
 pub use undo_redo::*;
 pub use thumbnail::*;
 pub use io::*;
+pub use bunny::*;

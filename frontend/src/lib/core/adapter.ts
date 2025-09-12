@@ -232,8 +232,19 @@ export interface LabelplusFileAPI {
 	updateProjectFilePath(projectId: number, filePath: string | null): Promise<boolean>;
 }
 
+// Bunny (海兔) API 接口
+export interface BunnyAPI {
+	requestOCR(markerId: number, ocrModel: string): Promise<string>;
+	requestTranslation(markerId: number, service: string, sourceLang?: string, targetLang?: string): Promise<string>;
+	cancelBunnyTask(taskId: string): Promise<boolean>;
+	getBunnyTaskStatus(taskId: string): Promise<unknown | null>;
+	getBunnyQueuedTasks(projectId?: number): Promise<unknown[]>;
+	getOCRResult(markerId: number): Promise<string | null>;
+	getTranslationResult(markerId: number): Promise<string | null>;
+}
+
 // 综合API接口
-export interface CoreAPI extends ProjectAPI, ImageAPI, MarkerAPI, UtilityAPI, UndoRedoAPI, LabelplusFileAPI {}
+export interface CoreAPI extends ProjectAPI, ImageAPI, MarkerAPI, UtilityAPI, UndoRedoAPI, LabelplusFileAPI, BunnyAPI {}
 
 // 定义后端调用的参数类型
 interface BackendCallParams {
@@ -645,6 +656,40 @@ abstract class BaseCoreAPI implements CoreAPI {
 
 	async updateProjectFilePath(projectId: number, filePath: string | null): Promise<boolean> {
 		return this.callBackend<boolean>('update_project_file_path', { projectId, filePath });
+	}
+
+	// Bunny (海兔) API implementation
+	async requestOCR(markerId: number, ocrModel: string): Promise<string> {
+		return this.callBackend<string>('request_ocr', { markerId, ocrModel });
+	}
+
+	async requestTranslation(markerId: number, service: string, sourceLang?: string, targetLang?: string): Promise<string> {
+		return this.callBackend<string>('request_translation', { 
+			markerId, 
+			serviceName: service, 
+			sourceLang, 
+			targetLang: targetLang || 'zh-CN' 
+		});
+	}
+
+	async cancelBunnyTask(taskId: string): Promise<boolean> {
+		return this.callBackend<boolean>('cancel_bunny_task', { taskId });
+	}
+
+	async getBunnyTaskStatus(taskId: string): Promise<unknown | null> {
+		return this.callBackend<unknown | null>('get_bunny_task_status', { taskId });
+	}
+
+	async getBunnyQueuedTasks(projectId?: number): Promise<unknown[]> {
+		return this.callBackend<unknown[]>('get_bunny_queued_tasks', { projectId });
+	}
+
+	async getOCRResult(markerId: number): Promise<string | null> {
+		return this.callBackend<string | null>('get_ocr_result', { markerId });
+	}
+
+	async getTranslationResult(markerId: number): Promise<string | null> {
+		return this.callBackend<string | null>('get_translation_result', { markerId });
 	}
 }
 

@@ -17,6 +17,12 @@ use crate::api::marker::{
     convert_rectangle_to_point_marker, convert_point_to_rectangle_marker
 };
 #[cfg(feature = "wasm")]
+use crate::api::bunny::{
+    request_ocr, request_translation, cancel_bunny_task,
+    get_bunny_task_status, get_bunny_queued_tasks,
+    get_ocr_result, get_translation_result
+};
+#[cfg(feature = "wasm")]
 use crate::common::dto::image::{ImageDataDTO, ImageFormat};
 
 // 临时项目相关
@@ -503,6 +509,71 @@ pub fn wasm_export_labelplus_data(project_id: u32) -> JsValue {
             js_sys::Reflect::set(&error_obj, &"error".into(), &JsValue::from_str(&e)).unwrap();
             error_obj.into()
         }
+    }
+}
+
+// Bunny (海兔) OCR and translation functions
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_request_ocr(marker_id: u32, ocr_model: String) -> JsValue {
+    match request_ocr(marker_id, ocr_model) {
+        Ok(task_id) => JsValue::from_str(&task_id),
+        Err(e) => {
+            web_sys::console::error_1(&format!("Failed to request OCR: {}", e).into());
+            JsValue::from_str("")
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_request_translation(marker_id: u32, service_name: String, source_lang: Option<String>, target_lang: String) -> JsValue {
+    match request_translation(marker_id, service_name, source_lang, target_lang) {
+        Ok(task_id) => JsValue::from_str(&task_id),
+        Err(e) => {
+            web_sys::console::error_1(&format!("Failed to request translation: {}", e).into());
+            JsValue::from_str("")
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_cancel_bunny_task(task_id: String) -> bool {
+    cancel_bunny_task(task_id)
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_get_bunny_task_status(task_id: String) -> JsValue {
+    match get_bunny_task_status(task_id) {
+        Some(task) => to_value(&task).unwrap_or(JsValue::NULL),
+        None => JsValue::NULL,
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_get_bunny_queued_tasks(project_id: Option<u32>) -> JsValue {
+    let tasks = get_bunny_queued_tasks(project_id);
+    to_value(&tasks).unwrap_or(JsValue::NULL)
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_get_ocr_result(marker_id: u32) -> JsValue {
+    match get_ocr_result(marker_id) {
+        Some(result) => JsValue::from_str(&result),
+        None => JsValue::NULL,
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_get_translation_result(marker_id: u32) -> JsValue {
+    match get_translation_result(marker_id) {
+        Some(result) => JsValue::from_str(&result),
+        None => JsValue::NULL,
     }
 }
 

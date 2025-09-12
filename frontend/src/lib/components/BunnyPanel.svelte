@@ -1,14 +1,98 @@
 <script lang="ts">
+	import { onMount, onDestroy } from 'svelte';
+	import { bunnyService } from '$lib/services/bunnyService';
+	import BunnyToolbar from './bunny/BunnyToolbar.svelte';
+	import MarkerSelector from './bunny/MarkerSelector.svelte';
+	import OCRPanel from './bunny/OCRPanel.svelte';
+	import TranslationPanel from './bunny/TranslationPanel.svelte';
+	import TaskQueue from './bunny/TaskQueue.svelte';
+	import { queueStatus, isProcessing } from '$lib/stores/bunnyStore';
+	
+	let showTaskQueue = false;
+	
+	onMount(async () => {
+		// Initialize bunny service
+		await bunnyService.initialize();
+	});
+	
+	onDestroy(() => {
+		// Clean up
+		bunnyService.destroy();
+	});
+	
+	$: hasActiveTasks = $queueStatus.queuedTasks > 0 || $queueStatus.processingTasks > 0;
 </script>
 
 <div class="bg-theme-surface border-theme-outline flex h-full w-full flex-col border-t">
+	<!-- Header -->
 	<div class="bg-theme-surface-variant border-theme-outline flex h-8 items-center border-b px-3">
-		<span class="text-theme-on-surface text-sm font-medium select-none">海兔</span>
+		<span class="text-theme-on-surface text-sm font-medium select-none flex items-center gap-2">
+			<img src="/slug.png" alt="海兔" class="w-5 h-5" />
+			海兔 - 智能翻译辅助
+		</span>
+		<div class="flex-1"></div>
+		<button
+			class="px-2 py-1 text-xs rounded hover:bg-theme-surface flex items-center gap-1
+				{hasActiveTasks ? 'text-theme-primary' : 'text-theme-on-surface-variant'}"
+			on:click={() => showTaskQueue = !showTaskQueue}
+			title="任务队列"
+		>
+			{#if $isProcessing}
+				<span class="inline-block w-2 h-2 bg-theme-primary rounded-full animate-pulse"></span>
+			{/if}
+			队列 ({$queueStatus.queuedTasks + $queueStatus.processingTasks})
+		</button>
 	</div>
-	<div class="flex-1 overflow-y-auto p-4">
-		<div class="flex flex-col items-center justify-center h-full text-center">
-			<img src="/slug.png" alt="海兔" class="w-20 h-20 mb-4" />
-			<p class="text-sm text-theme-on-surface-variant">开发中。海兔是智能翻译辅助工具</p>
+	
+	<!-- Toolbar -->
+	<BunnyToolbar />
+	
+	<!-- Main content area -->
+	<div class="flex-1 flex overflow-hidden">
+		<!-- Left: Marker selector -->
+		<div class="w-64 border-r border-theme-outline">
+			<MarkerSelector />
+		</div>
+		
+		<!-- Center: OCR text -->
+		<div class="flex-1 border-r border-theme-outline">
+			<OCRPanel />
+		</div>
+		
+		<!-- Right: Translation text -->
+		<div class="flex-1">
+			<TranslationPanel />
 		</div>
 	</div>
+	
+	<!-- Task queue overlay -->
+	{#if showTaskQueue}
+		<div class="absolute bottom-10 right-4 w-96 bg-theme-surface border border-theme-outline rounded-lg shadow-lg p-4">
+			<div class="flex items-center justify-between mb-3">
+				<h3 class="text-sm font-medium text-theme-on-surface">任务队列状态</h3>
+				<button
+					class="text-theme-on-surface-variant hover:text-theme-on-surface"
+					on:click={() => showTaskQueue = false}
+				>
+					✕
+				</button>
+			</div>
+			<TaskQueue />
+		</div>
+	{/if}
 </div>
+
+<style>
+	@keyframes pulse {
+		0%, 100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.5;
+		}
+	}
+	
+	.animate-pulse {
+		animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+	}
+</style>
