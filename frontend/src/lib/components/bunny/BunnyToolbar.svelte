@@ -46,18 +46,16 @@
 		}
 	}
 	
-	function updateOCRModel(event: Event) {
+	async function updateOCRModel(event: Event) {
 		const target = event.target as HTMLSelectElement;
-		const { bunnyStore } = import('$lib/stores/bunnyStore').then(m => {
-			m.bunnyStore.updateSettings({ ocrModel: target.value as OCRModel });
-		});
+		const { bunnyStore } = await import('$lib/stores/bunnyStore');
+		bunnyStore.updateSettings({ ocrModel: target.value as OCRModel });
 	}
 	
-	function updateTranslationService(event: Event) {
+	async function updateTranslationService(event: Event) {
 		const target = event.target as HTMLSelectElement;
-		const { bunnyStore } = import('$lib/stores/bunnyStore').then(m => {
-			m.bunnyStore.updateSettings({ translationService: target.value as TranslationService });
-		});
+		const { bunnyStore } = await import('$lib/stores/bunnyStore');
+		bunnyStore.updateSettings({ translationService: target.value as TranslationService });
 	}
 </script>
 
@@ -70,7 +68,7 @@
 			value={$bunnySettings.ocrModel}
 			on:change={updateOCRModel}
 		>
-			{#each ocrModels as model}
+			{#each ocrModels as model (model.value)}
 				<option value={model.value}>{model.label}</option>
 			{/each}
 		</select>
@@ -84,7 +82,7 @@
 			value={$bunnySettings.translationService}
 			on:change={updateTranslationService}
 		>
-			{#each translationServices as service}
+			{#each translationServices as service (service.value)}
 				<option value={service.value}>{service.label}</option>
 			{/each}
 		</select>

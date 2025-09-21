@@ -144,7 +144,7 @@ class BunnyWorker {
 		this.taskQueue.queue = [];
 
 		// Cancel all processing tasks
-		for (const [taskId, controller] of this.abortControllers) {
+		for (const [, controller] of this.abortControllers) {
 			controller.abort();
 		}
 	}

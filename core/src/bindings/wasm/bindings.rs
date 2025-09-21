@@ -18,7 +18,7 @@ use crate::api::marker::{
 };
 #[cfg(feature = "wasm")]
 use crate::api::bunny::{
-    request_ocr, request_translation, cancel_bunny_task,
+    request_ocr, request_translation, cancel_bunny_task, clear_all_bunny_tasks,
     get_bunny_task_status, get_bunny_queued_tasks,
     get_ocr_result, get_translation_result
 };
@@ -541,6 +541,12 @@ pub fn wasm_request_translation(marker_id: u32, service_name: String, source_lan
 #[wasm_bindgen]
 pub fn wasm_cancel_bunny_task(task_id: String) -> bool {
     cancel_bunny_task(task_id)
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_clear_all_bunny_tasks() -> bool {
+    clear_all_bunny_tasks()
 }
 
 #[cfg(feature = "wasm")]

@@ -237,6 +237,7 @@ export interface BunnyAPI {
 	requestOCR(markerId: number, ocrModel: string): Promise<string>;
 	requestTranslation(markerId: number, service: string, sourceLang?: string, targetLang?: string): Promise<string>;
 	cancelBunnyTask(taskId: string): Promise<boolean>;
+	clearAllBunnyTasks(): Promise<boolean>;
 	getBunnyTaskStatus(taskId: string): Promise<unknown | null>;
 	getBunnyQueuedTasks(projectId?: number): Promise<unknown[]>;
 	getOCRResult(markerId: number): Promise<string | null>;
@@ -674,6 +675,10 @@ abstract class BaseCoreAPI implements CoreAPI {
 
 	async cancelBunnyTask(taskId: string): Promise<boolean> {
 		return this.callBackend<boolean>('cancel_bunny_task', { taskId });
+	}
+
+	async clearAllBunnyTasks(): Promise<boolean> {
+		return this.callBackend<boolean>('clear_all_bunny_tasks', {});
 	}
 
 	async getBunnyTaskStatus(taskId: string): Promise<unknown | null> {

@@ -82,3 +82,9 @@ pub fn get_translation_result(marker_id: u32) -> Option<String> {
     let service = get_service();
     service.bunny_service.get_translation_result(MarkerId(marker_id))
 }
+
+/// Clear all bunny tasks
+pub fn clear_all_bunny_tasks() -> bool {
+    let service = get_service();
+    service.bunny_service.clear_all_tasks().is_ok()
+}

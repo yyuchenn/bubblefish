@@ -2,6 +2,11 @@
 	import { activeTasks, queueStatus } from '$lib/stores/bunnyStore';
 	import { bunnyService } from '$lib/services/bunnyService';
 	import type { BunnyTask } from '$lib/types/bunny';
+
+	function handleWheel(event: WheelEvent) {
+		// Stop propagation to prevent the global wheel event handler from blocking scrolling
+		event.stopPropagation();
+	}
 	
 	function getTaskTypeLabel(type: 'ocr' | 'translation') {
 		return type === 'ocr' ? 'OCR' : '翻译';
@@ -23,9 +28,7 @@
 	}
 	
 	async function clearQueue() {
-		if (confirm('确定要清空所有任务队列吗？')) {
-			await bunnyService.clearQueue();
-		}
+		await bunnyService.clearQueue();
 	}
 </script>
 
@@ -53,7 +56,7 @@
 	</div>
 	
 	{#if $activeTasks.length > 0}
-		<div class="max-h-32 overflow-y-auto space-y-1">
+		<div class="max-h-32 overflow-y-auto space-y-1" on:wheel={handleWheel}>
 			{#each $activeTasks as task (task.id)}
 				<div class="flex items-center gap-2 p-2 bg-theme-surface-variant rounded text-xs">
 					<span class="font-medium">标记 {task.markerId}</span>
@@ -61,15 +64,23 @@
 						{getTaskTypeLabel(task.type)}
 					</span>
 					<span class="flex-1 text-theme-on-surface-variant">
-						{getTaskStatusLabel(task.status)}
+						{#if task.status === 'queued'}
+							<span class="text-yellow-600">排队中</span>
+						{:else if task.status === 'processing'}
+							<span class="text-blue-600">处理中</span>
+						{:else}
+							{getTaskStatusLabel(task.status)}
+						{/if}
 					</span>
 					{#if task.progress !== undefined && task.status === 'processing'}
 						<div class="w-16 h-1 bg-theme-surface rounded-full overflow-hidden">
-							<div 
+							<div
 								class="h-full bg-theme-primary transition-all duration-300"
 								style="width: {task.progress}%"
 							></div>
 						</div>
+					{:else if task.status === 'queued'}
+						<span class="text-xs text-theme-on-surface-variant opacity-50">等待...</span>
 					{/if}
 					<button
 						class="px-2 py-0.5 rounded hover:bg-theme-surface"

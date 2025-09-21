@@ -1,7 +1,11 @@
 <script lang="ts">
 	import { selectedMarkerIds, markerData } from '$lib/stores/bunnyStore';
-	import { bunnyService } from '$lib/services/bunnyService';
 	import { markers } from '$lib/services/markerService';
+
+	function handleWheel(event: WheelEvent) {
+		// Stop propagation to prevent the global wheel event handler from blocking scrolling
+		event.stopPropagation();
+	}
 	
 	let translationText = '';
 	let isEditing = false;
@@ -76,7 +80,7 @@
 		{/if}
 	</div>
 	
-	<div class="flex-1 overflow-y-auto p-3">
+	<div class="flex-1 overflow-y-auto p-3" on:wheel={handleWheel}>
 		{#if !selectedMarker}
 			<div class="text-sm text-theme-on-surface-variant text-center">
 				请选择一个标记查看翻译文本

@@ -6,7 +6,7 @@
 	import OCRPanel from './bunny/OCRPanel.svelte';
 	import TranslationPanel from './bunny/TranslationPanel.svelte';
 	import TaskQueue from './bunny/TaskQueue.svelte';
-	import { queueStatus, isProcessing } from '$lib/stores/bunnyStore';
+	import { queueStatus } from '$lib/stores/bunnyStore';
 	
 	let showTaskQueue = false;
 	
@@ -37,10 +37,12 @@
 			on:click={() => showTaskQueue = !showTaskQueue}
 			title="任务队列"
 		>
-			{#if $isProcessing}
-				<span class="inline-block w-2 h-2 bg-theme-primary rounded-full animate-pulse"></span>
+			{#if $queueStatus.processingTasks > 0}
+				<span class="inline-block w-2 h-2 bg-blue-600 rounded-full animate-pulse"></span>
+			{:else if $queueStatus.queuedTasks > 0}
+				<span class="inline-block w-2 h-2 bg-yellow-600 rounded-full"></span>
 			{/if}
-			队列 ({$queueStatus.queuedTasks + $queueStatus.processingTasks})
+			队列 ({$queueStatus.queuedTasks}/{$queueStatus.processingTasks})
 		</button>
 	</div>
 	

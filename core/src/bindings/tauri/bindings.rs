@@ -18,7 +18,7 @@ use crate::api::marker::{
 use crate::api::bunny::{
     request_ocr, request_translation, cancel_bunny_task,
     get_bunny_task_status, get_bunny_queued_tasks,
-    get_ocr_result, get_translation_result
+    get_ocr_result, get_translation_result, clear_all_bunny_tasks
 };
 #[cfg(feature = "tauri")]
 use crate::common::dto::image::{ImageDataDTO, ImageFormat};
@@ -462,6 +462,7 @@ pub fn register_data_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> 
         tauri_request_ocr,
         tauri_request_translation,
         tauri_cancel_bunny_task,
+        tauri_clear_all_bunny_tasks,
         tauri_get_bunny_task_status,
         tauri_get_bunny_queued_tasks,
         tauri_get_ocr_result,
@@ -510,4 +511,10 @@ pub fn tauri_get_ocr_result(marker_id: u32) -> Option<String> {
 #[tauri::command]
 pub fn tauri_get_translation_result(marker_id: u32) -> Option<String> {
     get_translation_result(marker_id)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_clear_all_bunny_tasks() -> bool {
+    clear_all_bunny_tasks()
 }
