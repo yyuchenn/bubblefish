@@ -98,3 +98,27 @@ pub fn register_translation_service(service_info: crate::service::bunny::Transla
 pub fn unregister_bunny_service(service_id: String) -> Result<(), String> {
     BUNNY_PLUGIN_MANAGER.unregister_service(&service_id)
 }
+
+/// Get bunny cache data for a marker
+pub fn get_bunny_cache(marker_id: crate::common::MarkerId) -> Result<Option<crate::storage::bunny_cache::BunnyCacheData>, String> {
+    crate::storage::bunny_cache::get_bunny_cache_storage(marker_id)
+        .map_err(|e| format!("Failed to get bunny cache: {:?}", e))
+}
+
+/// Update original text in bunny cache
+pub fn update_original_text(marker_id: crate::common::MarkerId, text: String, model: String) -> Result<(), String> {
+    crate::storage::bunny_cache::update_original_text_storage(marker_id, text, model)
+        .map_err(|e| format!("Failed to update original text: {:?}", e))
+}
+
+/// Update machine translation in bunny cache
+pub fn update_machine_translation(marker_id: crate::common::MarkerId, text: String, service: String) -> Result<(), String> {
+    crate::storage::bunny_cache::update_machine_translation_storage(marker_id, text, service)
+        .map_err(|e| format!("Failed to update machine translation: {:?}", e))
+}
+
+/// Clear bunny cache for a marker
+pub fn clear_bunny_cache(marker_id: crate::common::MarkerId) -> Result<(), String> {
+    crate::storage::bunny_cache::clear_bunny_cache_storage(marker_id)
+        .map_err(|e| format!("Failed to clear bunny cache: {:?}", e))
+}

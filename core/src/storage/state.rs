@@ -269,6 +269,7 @@ pub struct AppState {
     pub images: Arc<RwLock<ImageStorage>>,
     pub markers: Arc<RwLock<MarkerStorage>>,
     pub thumbnails: Arc<RwLock<ThumbnailStorage>>,
+    pub bunny_cache: Arc<RwLock<super::bunny_cache::BunnyCacheStorage>>,
 }
 
 impl AppState {
@@ -278,6 +279,7 @@ impl AppState {
             images: Arc::new(RwLock::new(ImageStorage::default())),
             markers: Arc::new(RwLock::new(MarkerStorage::default())),
             thumbnails: Arc::new(RwLock::new(ThumbnailStorage::default())),
+            bunny_cache: Arc::new(RwLock::new(super::bunny_cache::BunnyCacheStorage::default())),
         }
     }
 
@@ -287,6 +289,7 @@ impl AppState {
             images: Arc::new(RwLock::new(ImageStorage::new(max_memory))),
             markers: Arc::new(RwLock::new(MarkerStorage::default())),
             thumbnails: Arc::new(RwLock::new(ThumbnailStorage::default())),
+            bunny_cache: Arc::new(RwLock::new(super::bunny_cache::BunnyCacheStorage::default())),
         }
     }
 
@@ -311,6 +314,7 @@ impl AppState {
         self.images.write()?.clear();
         self.markers.write()?.clear();
         self.thumbnails.write()?.clear();
+        self.bunny_cache.write()?.clear();
         Ok(())
     }
 }

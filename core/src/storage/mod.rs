@@ -8,6 +8,7 @@ pub mod image;
 pub mod dimension_extractor;
 pub mod opening_project;
 pub mod undo_redo;
+pub mod bunny_cache;
 
 // Re-export commonly used items
 pub use traits::Storage;
@@ -23,3 +24,4 @@ pub use opening_project::{OpeningProject, OpeningProjectStorage, OPENING_PROJECT
 pub use undo_redo::{
     ActionType, UndoRedoAction, ProjectUndoRedoStack, UndoRedoStack, UNDO_REDO_STACK
 };
+pub use bunny_cache::{BunnyCacheData, BunnyCacheStorage};

@@ -177,6 +177,17 @@ impl TaskExecutor {
                 all_tasks_guard.insert(task.id.clone(), task.clone());
             }
 
+            // Save to bunny cache
+            if let Some(ref model) = task.model {
+                if let Err(e) = crate::storage::bunny_cache::update_original_text_storage(
+                    task.marker_id,
+                    result.clone(),
+                    model.clone(),
+                ) {
+                    Logger::error(&format!("[BunnyExecutor] Failed to save OCR result to cache: {:?}", e));
+                }
+            }
+
             // Log for debugging
             Logger::debug(&format!("[BunnyExecutor] OCR task {} completed with result: {}", task.id, result));
 
@@ -274,6 +285,17 @@ impl TaskExecutor {
             {
                 let mut all_tasks_guard = all_tasks.write().unwrap();
                 all_tasks_guard.insert(task.id.clone(), task.clone());
+            }
+
+            // Save to bunny cache
+            if let Some(ref service) = task.service {
+                if let Err(e) = crate::storage::bunny_cache::update_machine_translation_storage(
+                    task.marker_id,
+                    result.clone(),
+                    service.clone(),
+                ) {
+                    Logger::error(&format!("[BunnyExecutor] Failed to save translation result to cache: {:?}", e));
+                }
             }
 
             // Log for debugging

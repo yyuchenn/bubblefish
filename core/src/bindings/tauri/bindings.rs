@@ -19,7 +19,8 @@ use crate::api::bunny::{
     request_ocr, request_translation, cancel_bunny_task,
     get_bunny_task_status, get_bunny_queued_tasks,
     get_ocr_result, get_translation_result, clear_all_bunny_tasks,
-    get_available_ocr_services, get_available_translation_services
+    get_available_ocr_services, get_available_translation_services,
+    get_bunny_cache, update_original_text, update_machine_translation, clear_bunny_cache
 };
 #[cfg(feature = "tauri")]
 use crate::common::dto::image::{ImageDataDTO, ImageFormat};
@@ -530,4 +531,28 @@ pub fn tauri_get_available_ocr_services() -> Vec<crate::service::bunny::OCRServi
 #[tauri::command]
 pub fn tauri_get_available_translation_services() -> Vec<crate::service::bunny::TranslationServiceInfo> {
     get_available_translation_services()
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_get_bunny_cache(marker_id: u32) -> Result<Option<crate::storage::bunny_cache::BunnyCacheData>, String> {
+    get_bunny_cache(crate::common::MarkerId(marker_id))
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_update_original_text(marker_id: u32, text: String, model: String) -> Result<(), String> {
+    update_original_text(crate::common::MarkerId(marker_id), text, model)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_update_machine_translation(marker_id: u32, text: String, service: String) -> Result<(), String> {
+    update_machine_translation(crate::common::MarkerId(marker_id), text, service)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_clear_bunny_cache(marker_id: u32) -> Result<(), String> {
+    clear_bunny_cache(crate::common::MarkerId(marker_id))
 }

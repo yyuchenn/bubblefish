@@ -25,7 +25,8 @@ use crate::api::bunny::{
     get_ocr_result, get_translation_result,
     get_available_ocr_services, get_available_translation_services,
     register_ocr_service, register_translation_service,
-    unregister_bunny_service
+    unregister_bunny_service,
+    get_bunny_cache, update_original_text, update_machine_translation, clear_bunny_cache
 };
 #[cfg(feature = "wasm")]
 use crate::common::dto::image::{ImageDataDTO, ImageFormat};
@@ -641,6 +642,59 @@ pub fn wasm_register_translation_service(service_info: JsValue) -> JsValue {
         Err(e) => {
             let error_obj = js_sys::Object::new();
             js_sys::Reflect::set(&error_obj, &"error".into(), &format!("Invalid service info: {}", e).into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_get_bunny_cache(marker_id: u32) -> JsValue {
+    match get_bunny_cache(crate::common::MarkerId(marker_id)) {
+        Ok(Some(cache_data)) => to_value(&cache_data).unwrap_or(JsValue::NULL),
+        Ok(None) => JsValue::NULL,
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_update_original_text(marker_id: u32, text: String, model: String) -> JsValue {
+    match update_original_text(crate::common::MarkerId(marker_id), text, model) {
+        Ok(_) => JsValue::undefined(),
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_update_machine_translation(marker_id: u32, text: String, service: String) -> JsValue {
+    match update_machine_translation(crate::common::MarkerId(marker_id), text, service) {
+        Ok(_) => JsValue::undefined(),
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_clear_bunny_cache(marker_id: u32) -> JsValue {
+    match clear_bunny_cache(crate::common::MarkerId(marker_id)) {
+        Ok(_) => JsValue::undefined(),
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
             error_obj.into()
         }
     }

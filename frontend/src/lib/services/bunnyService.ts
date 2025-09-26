@@ -20,8 +20,13 @@ class BunnyService {
 
 			// Subscribe to business events from backend
 			eventService.onBusinessEvent((event) => {
-				if (event && event.event_name && event.event_name.startsWith('bunny:')) {
-					this.handleBackendEvent(event.event_name, event.data);
+				if (event && event.event_name) {
+					if (event.event_name.startsWith('bunny:')) {
+						this.handleBackendEvent(event.event_name, event.data);
+					} else if (event.event_name === 'markers:loaded') {
+						// Load bunny cache when markers are loaded
+						this.handleMarkersLoaded(event.data);
+					}
 				}
 			});
 
@@ -34,7 +39,16 @@ class BunnyService {
 	}
 
 
-	private handleBackendEvent(eventName: string, data: any) {
+	private handleMarkersLoaded(data: any) {
+		if (data && data.markerIds && Array.isArray(data.markerIds)) {
+			// Load bunny cache data asynchronously (don't await to avoid blocking)
+			this.loadBunnyCacheForMarkers(data.markerIds).catch(error => {
+				eventService.error('Failed to load bunny cache after markers loaded', error);
+			});
+		}
+	}
+
+	private async handleBackendEvent(eventName: string, data: any) {
 		// Handle backend events for task queue management
 		console.log(`[BunnyService] Received event: ${eventName}`, data);
 
@@ -70,6 +84,15 @@ class BunnyService {
 					// Update original text (even if empty)
 					bunnyStore.setOriginalText(data.marker_id, data.original_text, data.model);
 
+					// Sync to backend cache
+					if (data.model) {
+						try {
+							await coreAPI.updateOriginalText(data.marker_id, data.original_text, data.model);
+						} catch (error) {
+							eventService.error(`Failed to sync OCR result to backend cache`, error);
+						}
+					}
+
 					// Find and update the task status
 					if (data.task_id) {
 						bunnyStore.updateTask(data.task_id, {
@@ -92,6 +115,15 @@ class BunnyService {
 				if (data.marker_id !== undefined && data.machine_translation !== undefined) {
 					// Update machine translation (even if empty)
 					bunnyStore.setMachineTranslation(data.marker_id, data.machine_translation, data.service);
+
+					// Sync to backend cache
+					if (data.service) {
+						try {
+							await coreAPI.updateMachineTranslation(data.marker_id, data.machine_translation, data.service);
+						} catch (error) {
+							eventService.error(`Failed to sync translation result to backend cache`, error);
+						}
+					}
 
 					// Find and update the task status
 					if (data.task_id) {
@@ -330,6 +362,25 @@ class BunnyService {
 	}
 
 	// Helper methods
+
+	// Load bunny cache data for markers
+	async loadBunnyCacheForMarkers(markerIds: number[]) {
+		try {
+			for (const markerId of markerIds) {
+				const cacheData = await coreAPI.getBunnyCache(markerId);
+				if (cacheData) {
+					if (cacheData.original_text) {
+						bunnyStore.setOriginalText(markerId, cacheData.original_text, cacheData.last_ocr_model);
+					}
+					if (cacheData.machine_translation) {
+						bunnyStore.setMachineTranslation(markerId, cacheData.machine_translation, cacheData.last_translation_service);
+					}
+				}
+			}
+		} catch (error) {
+			eventService.error('Failed to load bunny cache data', error);
+		}
+	}
 
 	// Get rectangle markers for current image
 	getRectangleMarkers() {

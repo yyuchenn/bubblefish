@@ -79,7 +79,11 @@ macro_rules! generate_core_commands {
             $crate::bindings::tauri::tauri_get_ocr_result,
             $crate::bindings::tauri::tauri_get_translation_result,
             $crate::bindings::tauri::tauri_get_available_ocr_services,
-            $crate::bindings::tauri::tauri_get_available_translation_services
+            $crate::bindings::tauri::tauri_get_available_translation_services,
+            $crate::bindings::tauri::tauri_get_bunny_cache,
+            $crate::bindings::tauri::tauri_update_original_text,
+            $crate::bindings::tauri::tauri_update_machine_translation,
+            $crate::bindings::tauri::tauri_clear_bunny_cache
         ]
     };
 }
@@ -161,7 +165,11 @@ macro_rules! generate_all_commands {
             $crate::bindings::tauri::tauri_get_ocr_result,
             $crate::bindings::tauri::tauri_get_translation_result,
             $crate::bindings::tauri::tauri_get_available_ocr_services,
-            $crate::bindings::tauri::tauri_get_available_translation_services
+            $crate::bindings::tauri::tauri_get_available_translation_services,
+            $crate::bindings::tauri::tauri_get_bunny_cache,
+            $crate::bindings::tauri::tauri_update_original_text,
+            $crate::bindings::tauri::tauri_update_machine_translation,
+            $crate::bindings::tauri::tauri_clear_bunny_cache
         ]
     };
 }

@@ -247,6 +247,10 @@ export interface BunnyAPI {
 	registerOCRService(serviceInfo: OCRServiceInfo): Promise<void>;
 	registerTranslationService(serviceInfo: TranslationServiceInfo): Promise<void>;
 	unregisterBunnyService(serviceId: string): Promise<void>;
+	getBunnyCache(markerId: number): Promise<BunnyCacheData | null>;
+	updateOriginalText(markerId: number, text: string, model: string): Promise<void>;
+	updateMachineTranslation(markerId: number, text: string, service: string): Promise<void>;
+	clearBunnyCache(markerId: number): Promise<void>;
 }
 
 // Service info types for plugin-provided services
@@ -265,6 +269,14 @@ export interface TranslationServiceInfo {
 	source_languages: string[];
 	target_languages: string[];
 	supports_auto_detect: boolean;
+}
+
+export interface BunnyCacheData {
+	marker_id: number;
+	original_text?: string;
+	machine_translation?: string;
+	last_ocr_model?: string;
+	last_translation_service?: string;
 }
 
 // 综合API接口
@@ -738,6 +750,22 @@ abstract class BaseCoreAPI implements CoreAPI {
 
 	async unregisterBunnyService(serviceId: string): Promise<void> {
 		await this.callBackend<void>('unregister_bunny_service', { serviceId });
+	}
+
+	async getBunnyCache(markerId: number): Promise<BunnyCacheData | null> {
+		return await this.callBackend<BunnyCacheData | null>('get_bunny_cache', { markerId });
+	}
+
+	async updateOriginalText(markerId: number, text: string, model: string): Promise<void> {
+		await this.callBackend<void>('update_original_text', { markerId, text, model });
+	}
+
+	async updateMachineTranslation(markerId: number, text: string, service: string): Promise<void> {
+		await this.callBackend<void>('update_machine_translation', { markerId, text, service });
+	}
+
+	async clearBunnyCache(markerId: number): Promise<void> {
+		await this.callBackend<void>('clear_bunny_cache', { markerId });
 	}
 }
 

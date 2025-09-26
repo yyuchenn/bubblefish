@@ -535,24 +535,31 @@ impl MarkerService {
     pub fn clear_image_markers_with_undo(&self, image_id: ImageId) -> CoreResult<()> {
         let mut storage_guard = APP_STATE.markers.write()?;
         let mut removed_markers = Vec::new();
-        
+        let mut marker_ids_to_clear = Vec::new();
+
         if let Some(marker_ids) = storage_guard.by_image.get(&image_id).cloned() {
             for marker_id in marker_ids {
+                marker_ids_to_clear.push(marker_id);
                 if let Some(marker) = storage_guard.markers.remove(&marker_id) {
                     removed_markers.push(marker);
                 }
             }
             storage_guard.by_image.remove(&image_id);
         }
-        
+
         // Drop lock before publishing event
         drop(storage_guard);
-        
+
+        // Clear bunny cache for all removed markers
+        for marker_id in marker_ids_to_clear {
+            let _ = crate::storage::bunny_cache::clear_bunny_cache_storage(marker_id);
+        }
+
         // Publish event with markers data for undo/redo if any markers were removed
         if !removed_markers.is_empty() {
             self.event_bus.publish(DomainEvent::ImageMarkersCleared(image_id, removed_markers));
         }
-        
+
         // Also clear from image
         crate::storage::image::clear_image_markers_storage(image_id)?;
         Ok(())

@@ -183,12 +183,17 @@ pub fn remove_marker_from_image(image_id: u32, marker_id: u32) -> bool {
         "image_id": image_id,
         "marker_id": marker_id
     })));
-    
+
     let service = get_service();
-    
+
     let removed_from_image = service.image_service.remove_marker_from_image(image_id, marker_id);
     let removed_marker = service.marker_service.remove_marker(marker_id);
-    
+
+    // Clear bunny cache for this marker
+    if removed_marker {
+        let _ = crate::storage::bunny_cache::clear_bunny_cache_storage(crate::common::MarkerId(marker_id));
+    }
+
     removed_from_image && removed_marker
 }
 
