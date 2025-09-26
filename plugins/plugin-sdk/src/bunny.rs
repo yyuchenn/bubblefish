@@ -2,6 +2,52 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarkerGeometry {
+    #[serde(rename = "markerType")]
+    pub marker_type: String,
+    pub x: f64,
+    pub y: f64,
+    pub width: Option<f64>,
+    pub height: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PageMarkerInfo {
+    #[serde(rename = "markerId")]
+    pub marker_id: u32,
+    pub geometry: MarkerGeometry,
+    #[serde(rename = "originalText")]
+    pub original_text: Option<String>,
+    #[serde(rename = "machineTranslation")]
+    pub machine_translation: Option<String>,
+    #[serde(rename = "userTranslation")]
+    pub user_translation: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OCRContext {
+    #[serde(rename = "markerId")]
+    pub marker_id: u32,
+    #[serde(rename = "imageId")]
+    pub image_id: u32,
+    #[serde(rename = "imageData")]
+    pub image_data: Vec<u8>,
+    #[serde(rename = "markerGeometry")]
+    pub marker_geometry: MarkerGeometry,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranslationContext {
+    #[serde(rename = "markerId")]
+    pub marker_id: u32,
+    #[serde(rename = "imageId")]
+    pub image_id: u32,
+    pub text: String,
+    #[serde(rename = "allMarkers")]
+    pub all_markers: Vec<PageMarkerInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OCROptions {
     pub language: Option<String>,
     pub enhance_image: bool,
@@ -75,8 +121,8 @@ pub trait OCRProvider: Send + Sync {
     /// Get information about this OCR service
     fn get_info(&self) -> OCRServiceInfo;
 
-    /// Process an image and extract text
-    fn process_image(&self, image_data: &[u8], options: OCROptions) -> Result<OCRResult, String>;
+    /// Process an image and extract text with full context
+    fn process_ocr(&self, context: OCRContext, options: OCROptions) -> Result<OCRResult, String>;
 
     /// Check if the service is available and properly configured
     fn is_available(&self) -> bool {
@@ -94,8 +140,8 @@ pub trait TranslationProvider: Send + Sync {
     /// Get information about this translation service
     fn get_info(&self) -> TranslationServiceInfo;
 
-    /// Translate text
-    fn translate(&self, text: &str, options: TranslationOptions) -> Result<TranslationResult, String>;
+    /// Translate text with full context
+    fn translate(&self, context: TranslationContext, options: TranslationOptions) -> Result<TranslationResult, String>;
 
     /// Check if the service is available and properly configured
     fn is_available(&self) -> bool {

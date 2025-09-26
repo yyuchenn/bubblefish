@@ -67,13 +67,29 @@ impl Plugin for DummyOCRPlugin {
             if msg_type == "ocr_request" {
                 self.log(&format!("Received OCR request from {}", from));
 
-                // Extract marker ID
-                let marker_id = message.get("marker_id")
+                // Extract context
+                let context = message.get("context").ok_or("Missing context")?;
+
+                let marker_id = context.get("markerId")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u32;
 
+                let image_id = context.get("imageId")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+
+                // Extract marker geometry
+                let geometry = context.get("markerGeometry");
+                let marker_type = geometry
+                    .and_then(|g| g.get("type"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                self.log(&format!("OCR request for marker {} (type: {}) on image {}",
+                    marker_id, marker_type, image_id));
+
                 // Extract image data
-                let image_data = message.get("image_data")
+                let image_data = context.get("imageData")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
@@ -82,8 +98,8 @@ impl Plugin for DummyOCRPlugin {
                     })
                     .unwrap_or_else(Vec::new);
 
-                // Perform dummy OCR
-                let result = self.perform_ocr(&image_data);
+                // Perform dummy OCR with context awareness
+                let result = self.perform_ocr_with_context(&image_data, marker_type);
                 self.log(&format!("OCR result for marker {}: {}", marker_id, result));
 
                 // Send result back via bunny event
@@ -140,21 +156,37 @@ impl Plugin for DummyOCRPlugin {
 }
 
 impl DummyOCRPlugin {
-    fn perform_ocr(&self, image_data: &[u8]) -> String {
-        // This is a dummy implementation
-        // Real implementation would process the image data
-        self.log(&format!("Processing image with {} bytes", image_data.len()));
+    fn perform_ocr_with_context(&self, image_data: &[u8], marker_type: &str) -> String {
+        // This is a dummy implementation with context awareness
+        // Real implementation would process the image data using marker geometry
+        self.log(&format!("Processing {} bytes for {} marker",
+            image_data.len(), marker_type));
 
-        // Return some dummy text based on image size
-        if image_data.len() > 100000 {
-            "This is a large image with lots of text content.\n\
-             第二行是中文文本。\n\
-             The third line contains mixed content.\n\
-             [Dummy OCR Result]".to_string()
-        } else {
-            "Small image text content.\n\
-             简短的文本内容。\n\
-             [Dummy OCR Result]".to_string()
+        // Return different dummy text based on marker type and image size
+        // Note: JSON uses lowercase "point" and "rectangle" due to camelCase serialization
+        match marker_type {
+            "rectangle" => {
+                if image_data.len() > 100000 {
+                    "Rectangle marker - Large text area:\n\
+                     这是一个矩形区域内的大段文本。\n\
+                     Lorem ipsum dolor sit amet.\n\
+                     [Context-aware Dummy OCR]".to_string()
+                } else {
+                    "Rectangle marker text.\n\
+                     矩形标记文本。\n\
+                     [Context-aware Dummy OCR]".to_string()
+                }
+            },
+            "point" => {
+                "Point marker annotation\n\
+                 点标记注释\n\
+                 [Context-aware Dummy OCR]".to_string()
+            },
+            _ => {
+                format!("Unknown marker type '{}'\n\
+                        未知标记类型\n\
+                        [Context-aware Dummy OCR]", marker_type)
+            }
         }
     }
 }

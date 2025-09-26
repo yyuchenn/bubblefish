@@ -57,7 +57,7 @@ impl Plugin for DummyTranslationPlugin {
         Ok(())
     }
 
-    fn on_core_event(&mut self, event: &CoreEvent) -> Result<(), String> {
+    fn on_core_event(&mut self, _event: &CoreEvent) -> Result<(), String> {
         // Handle events if needed
         Ok(())
     }
@@ -68,21 +68,42 @@ impl Plugin for DummyTranslationPlugin {
             if msg_type == "translation_request" {
                 self.log(&format!("Received translation request from {}", from));
 
-                // Extract marker ID
-                let marker_id = message.get("marker_id")
+                // Extract context
+                let context = message.get("context").ok_or("Missing context")?;
+
+                let marker_id = context.get("markerId")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u32;
 
-                // Extract text and options
-                let text = message.get("text")
+                let image_id = context.get("imageId")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+
+                let text = context.get("text")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let target_lang = message.get("target_lang")
+
+                // Extract all markers on the page for context
+                let all_markers = context.get("allMarkers")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.len())
+                    .unwrap_or(0);
+
+                self.log(&format!("Translation request for marker {} on image {} (page has {} markers)",
+                    marker_id, image_id, all_markers));
+
+                // Extract options
+                let options = message.get("options");
+                let target_lang = options
+                    .and_then(|o| o.get("target_language"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("zh-CN");
+                let source_lang = options
+                    .and_then(|o| o.get("source_language"))
+                    .and_then(|v| v.as_str());
 
-                // Perform dummy translation
-                let result = self.perform_translation(text, target_lang);
+                // Perform dummy translation with context awareness
+                let result = self.perform_translation_with_context(text, source_lang, target_lang, all_markers);
                 self.log(&format!("Translation result for marker {}: {}", marker_id, result));
 
                 // Send result back via bunny event
@@ -139,13 +160,29 @@ impl Plugin for DummyTranslationPlugin {
 }
 
 impl DummyTranslationPlugin {
-    fn perform_translation(&self, text: &str, target_lang: &str) -> String {
-        // This is a dummy implementation
-        // Real implementation would call actual translation API
-        self.log(&format!("Translating '{}' to {}", text, target_lang));
+    fn perform_translation_with_context(
+        &self,
+        text: &str,
+        source_lang: Option<&str>,
+        target_lang: &str,
+        page_marker_count: usize
+    ) -> String {
+        // This is a context-aware dummy implementation
+        // Real implementation would use page context for better translation
+        self.log(&format!(
+            "Translating '{}' from {:?} to {} (page has {} markers)",
+            text, source_lang, target_lang, page_marker_count
+        ));
+
+        // Context awareness: add page number info if multiple markers
+        let context_prefix = if page_marker_count > 1 {
+            format!("[Page context: {} markers] ", page_marker_count)
+        } else {
+            String::new()
+        };
 
         // Return some dummy translation based on target language
-        match target_lang {
+        let translation = match target_lang {
             "zh" | "zh-CN" => format!("[翻译] {}", text),
             "ja" => format!("[翻訳] {}", text),
             "ko" => format!("[번역] {}", text),
@@ -162,7 +199,9 @@ impl DummyTranslationPlugin {
                 }
             },
             _ => format!("[Translated to {}] {}", target_lang, text)
-        }
+        };
+
+        format!("{}{}", context_prefix, translation)
     }
 }
 

@@ -197,15 +197,28 @@ class BunnyService {
 			throw new Error(`OCR service '${ocrModel}' not found. Please load an OCR plugin.`);
 		}
 
+		// Get marker info for geometry
+		const markerInfo = await coreAPI.getMarkerInfo(markerId);
+		if (!markerInfo) {
+			throw new Error(`Marker ${markerId} not found`);
+		}
+
 		// Get image data for the plugin
 		const imageData = await coreAPI.getImageBinaryData(imageId);
+
+		// Build OCR context with marker geometry
+		const context = {
+			markerId: markerId,
+			imageId: imageId,
+			imageData: Array.from(imageData || new Uint8Array()),
+			markerGeometry: markerInfo.geometry
+		};
 
 		// Send OCR request directly to the plugin
 		const message = {
 			type: 'ocr_request',
 			task_id: taskId,
-			marker_id: markerId,
-			image_data: Array.from(imageData || new Uint8Array()),
+			context: context,
 			service_id: ocrModel
 		};
 
@@ -267,14 +280,37 @@ class BunnyService {
 			throw new Error(`Translation service '${translationService}' not found. Please load a translation plugin.`);
 		}
 
+		// Get all markers for the image to build context
+		const allMarkers = await coreAPI.getMarkersForImage(imageId);
+		const allMarkersData = get(bunnyStore).markerData;
+
+		// Build page marker info array
+		const pageMarkers = allMarkers.map(marker => ({
+			markerId: marker.id,
+			geometry: marker.geometry,
+			originalText: allMarkersData.get(marker.id)?.ocrText || null,
+			machineTranslation: allMarkersData.get(marker.id)?.translationText || null,
+			userTranslation: marker.translation || ''
+		}));
+
+		// Build translation context
+		const context = {
+			markerId: markerId,
+			imageId: imageId,
+			text: textToTranslate,
+			allMarkers: pageMarkers
+		};
+
 		// Send translation request directly to the plugin
 		const message = {
 			type: 'translation_request',
 			task_id: taskId,
-			marker_id: markerId,
-			text: textToTranslate,
-			source_lang: settings.sourceLang,
-			target_lang: settings.targetLang,
+			context: context,
+			options: {
+				source_language: settings.sourceLang,
+				target_language: settings.targetLang,
+				preserve_formatting: true
+			},
 			service_id: translationService
 		};
 

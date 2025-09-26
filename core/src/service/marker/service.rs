@@ -111,6 +111,13 @@ impl MarkerService {
             Err(_) => None,
         }
     }
+
+    pub fn get_markers_for_image(&self, image_id: u32) -> Vec<MarkerDTO> {
+        match self.get_image_markers(ImageId::from(image_id)) {
+            Ok(markers) => markers,
+            Err(_) => Vec::new(),
+        }
+    }
     
     pub fn get_marker_by_id(&self, id: MarkerId) -> CoreResult<Option<MarkerDTO>> {
         Ok(storage::get_marker_storage(id)?.map(|m| m.to_dto()))

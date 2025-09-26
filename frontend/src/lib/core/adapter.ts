@@ -186,6 +186,7 @@ export interface MarkerAPI {
 	
 	// 通用接口
 	getMarkerInfo(markerId: number): Promise<Marker | null>;
+	getMarkersForImage(imageId: number): Promise<Marker[]>;
 	updateMarkerTranslation(markerId: number, translation: string): Promise<boolean>;
 	updateMarkerStyle(
 		markerId: number,
@@ -517,6 +518,10 @@ abstract class BaseCoreAPI implements CoreAPI {
 
 	async getMarkerInfo(markerId: number): Promise<Marker | null> {
 		return this.callBackend<Marker | null>('get_marker_info', { markerId });
+	}
+
+	async getMarkersForImage(imageId: number): Promise<Marker[]> {
+		return this.callBackend<Marker[]>('get_markers_for_image', { imageId });
 	}
 
 	async updatePointMarkerPosition(markerId: number, x: number, y: number): Promise<boolean> {
