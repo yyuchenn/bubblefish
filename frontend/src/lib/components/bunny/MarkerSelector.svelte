@@ -11,19 +11,27 @@
 	$: rectangleMarkers = $markers.filter(m => m.geometry.type === 'rectangle');
 
 	// Sync with global marker selection when in single-select mode
-	$: if (!isMultiSelectMode && $selectedMarkerId && rectangleMarkers.find(m => m.id === $selectedMarkerId)) {
-		// Clear bunny selection and select only the globally selected marker
-		bunnyStore.clearSelection();
-		bunnyStore.selectMarker($selectedMarkerId);
+	$: if (!isMultiSelectMode && $selectedMarkerId) {
+		// Only sync if the selected marker is a rectangle marker
+		const isRectangleMarker = rectangleMarkers.find(m => m.id === $selectedMarkerId);
+		if (isRectangleMarker) {
+			// Clear bunny selection and select only the globally selected marker
+			bunnyStore.clearSelection();
+			bunnyStore.selectMarker($selectedMarkerId);
 
-		// Auto-scroll only when the selected marker actually changes
-		if ($selectedMarkerId !== previousSelectedMarkerId) {
-			scrollToMarker($selectedMarkerId);
-			previousSelectedMarkerId = $selectedMarkerId;
+			// Auto-scroll only when the selected marker actually changes
+			if ($selectedMarkerId !== previousSelectedMarkerId) {
+				scrollToMarker($selectedMarkerId);
+				previousSelectedMarkerId = $selectedMarkerId;
+			}
+		} else {
+			// Selected marker is not a rectangle, clear bunny selection
+			bunnyStore.clearSelection();
 		}
 	} else if (!$selectedMarkerId) {
 		// Reset when no marker is selected
 		previousSelectedMarkerId = null;
+		bunnyStore.clearSelection();
 	}
 
 	// When bunny selection changes in single-select mode, sync with global
