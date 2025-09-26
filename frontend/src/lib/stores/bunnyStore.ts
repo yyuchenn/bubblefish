@@ -111,20 +111,20 @@ function createBunnyStore() {
 		},
 		
 		// Marker data management
-		setOCRText(markerId: number, text: string, model?: string) {
+		setOriginalText(markerId: number, text: string, model?: string) {
 			update(state => {
 				const data = state.markerData.get(markerId) || { markerId };
-				data.ocrText = text;
+				data.originalText = text;
 				if (model) data.lastOCRModel = model;
 				state.markerData.set(markerId, data);
 				return state;
 			});
 		},
 
-		setTranslation(markerId: number, translation: string, service?: string) {
+		setMachineTranslation(markerId: number, translation: string, service?: string) {
 			update(state => {
 				const data = state.markerData.get(markerId) || { markerId };
-				data.translation = translation;
+				data.machineTranslation = translation;
 				if (service) data.lastTranslationService = service;
 				state.markerData.set(markerId, data);
 				return state;

@@ -90,7 +90,7 @@ impl Plugin for DummyTranslationPlugin {
                     // Emit translation completion event
                     let event = serde_json::json!({
                         "marker_id": marker_id,
-                        "translation": result,
+                        "machine_translation": result,
                         "service": "dummy-translate",
                         "task_id": message.get("task_id").and_then(|v| v.as_str()).unwrap_or("")
                     });

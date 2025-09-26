@@ -184,7 +184,7 @@ impl TaskExecutor {
             let event = serde_json::json!({
                 "task_id": task.id,
                 "marker_id": task.marker_id.0,
-                "text": result,
+                "original_text": result,
                 "model": task.model,
             });
 
@@ -283,7 +283,7 @@ impl TaskExecutor {
             let event = serde_json::json!({
                 "task_id": task.id,
                 "marker_id": task.marker_id.0,
-                "translation": result,
+                "machine_translation": result,
                 "service": task.service,
             });
 

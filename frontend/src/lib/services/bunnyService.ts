@@ -66,15 +66,15 @@ class BunnyService {
 				break;
 
 			case 'bunny:ocr_completed':
-				if (data.marker_id !== undefined && data.text !== undefined) {
-					// Update OCR text (even if empty)
-					bunnyStore.setOCRText(data.marker_id, data.text, data.model);
+				if (data.marker_id !== undefined && data.original_text !== undefined) {
+					// Update original text (even if empty)
+					bunnyStore.setOriginalText(data.marker_id, data.original_text, data.model);
 
 					// Find and update the task status
 					if (data.task_id) {
 						bunnyStore.updateTask(data.task_id, {
 							status: 'completed',
-							result: data.text,
+							result: data.original_text,
 							completedAt: Date.now()
 						});
 					}
@@ -82,22 +82,22 @@ class BunnyService {
 
 					// Auto-translate if enabled (only if text is not empty)
 					const settings = get(bunnyStore).settings;
-					if (settings.autoTranslateAfterOCR && data.text) {
-						this.requestTranslation(data.marker_id, data.text);
+					if (settings.autoTranslateAfterOCR && data.original_text) {
+						this.requestTranslation(data.marker_id, data.original_text);
 					}
 				}
 				break;
 
 			case 'bunny:translation_completed':
-				if (data.marker_id !== undefined && data.translation !== undefined) {
-					// Update translation text (even if empty)
-					bunnyStore.setTranslation(data.marker_id, data.translation, data.service);
+				if (data.marker_id !== undefined && data.machine_translation !== undefined) {
+					// Update machine translation (even if empty)
+					bunnyStore.setMachineTranslation(data.marker_id, data.machine_translation, data.service);
 
 					// Find and update the task status
 					if (data.task_id) {
 						bunnyStore.updateTask(data.task_id, {
 							status: 'completed',
-							result: data.translation,
+							result: data.machine_translation,
 							completedAt: Date.now()
 						});
 					}
@@ -195,7 +195,7 @@ class BunnyService {
 
 		// Get text from marker data if not provided
 		const markerData = get(bunnyStore).markerData.get(markerId);
-		const textToTranslate = text || markerData?.ocrText || '';
+		const textToTranslate = text || markerData?.originalText || '';
 
 		if (!textToTranslate) {
 			throw new Error('No text to translate');

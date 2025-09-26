@@ -17,8 +17,8 @@ export interface BunnyTask {
 
 export interface BunnyMarkerData {
 	markerId: number;
-	ocrText?: string;
-	translation?: string;
+	originalText?: string;
+	machineTranslation?: string;
 	ocrTaskId?: string;
 	translationTaskId?: string;
 	lastOCRModel?: string;

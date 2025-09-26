@@ -91,7 +91,7 @@ impl Plugin for DummyOCRPlugin {
                     // Emit OCR completion event
                     let event = serde_json::json!({
                         "marker_id": marker_id,
-                        "text": result,
+                        "original_text": result,
                         "model": "dummy-ocr",
                         "task_id": message.get("task_id").and_then(|v| v.as_str()).unwrap_or("")
                     });

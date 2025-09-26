@@ -73,12 +73,12 @@
 		const data = $markerData.get(markerId);
 		if (!data) return '';
 
-		const hasOCR = !!data.ocrText;
-		const hasTranslation = !!data.translation;
+		const hasOriginalText = !!data.originalText;
+		const hasMachineTranslation = !!data.machineTranslation;
 
-		if (hasOCR && hasTranslation) return '✓✓';
-		if (hasOCR) return '✓-';
-		if (hasTranslation) return '-✓';
+		if (hasOriginalText && hasMachineTranslation) return '✓✓';
+		if (hasOriginalText) return '✓-';
+		if (hasMachineTranslation) return '-✓';
 		return '--';
 	}
 
@@ -131,9 +131,9 @@
 </script>
 
 <div class="flex flex-col h-full">
-	<div class="flex items-center justify-between px-3 py-2 border-b border-theme-outline">
+	<div class="flex items-center justify-between px-3 py-2 border-b border-theme-outline min-h-[36px]">
 		<span class="text-xs font-medium text-theme-on-surface">矩形标记</span>
-		<div class="flex gap-1">
+		<div class="flex gap-1 h-[28px] items-center">
 			<button
 				class="px-2 py-1 text-xs rounded hover:bg-theme-surface-variant"
 				on:click={selectAll}
