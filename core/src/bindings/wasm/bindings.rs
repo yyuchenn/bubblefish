@@ -10,6 +10,8 @@ use crate::api::*;
 #[cfg(feature = "wasm")]
 use crate::api::{create_opening_project_from_binary, get_opening_project_info, flush_opening_project_images, finalize_opening_project, delete_opening_project};
 #[cfg(feature = "wasm")]
+use crate::common::Logger;
+#[cfg(feature = "wasm")]
 use crate::api::marker::{
     add_point_marker_to_image, add_rectangle_marker_to_image,
     update_point_marker_position, update_rectangle_marker_geometry,
@@ -35,7 +37,7 @@ pub fn wasm_create_empty_opening_project(project_name: String) -> JsValue {
     match create_empty_opening_project(project_name) {
         Ok(project_id) => to_value(&project_id).unwrap_or(JsValue::NULL),
         Err(e) => {
-            web_sys::console::error_1(&format!("Failed to create empty opening project: {}", e).into());
+            Logger::error(&format!("Failed to create empty opening project: {}", e));
             JsValue::NULL
         }
     }
@@ -53,7 +55,7 @@ pub fn wasm_create_opening_project_from_binary(data: Vec<u8>, file_extension: St
     match create_opening_project_from_binary(data, file_extension, project_name) {
         Ok(project_id) => to_value(&project_id).unwrap_or(JsValue::NULL),
         Err(e) => {
-            web_sys::console::error_1(&format!("Failed to create opening project: {}", e).into());
+            Logger::error(&format!("Failed to create opening project: {}", e));
             JsValue::NULL
         }
     }
@@ -448,7 +450,7 @@ pub fn wasm_init_event_system() {
         "wasm".to_string(),
         Box::new(event_emitter)
     );
-    web_sys::console::log_1(&"WASM event system initialized".into());
+    Logger::info("WASM event system initialized");
 }
 
 // 设置Worker事件回调
@@ -463,13 +465,13 @@ pub fn wasm_set_event_callback(callback: js_sys::Function) {
         let event_data_js = match js_sys::JSON::parse(&event_data.to_string()) {
             Ok(value) => value,
             Err(_) => {
-                web_sys::console::error_1(&"Failed to parse event data JSON for callback".into());
+                Logger::error("Failed to parse event data JSON for callback");
                 return;
             }
         };
-        
+
         if let Err(e) = callback_clone.call2(&JsValue::NULL, &event_name_js, &event_data_js) {
-            web_sys::console::error_2(&"Event callback error:".into(), &e);
+            Logger::error(&format!("Event callback error: {:?}", e));
         }
     });
 }
@@ -522,7 +524,7 @@ pub fn wasm_request_ocr(marker_id: u32, ocr_model: String) -> JsValue {
     match request_ocr(marker_id, ocr_model) {
         Ok(task_id) => JsValue::from_str(&task_id),
         Err(e) => {
-            web_sys::console::error_1(&format!("Failed to request OCR: {}", e).into());
+            Logger::error(&format!("Failed to request OCR: {}", e));
             JsValue::from_str("")
         }
     }
@@ -534,7 +536,7 @@ pub fn wasm_request_translation(marker_id: u32, service_name: String, source_lan
     match request_translation(marker_id, service_name, source_lang, target_lang) {
         Ok(task_id) => JsValue::from_str(&task_id),
         Err(e) => {
-            web_sys::console::error_1(&format!("Failed to request translation: {}", e).into());
+            Logger::error(&format!("Failed to request translation: {}", e));
             JsValue::from_str("")
         }
     }

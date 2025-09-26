@@ -1,7 +1,7 @@
 // Bunny (海兔) API - OCR and Translation functionality
 use crate::common::{MarkerId, ProjectId};
 use crate::service::get_service;
-use crate::service::bunny::{BunnyTask, OCRModel, TranslationService, BUNNY_PLUGIN_MANAGER};
+use crate::service::bunny::{BunnyTask, BUNNY_PLUGIN_MANAGER};
 
 /// Request OCR for a marker
 pub fn request_ocr(marker_id: u32, ocr_model: String) -> Result<String, String> {

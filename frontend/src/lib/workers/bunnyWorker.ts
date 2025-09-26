@@ -100,7 +100,7 @@ class BunnyWorker {
 					task.status = 'processing';
 					task.startedAt = Date.now();
 					this.taskQueue.processing.set(task.id, task);
-					this.postMessage({ type: 'task_progress', taskId: task.id, progress: 0 });
+					this.postMessage({ type: 'task_started', taskId: task.id, markerId: task.markerId });
 				}
 			}
 

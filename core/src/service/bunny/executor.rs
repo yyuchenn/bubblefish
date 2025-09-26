@@ -1,7 +1,7 @@
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::collections::HashMap;
-use crate::common::EVENT_SYSTEM;
+use crate::common::{EVENT_SYSTEM, Logger};
 use super::task::{BunnyTask, TaskStatus, TaskType, BunnyTaskEvent, get_timestamp_millis};
 use super::BUNNY_PLUGIN_MANAGER;
 
@@ -103,8 +103,7 @@ impl TaskExecutor {
         progress: Arc<AtomicU64>,
         all_tasks: Arc<RwLock<HashMap<String, BunnyTask>>>,
     ) {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("[BunnyExecutor] Processing OCR task {}", task.id).into());
+        Logger::debug(&format!("[BunnyExecutor] Processing OCR task {}", task.id));
 
         // Check for immediate cancellation
         let cancelled = cancellation_token.load(Ordering::SeqCst);
@@ -153,8 +152,7 @@ impl TaskExecutor {
                             format!("[OCR processing via plugin '{}']", model)
                         }
                         Err(e) => {
-                            #[cfg(target_arch = "wasm32")]
-                            web_sys::console::error_1(&format!("[BunnyExecutor] Plugin OCR failed: {}", e).into());
+                            Logger::error(&format!("[BunnyExecutor] Plugin OCR failed: {}", e));
 
                             // Fallback to empty if plugin fails
                             String::new()
@@ -180,11 +178,7 @@ impl TaskExecutor {
             }
 
             // Log for debugging
-            #[cfg(not(target_arch = "wasm32"))]
-            println!("[BunnyExecutor] OCR task {} completed with result: {}", task.id, result);
-
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("[BunnyExecutor] OCR task {} completed with result: {}", task.id, result).into());
+            Logger::debug(&format!("[BunnyExecutor] OCR task {} completed with result: {}", task.id, result));
 
             // Emit completion event
             let event = serde_json::json!({
@@ -195,8 +189,7 @@ impl TaskExecutor {
             });
 
             if let Err(e) = EVENT_SYSTEM.emit_business_event("bunny:ocr_completed".to_string(), event) {
-                #[cfg(not(target_arch = "wasm32"))]
-                eprintln!("[BunnyExecutor] Failed to emit OCR completion event: {:?}", e);
+                Logger::error(&format!("[BunnyExecutor] Failed to emit OCR completion event: {:?}", e));
             }
         }
     }
@@ -207,8 +200,7 @@ impl TaskExecutor {
         progress: Arc<AtomicU64>,
         all_tasks: Arc<RwLock<HashMap<String, BunnyTask>>>,
     ) {
-        #[cfg(target_arch = "wasm32")]
-        web_sys::console::log_1(&format!("[BunnyExecutor] Processing translation task {}", task.id).into());
+        Logger::debug(&format!("[BunnyExecutor] Processing translation task {}", task.id));
 
         // Check for immediate cancellation
         let cancelled = cancellation_token.load(Ordering::SeqCst);
@@ -259,8 +251,7 @@ impl TaskExecutor {
                             format!("[Translation processing via plugin '{}']", service)
                         }
                         Err(e) => {
-                            #[cfg(target_arch = "wasm32")]
-                            web_sys::console::error_1(&format!("[BunnyExecutor] Plugin translation failed: {}", e).into());
+                            Logger::error(&format!("[BunnyExecutor] Plugin translation failed: {}", e));
 
                             // Fallback to empty if plugin fails
                             String::new()
@@ -286,11 +277,7 @@ impl TaskExecutor {
             }
 
             // Log for debugging
-            #[cfg(not(target_arch = "wasm32"))]
-            println!("[BunnyExecutor] Translation task {} completed with result: {}", task.id, result);
-
-            #[cfg(target_arch = "wasm32")]
-            web_sys::console::log_1(&format!("[BunnyExecutor] Translation task {} completed with result: {}", task.id, result).into());
+            Logger::debug(&format!("[BunnyExecutor] Translation task {} completed with result: {}", task.id, result));
 
             // Emit completion event
             let event = serde_json::json!({
@@ -301,8 +288,7 @@ impl TaskExecutor {
             });
 
             if let Err(e) = EVENT_SYSTEM.emit_business_event("bunny:translation_completed".to_string(), event) {
-                #[cfg(not(target_arch = "wasm32"))]
-                eprintln!("[BunnyExecutor] Failed to emit translation completion event: {:?}", e);
+                Logger::error(&format!("[BunnyExecutor] Failed to emit translation completion event: {:?}", e));
             }
         }
     }

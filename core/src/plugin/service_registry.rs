@@ -379,13 +379,11 @@ pub mod adapters {
     }
 
     /// Bunny Service适配器 - 用于插件注册OCR/翻译服务
-    pub struct BunnyServiceAdapter {
-        service: Arc<crate::service::bunny::BunnyService>,
-    }
+    pub struct BunnyServiceAdapter;
 
     impl BunnyServiceAdapter {
-        pub fn new(service: Arc<crate::service::bunny::BunnyService>) -> Self {
-            Self { service }
+        pub fn new(_service: Arc<crate::service::bunny::BunnyService>) -> Self {
+            Self
         }
     }
 
@@ -518,7 +516,7 @@ pub mod adapters {
         fn call(&self, method: &str, params: Value) -> Result<Value, String> {
             match method {
                 "register_ocr_service" => {
-                    let plugin_id = params["plugin_id"]
+                    let _plugin_id = params["plugin_id"]
                         .as_str()
                         .ok_or("plugin_id required")?;
                     let service_info = serde_json::from_value::<crate::service::bunny::OCRServiceInfo>(
@@ -531,7 +529,7 @@ pub mod adapters {
                     Ok(serde_json::json!({"success": true}))
                 }
                 "register_translation_service" => {
-                    let plugin_id = params["plugin_id"]
+                    let _plugin_id = params["plugin_id"]
                         .as_str()
                         .ok_or("plugin_id required")?;
                     let service_info = serde_json::from_value::<crate::service::bunny::TranslationServiceInfo>(
@@ -603,7 +601,7 @@ pub mod adapters {
                     let marker_id = params["marker_id"]
                         .as_u64()
                         .ok_or("marker_id required")? as u32;
-                    let text = params["text"]
+                    let _text = params["text"]
                         .as_str()
                         .ok_or("text required")?;
                     let target_lang = params["target_lang"]
