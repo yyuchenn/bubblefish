@@ -52,7 +52,22 @@ class PluginService {
     private plugins = writable<Map<string, PluginInfo>>(new Map());
     private workers = new Map<string, Worker>();
     private serviceCallHandlers = new Map<Worker, Map<number, any>>();
-    
+
+    /**
+     * Convert plugin filename to plugin ID
+     * This matches the logic in desktop/src/plugin_loader.rs
+     * e.g., "libdummy_ocr_plugin.dylib" -> "dummy-ocr-plugin"
+     *
+     * We keep the full name including "-plugin" suffix for consistency
+     * with the Cargo package names.
+     */
+    private filenameToPluginId(filename: string): string {
+        return filename
+            .replace(/^lib/, '')                    // Remove "lib" prefix
+            .replace(/\.(dylib|so|dll)$/, '')       // Remove extension
+            .replace(/_/g, '-');                    // Replace _ with -
+    }
+
     constructor() {
         this.initializeEventBridge();
         // Only restore state in browser environment
@@ -236,7 +251,11 @@ class PluginService {
                 isNative: true,
                 source: 'external'  // Default source, will be overridden if builtin or uploaded
             };
-            
+
+            // The pluginId passed to this function should already be the correct ID
+            // (either from builtin list or manually specified)
+            // The desktop backend will derive the same ID from the filename
+
             this.plugins.update(plugins => {
                 plugins.set(pluginId, pluginInfo);
                 return plugins;
@@ -687,11 +706,14 @@ class PluginService {
                     this.removePlugin(existingPlugin.metadata.id);
                 }
                 
-                // Extract storage ID from filename
+                // Extract storage ID from filename (keep full name for storage)
                 const storageId = file.name
                     .replace(/^lib/, '')
                     .replace(/\.(dylib|so|dll)$/, '');
-                
+
+                // Generate the actual plugin ID that the desktop uses
+                const actualPluginId = this.filenameToPluginId(file.name);
+
                 // Plugin is already loaded by the backend, just add to our store
                 const pluginInfo: PluginInfo = {
                     metadata,
@@ -701,9 +723,10 @@ class PluginService {
                     source: 'uploaded',
                     storageId: storageId
                 };
-                
+
                 this.plugins.update(plugins => {
-                    plugins.set(metadata.id, pluginInfo);
+                    // Use the actual plugin ID that desktop recognizes
+                    plugins.set(actualPluginId, pluginInfo);
                     return plugins;
                 });
                 
@@ -1016,7 +1039,7 @@ class PluginService {
     async sendPluginMessage(from: string, to: string, message: any) {
         const plugins = get(this.plugins);
         const targetPlugin = plugins.get(to);
-        
+
         if (targetPlugin?.isNative && platformService.isTauri()) {
             // 发送消息到原生插件
             await invoke('send_message_to_plugin', { to, from, message });

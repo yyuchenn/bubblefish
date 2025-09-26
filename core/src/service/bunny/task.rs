@@ -3,22 +3,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64};
 use serde::{Deserialize, Serialize};
 use crate::common::{MarkerId, ImageId};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum OCRModel {
-    Default,
-    Tesseract,
-    PaddleOCR,
-    EasyOCR,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum TranslationService {
-    Default,
-    Google,
-    DeepL,
-    ChatGPT,
-    Baidu,
-}
+// Use string types to support dynamic plugin services
+pub type OCRModel = String;
+pub type TranslationService = String;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TaskType {

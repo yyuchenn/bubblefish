@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import type { BunnyTask, BunnyMarkerData, BunnySettings, OCRModel, TranslationService, BunnyQueueStatus } from '../types/bunny';
+import type { BunnyTask, BunnyMarkerData, BunnySettings, BunnyQueueStatus } from '../types/bunny';
 
 interface BunnyState {
 	// Selection state
@@ -90,6 +90,13 @@ function createBunnyStore() {
 			update(state => {
 				const task = state.tasks.get(taskId);
 				if (task) {
+					// Prevent race condition: don't override completed/cancelled/failed status with processing
+					if ((task.status === 'completed' || task.status === 'cancelled' || task.status === 'failed')
+						&& updates.status === 'processing') {
+						// Skip this update - task is already in a terminal state
+						return state;
+					}
+
 					state.tasks.set(taskId, { ...task, ...updates });
 				}
 				return state;
@@ -104,7 +111,7 @@ function createBunnyStore() {
 		},
 		
 		// Marker data management
-		setOCRText(markerId: number, text: string, model?: OCRModel) {
+		setOCRText(markerId: number, text: string, model?: string) {
 			update(state => {
 				const data = state.markerData.get(markerId) || { markerId };
 				data.ocrText = text;
@@ -113,8 +120,8 @@ function createBunnyStore() {
 				return state;
 			});
 		},
-		
-		setTranslation(markerId: number, translation: string, service?: TranslationService) {
+
+		setTranslation(markerId: number, translation: string, service?: string) {
 			update(state => {
 				const data = state.markerData.get(markerId) || { markerId };
 				data.translation = translation;

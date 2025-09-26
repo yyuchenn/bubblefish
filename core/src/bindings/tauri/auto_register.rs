@@ -77,7 +77,9 @@ macro_rules! generate_core_commands {
             $crate::bindings::tauri::tauri_get_bunny_task_status,
             $crate::bindings::tauri::tauri_get_bunny_queued_tasks,
             $crate::bindings::tauri::tauri_get_ocr_result,
-            $crate::bindings::tauri::tauri_get_translation_result
+            $crate::bindings::tauri::tauri_get_translation_result,
+            $crate::bindings::tauri::tauri_get_available_ocr_services,
+            $crate::bindings::tauri::tauri_get_available_translation_services
         ]
     };
 }
@@ -157,7 +159,9 @@ macro_rules! generate_all_commands {
             $crate::bindings::tauri::tauri_get_bunny_task_status,
             $crate::bindings::tauri::tauri_get_bunny_queued_tasks,
             $crate::bindings::tauri::tauri_get_ocr_result,
-            $crate::bindings::tauri::tauri_get_translation_result
+            $crate::bindings::tauri::tauri_get_translation_result,
+            $crate::bindings::tauri::tauri_get_available_ocr_services,
+            $crate::bindings::tauri::tauri_get_available_translation_services
         ]
     };
 }

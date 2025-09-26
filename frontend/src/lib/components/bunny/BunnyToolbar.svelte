@@ -1,22 +1,66 @@
 <script lang="ts">
 	import { bunnySettings, selectedMarkerIds } from '$lib/stores/bunnyStore';
 	import { bunnyService } from '$lib/services/bunnyService';
-	import type { OCRModel, TranslationService } from '$lib/types/bunny';
-	
-	const ocrModels: { value: OCRModel; label: string }[] = [
-		{ value: 'default', label: '默认' },
-		{ value: 'tesseract', label: 'Tesseract' },
-		{ value: 'paddleocr', label: 'PaddleOCR' },
-		{ value: 'easyocr', label: 'EasyOCR' }
+	import { coreAPI, type OCRServiceInfo, type TranslationServiceInfo } from '$lib/core/adapter';
+	import { onMount } from 'svelte';
+
+	// Dynamic service lists from plugins
+	let ocrServices: { value: string; label: string }[] = [
+		{ value: 'default', label: '默认 (Dummy)' }
 	];
-	
-	const translationServices: { value: TranslationService; label: string }[] = [
-		{ value: 'default', label: '默认' },
-		{ value: 'google', label: 'Google翻译' },
-		{ value: 'deepl', label: 'DeepL' },
-		{ value: 'chatgpt', label: 'ChatGPT' },
-		{ value: 'baidu', label: '百度翻译' }
+
+	let translationServices: { value: string; label: string }[] = [
+		{ value: 'default', label: '默认 (Dummy)' }
 	];
+
+	// Load available services from plugins
+	async function loadAvailableServices() {
+		try {
+			// Get OCR services
+			const ocrServiceList = await coreAPI.getAvailableOCRServices();
+			if (ocrServiceList && ocrServiceList.length > 0) {
+				const pluginOcrServices = ocrServiceList.map((service: OCRServiceInfo) => ({
+					value: service.id,
+					label: service.name
+				}));
+				ocrServices = [
+					{ value: 'default', label: '默认 (Dummy)' },
+					...pluginOcrServices
+				];
+			}
+
+			// Get translation services
+			const translationServiceList = await coreAPI.getAvailableTranslationServices();
+			if (translationServiceList && translationServiceList.length > 0) {
+				const pluginTransServices = translationServiceList.map((service: TranslationServiceInfo) => ({
+					value: service.id,
+					label: service.name
+				}));
+				translationServices = [
+					{ value: 'default', label: '默认 (Dummy)' },
+					...pluginTransServices
+				];
+			}
+		} catch {
+			// Silently keep default services
+			// This is expected during initial load when WASM is not yet ready
+			// The error will be retried automatically by the interval
+		}
+	}
+
+	onMount(() => {
+		// Try to load plugin services after a short delay to ensure initialization
+		setTimeout(() => {
+			loadAvailableServices();
+		}, 500);
+
+		// Reload services periodically when plugins are loaded/unloaded
+		const reloadInterval = setInterval(loadAvailableServices, 1000);
+
+		return () => {
+			clearInterval(reloadInterval);
+		};
+	});
 	
 	async function runOCR() {
 		const markerIds = Array.from($selectedMarkerIds);
@@ -49,13 +93,15 @@
 	async function updateOCRModel(event: Event) {
 		const target = event.target as HTMLSelectElement;
 		const { bunnyStore } = await import('$lib/stores/bunnyStore');
-		bunnyStore.updateSettings({ ocrModel: target.value as OCRModel });
+		// Use the value directly as string since we're now using dynamic services
+		bunnyStore.updateSettings({ ocrModel: target.value });
 	}
-	
+
 	async function updateTranslationService(event: Event) {
 		const target = event.target as HTMLSelectElement;
 		const { bunnyStore } = await import('$lib/stores/bunnyStore');
-		bunnyStore.updateSettings({ translationService: target.value as TranslationService });
+		// Use the value directly as string since we're now using dynamic services
+		bunnyStore.updateSettings({ translationService: target.value });
 	}
 </script>
 
@@ -68,7 +114,7 @@
 			value={$bunnySettings.ocrModel}
 			on:change={updateOCRModel}
 		>
-			{#each ocrModels as model (model.value)}
+			{#each ocrServices as model (model.value)}
 				<option value={model.value}>{model.label}</option>
 			{/each}
 		</select>

@@ -1,0 +1,29 @@
+[workspace]
+
+[package]
+name = "dummy-ocr-plugin"
+version = "0.1.0"
+edition = "2021"
+authors = ["Bubblefish Team"]
+description = "Example OCR plugin for Bubblefish"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bubblefish-plugin-sdk = { path = "../plugin-sdk", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+once_cell = "1.17"
+
+[features]
+default = []
+wasm = ["bubblefish-plugin-sdk/wasm", "wasm-bindgen", "web-sys", "js-sys", "getrandom", "serde-wasm-bindgen"]
+native = ["bubblefish-plugin-sdk/native"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2", optional = true }
+web-sys = { version = "0.3", features = ["console"], optional = true }
+js-sys = { version = "0.3", optional = true }
+getrandom = { version = "0.2", features = ["js"], optional = true }
+serde-wasm-bindgen = { version = "0.6", optional = true }

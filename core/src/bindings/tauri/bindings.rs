@@ -18,7 +18,8 @@ use crate::api::marker::{
 use crate::api::bunny::{
     request_ocr, request_translation, cancel_bunny_task,
     get_bunny_task_status, get_bunny_queued_tasks,
-    get_ocr_result, get_translation_result, clear_all_bunny_tasks
+    get_ocr_result, get_translation_result, clear_all_bunny_tasks,
+    get_available_ocr_services, get_available_translation_services
 };
 #[cfg(feature = "tauri")]
 use crate::common::dto::image::{ImageDataDTO, ImageFormat};
@@ -517,4 +518,16 @@ pub fn tauri_get_translation_result(marker_id: u32) -> Option<String> {
 #[tauri::command]
 pub fn tauri_clear_all_bunny_tasks() -> bool {
     clear_all_bunny_tasks()
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_get_available_ocr_services() -> Vec<crate::service::bunny::OCRServiceInfo> {
+    get_available_ocr_services()
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_get_available_translation_services() -> Vec<crate::service::bunny::TranslationServiceInfo> {
+    get_available_translation_services()
 }

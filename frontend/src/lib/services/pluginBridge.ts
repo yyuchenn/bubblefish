@@ -4,6 +4,7 @@ import { markerStore } from '../stores/markerStore';
 import { projectStore } from '../stores/projectStore';
 import { imageStore } from '../stores/imageStore';
 import { isTauri } from '../core/tauri';
+import { eventService } from './eventService';
 
 export interface ServiceCallRequest {
     pluginId: string;
@@ -300,6 +301,94 @@ class PluginBridge {
                 
                 default:
                     throw new Error(`Unknown stats method: ${method}`);
+            }
+        });
+
+        // Events服务 - 事件发送
+        this.serviceHandlers.set('events', async (method: string, params: any) => {
+            switch (method) {
+                case 'emit_business_event': {
+                    const { event_name, data } = params;
+                    eventService.emitBusinessEvent(event_name, data);
+                    return { success: true };
+                }
+
+                case 'emit_log_event': {
+                    const { level, message, data } = params;
+                    switch (level) {
+                        case 'info':
+                            eventService.info(message, data);
+                            break;
+                        case 'warn':
+                            eventService.warn(message, data);
+                            break;
+                        case 'error':
+                            eventService.error(message, data);
+                            break;
+                        case 'debug':
+                            eventService.debug(message, data);
+                            break;
+                        default:
+                            eventService.info(message, data);
+                    }
+                    return { success: true };
+                }
+
+                default:
+                    throw new Error(`Unknown events method: ${method}`);
+            }
+        });
+
+        // Bunny服务 - OCR和翻译服务注册
+        this.serviceHandlers.set('bunny', async (method: string, params: any) => {
+            switch (method) {
+                case 'register_ocr_service': {
+                    // Forward to backend via Core API
+                    try {
+                        await coreAPI.registerOCRService(params.service_info);
+                        return { success: true };
+                    } catch (error) {
+                        console.error(`[PluginBridge] Failed to register OCR service:`, error);
+                        throw error;
+                    }
+                }
+
+                case 'register_translation_service': {
+                    // Forward to backend via Core API
+                    try {
+                        await coreAPI.registerTranslationService(params.service_info);
+                        return { success: true };
+                    } catch (error) {
+                        console.error(`[PluginBridge] Failed to register translation service:`, error);
+                        throw error;
+                    }
+                }
+
+                case 'unregister_service': {
+                    // Forward to backend via Core API
+                    try {
+                        await coreAPI.unregisterBunnyService(params.service_id);
+                        return { success: true };
+                    } catch (error) {
+                        console.error(`[PluginBridge] Failed to unregister service:`, error);
+                        throw error;
+                    }
+                }
+
+                case 'get_ocr_services': {
+                    // Return available OCR services from backend
+                    const services = await coreAPI.getAvailableOCRServices();
+                    return services;
+                }
+
+                case 'get_translation_services': {
+                    // Return available translation services from backend
+                    const services = await coreAPI.getAvailableTranslationServices();
+                    return services;
+                }
+
+                default:
+                    throw new Error(`Unknown bunny method: ${method}`);
             }
         });
 

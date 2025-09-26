@@ -72,16 +72,6 @@
 							{getTaskStatusLabel(task.status)}
 						{/if}
 					</span>
-					{#if task.progress !== undefined && task.status === 'processing'}
-						<div class="w-16 h-1 bg-theme-surface rounded-full overflow-hidden">
-							<div
-								class="h-full bg-theme-primary transition-all duration-300"
-								style="width: {task.progress}%"
-							></div>
-						</div>
-					{:else if task.status === 'queued'}
-						<span class="text-xs text-theme-on-surface-variant opacity-50">等待...</span>
-					{/if}
 					<button
 						class="px-2 py-0.5 rounded hover:bg-theme-surface"
 						on:click={() => cancelTask(task.id)}

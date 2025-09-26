@@ -2,16 +2,14 @@
 export type Language = 'japanese' | 'english' | 'simplifiedChinese' | 'traditionalChinese';
 
 // Re-export Bunny types
-export type { 
-	BunnyTask, 
-	BunnyMarkerData, 
-	BunnySettings, 
+export type {
+	BunnyTask,
+	BunnyMarkerData,
+	BunnySettings,
 	BunnyQueueStatus,
 	BunnyWorkerMessage,
 	BunnyWorkerResponse,
-	BunnyTaskEvent,
-	OCRModel,
-	TranslationService
+	BunnyTaskEvent
 } from './types/bunny';
 
 export interface MarkerStyle {

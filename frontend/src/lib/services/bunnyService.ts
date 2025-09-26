@@ -1,11 +1,12 @@
 // Bunny Service - Main service layer for OCR and translation functionality
 import { get } from 'svelte/store';
 import { bunnyStore } from '../stores/bunnyStore';
-import type { BunnyTask, OCRModel, TranslationService } from '../types/bunny';
+import type { BunnyTask } from '../types/bunny';
 import { eventService } from './eventService';
 import { coreAPI } from '../core/adapter';
 import { markers } from './markerService';
 import { currentImageId } from './imageService';
+import { pluginService } from './pluginService';
 
 class BunnyService {
 	private initialized = false;
@@ -58,25 +59,15 @@ class BunnyService {
 					// Task started processing
 					bunnyStore.updateTask(data.task_id, {
 						status: 'processing',
-						startedAt: Date.now(),
-						progress: 0
+						startedAt: Date.now()
 					});
 					eventService.info(`Task ${data.task_id} started processing for marker ${data.marker_id}`);
 				}
 				break;
 
-			case 'bunny:task_progress':
-				if (data.task_id && data.progress !== undefined) {
-					// Update task progress
-					bunnyStore.updateTask(data.task_id, {
-						progress: data.progress
-					});
-				}
-				break;
-
 			case 'bunny:ocr_completed':
-				if (data.marker_id && data.text) {
-					// Update OCR text
+				if (data.marker_id !== undefined && data.text !== undefined) {
+					// Update OCR text (even if empty)
 					bunnyStore.setOCRText(data.marker_id, data.text, data.model);
 
 					// Find and update the task status
@@ -84,23 +75,22 @@ class BunnyService {
 						bunnyStore.updateTask(data.task_id, {
 							status: 'completed',
 							result: data.text,
-							completedAt: Date.now(),
-							progress: 100
+							completedAt: Date.now()
 						});
 					}
 					eventService.info(`OCR completed for marker ${data.marker_id}`);
 
-					// Auto-translate if enabled
+					// Auto-translate if enabled (only if text is not empty)
 					const settings = get(bunnyStore).settings;
-					if (settings.autoTranslateAfterOCR) {
+					if (settings.autoTranslateAfterOCR && data.text) {
 						this.requestTranslation(data.marker_id, data.text);
 					}
 				}
 				break;
 
 			case 'bunny:translation_completed':
-				if (data.marker_id && data.translation) {
-					// Update translation text
+				if (data.marker_id !== undefined && data.translation !== undefined) {
+					// Update translation text (even if empty)
 					bunnyStore.setTranslation(data.marker_id, data.translation, data.service);
 
 					// Find and update the task status
@@ -108,8 +98,7 @@ class BunnyService {
 						bunnyStore.updateTask(data.task_id, {
 							status: 'completed',
 							result: data.translation,
-							completedAt: Date.now(),
-							progress: 100
+							completedAt: Date.now()
 						});
 					}
 					eventService.info(`Translation completed for marker ${data.marker_id}`);
@@ -141,7 +130,7 @@ class BunnyService {
 
 	// Public API methods
 
-	async requestOCR(markerId: number, model?: OCRModel): Promise<string> {
+	async requestOCR(markerId: number, model?: string): Promise<string> {
 
 		const imageId = get(currentImageId);
 		if (!imageId) {
@@ -150,33 +139,80 @@ class BunnyService {
 
 		const ocrModel = model || get(bunnyStore).settings.ocrModel;
 
-		// Send to backend for real processing and get the task ID from backend
-		try {
-			const backendTaskId = await coreAPI.requestOCR(markerId, ocrModel);
+		// Generate task ID
+		const taskId = `bunny_task_${Date.now()}_${markerId}`;
 
-			// Create task with backend's task ID
-			const task: BunnyTask = {
-				id: backendTaskId,
-				markerId,
-				imageId,
-				type: 'ocr',
-				status: 'queued',
-				model: ocrModel,
-				createdAt: Date.now()
-			};
+		// Create task
+		const task: BunnyTask = {
+			id: taskId,
+			markerId,
+			imageId,
+			type: 'ocr',
+			status: 'queued',
+			model: ocrModel,
+			createdAt: Date.now()
+		};
 
-			// Add to store with backend's task ID
-			bunnyStore.addTask(task);
-			bunnyStore.setMarkerTaskId(markerId, backendTaskId, 'ocr');
+		// Add to store
+		bunnyStore.addTask(task);
+		bunnyStore.setMarkerTaskId(markerId, taskId, 'ocr');
 
-			return backendTaskId;
-		} catch (error) {
-			eventService.error(`Failed to send OCR request to backend for marker ${markerId}`, error);
-			throw error;
+		// Check if this is a plugin-based OCR service
+		if (ocrModel && ocrModel !== 'default') {
+			// Get the plugin ID from the OCR service list
+			const ocrServices = await coreAPI.getAvailableOCRServices();
+			const ocrServiceInfo = ocrServices.find(s => s.id === ocrModel);
+
+			if (ocrServiceInfo) {
+				// Get image data for the plugin
+				const imageData = await coreAPI.getImageBinaryData(imageId);
+
+				// Send OCR request directly to the plugin
+				const message = {
+					type: 'ocr_request',
+					task_id: taskId,
+					marker_id: markerId,
+					image_data: Array.from(imageData || new Uint8Array()),
+					service_id: ocrModel
+				};
+
+				// Send message to plugin using the pluginService instance
+				await pluginService.sendPluginMessage('bunny', ocrServiceInfo.plugin_id, message);
+
+				// Mark task as processing
+				bunnyStore.updateTask(taskId, {
+					status: 'processing',
+					startedAt: Date.now()
+				});
+
+				eventService.info(`OCR request sent to plugin ${ocrServiceInfo.plugin_id}`);
+			} else {
+				// Fallback to backend processing
+				try {
+					const backendTaskId = await coreAPI.requestOCR(markerId, ocrModel);
+					// Update task with backend ID
+					bunnyStore.updateTask(taskId, { id: backendTaskId });
+				} catch (error) {
+					eventService.error(`Failed to send OCR request for marker ${markerId}`, error);
+					throw error;
+				}
+			}
+		} else {
+			// Use default backend processing
+			try {
+				const backendTaskId = await coreAPI.requestOCR(markerId, ocrModel);
+				// Update task with backend ID
+				bunnyStore.updateTask(taskId, { id: backendTaskId });
+			} catch (error) {
+				eventService.error(`Failed to send OCR request for marker ${markerId}`, error);
+				throw error;
+			}
 		}
+
+		return taskId;
 	}
 
-	async requestTranslation(markerId: number, text?: string, service?: TranslationService): Promise<string> {
+	async requestTranslation(markerId: number, text?: string, service?: string): Promise<string> {
 
 		// Get text from marker data if not provided
 		const markerData = get(bunnyStore).markerData.get(markerId);
@@ -186,36 +222,87 @@ class BunnyService {
 			throw new Error('No text to translate');
 		}
 
+		const imageId = get(currentImageId);
+		if (!imageId) {
+			throw new Error('No image selected');
+		}
+
 		const settings = get(bunnyStore).settings;
 		const translationService = service || settings.translationService;
 
-		// Send to backend for real processing and get the task ID from backend
-		try {
-			const backendTaskId = await coreAPI.requestTranslation(markerId, translationService, settings.sourceLang, settings.targetLang);
+		// Generate task ID
+		const taskId = `bunny_task_${Date.now()}_${markerId}_trans`;
 
-			// Create task with backend's task ID
-			const task: BunnyTask = {
-				id: backendTaskId,
-				markerId,
-				imageId: get(currentImageId) || 0,
-				type: 'translation',
-				status: 'queued',
-				service: translationService,
-				createdAt: Date.now()
-			};
+		// Create task
+		const task: BunnyTask = {
+			id: taskId,
+			markerId,
+			imageId,
+			type: 'translation',
+			status: 'queued',
+			service: translationService,
+			createdAt: Date.now()
+		};
 
-			// Add to store with backend's task ID
-			bunnyStore.addTask(task);
-			bunnyStore.setMarkerTaskId(markerId, backendTaskId, 'translation');
+		// Add to store
+		bunnyStore.addTask(task);
+		bunnyStore.setMarkerTaskId(markerId, taskId, 'translation');
 
-			return backendTaskId;
-		} catch (error) {
-			eventService.error(`Failed to send translation request to backend for marker ${markerId}`, error);
-			throw error;
+		// Check if this is a plugin-based translation service
+		if (translationService && translationService !== 'default') {
+			// Get the plugin ID from the translation service list
+			const translationServices = await coreAPI.getAvailableTranslationServices();
+			const translationServiceInfo = translationServices.find(s => s.id === translationService);
+
+			if (translationServiceInfo) {
+				// Send translation request directly to the plugin
+				const message = {
+					type: 'translation_request',
+					task_id: taskId,
+					marker_id: markerId,
+					text: textToTranslate,
+					source_lang: settings.sourceLang,
+					target_lang: settings.targetLang,
+					service_id: translationService
+				};
+
+				// Send message to plugin using the pluginService instance
+				await pluginService.sendPluginMessage('bunny', translationServiceInfo.plugin_id, message);
+
+				// Mark task as processing
+				bunnyStore.updateTask(taskId, {
+					status: 'processing',
+					startedAt: Date.now()
+				});
+
+				eventService.info(`Translation request sent to plugin ${translationServiceInfo.plugin_id}`);
+			} else {
+				// Fallback to backend processing
+				try {
+					const backendTaskId = await coreAPI.requestTranslation(markerId, translationService, settings.sourceLang, settings.targetLang);
+					// Update task with backend ID
+					bunnyStore.updateTask(taskId, { id: backendTaskId });
+				} catch (error) {
+					eventService.error(`Failed to send translation request for marker ${markerId}`, error);
+					throw error;
+				}
+			}
+		} else {
+			// Use default backend processing
+			try {
+				const backendTaskId = await coreAPI.requestTranslation(markerId, translationService, settings.sourceLang, settings.targetLang);
+				// Update task with backend ID
+				bunnyStore.updateTask(taskId, { id: backendTaskId });
+			} catch (error) {
+				eventService.error(`Failed to send translation request for marker ${markerId}`, error);
+				throw error;
+			}
 		}
+
+		return taskId;
 	}
 
-	async requestBatchOCR(markerIds: number[], model?: OCRModel): Promise<string[]> {
+	async requestBatchOCR(markerIds: number[], model?: string): Promise<string[]> {
 		const taskIds: string[] = [];
 		const ocrModel = model || get(bunnyStore).settings.ocrModel;
 		const batchSize = get(bunnyStore).settings.batchSize;
@@ -237,7 +324,7 @@ class BunnyService {
 		return taskIds;
 	}
 
-	async requestBatchTranslation(markerIds: number[], service?: TranslationService): Promise<string[]> {
+	async requestBatchTranslation(markerIds: number[], service?: string): Promise<string[]> {
 		const taskIds: string[] = [];
 		const translationService = service || get(bunnyStore).settings.translationService;
 		const batchSize = get(bunnyStore).settings.batchSize;

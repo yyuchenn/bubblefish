@@ -245,10 +245,10 @@ impl PluginLoader {
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
             
+            // Extract plugin ID from filename
+            // e.g. "libdummy_ocr_plugin.dylib" -> "dummy-ocr-plugin"
             let plugin_id = file_stem
                 .strip_prefix("lib")
-                .unwrap_or(file_stem)
-                .strip_suffix("_plugin")
                 .unwrap_or(file_stem)
                 .replace('_', "-");
 
@@ -370,7 +370,7 @@ impl PluginLoader {
     /// Send message to plugin
     pub fn send_message(&self, to: &str, from: &str, message: &Value) -> Result<(), String> {
         let plugins = self.plugins.lock().unwrap();
-        
+
         if let Some(plugin) = plugins.get(to) {
             if !plugin.enabled {
                 return Ok(());
@@ -453,6 +453,8 @@ impl PluginLoader {
             "images" => self.handle_image_service(method, params),
             "project" => self.handle_project_service(method, params),
             "files" => self.handle_file_service(method, params),
+            "bunny" => self.handle_bunny_service(method, params),
+            "events" => self.handle_events_service(method, params),
             _ => Err(format!("Unknown service: {}", service)),
         }
     }
@@ -615,6 +617,93 @@ impl PluginLoader {
                 Err("Use read_image_file callback for native plugins".to_string())
             }
             _ => Err(format!("Unknown file method: {}", method)),
+        }
+    }
+
+    fn handle_bunny_service(&self, method: &str, params: &Value) -> Result<Value, String> {
+        use bubblefish_core::api::bunny;
+        use bubblefish_core::service::bunny::{OCRServiceInfo, TranslationServiceInfo};
+
+        match method {
+            "register_ocr_service" => {
+                // Parse the service info from params
+                let service_info: OCRServiceInfo = serde_json::from_value(
+                    params["service_info"].clone()
+                ).map_err(|e| format!("Invalid service info: {}", e))?;
+
+                bunny::register_ocr_service(service_info)
+                    .map_err(|e| format!("Failed to register OCR service: {}", e))?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "register_translation_service" => {
+                // Parse the service info from params
+                let service_info: TranslationServiceInfo = serde_json::from_value(
+                    params["service_info"].clone()
+                ).map_err(|e| format!("Invalid service info: {}", e))?;
+
+                bunny::register_translation_service(service_info)
+                    .map_err(|e| format!("Failed to register translation service: {}", e))?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "unregister_service" => {
+                let service_id = params["service_id"].as_str()
+                    .ok_or("Missing service_id")?;
+
+                bunny::unregister_bunny_service(service_id.to_string())
+                    .map_err(|e| format!("Failed to unregister service: {}", e))?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "get_ocr_services" => {
+                let services = bunny::get_available_ocr_services();
+                Ok(serde_json::to_value(services).unwrap_or(serde_json::json!([])))
+            }
+            "get_translation_services" => {
+                let services = bunny::get_available_translation_services();
+                Ok(serde_json::to_value(services).unwrap_or(serde_json::json!([])))
+            }
+            _ => Err(format!("Unknown bunny method: {}", method)),
+        }
+    }
+
+    fn handle_events_service(&self, method: &str, params: &Value) -> Result<Value, String> {
+        use bubblefish_core::common::EVENT_SYSTEM;
+
+        match method {
+            "emit_business_event" => {
+                let event_name = params["event_name"].as_str()
+                    .ok_or("Missing event_name")?;
+                let data = params["data"].clone();
+
+                EVENT_SYSTEM.emit_business_event(event_name.to_string(), data)
+                    .map_err(|e| format!("Failed to emit event: {:?}", e))?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "emit_log_event" => {
+                let level = params["level"].as_str().unwrap_or("info");
+                let message = params["message"].as_str()
+                    .ok_or("Missing message")?;
+                let data = params["data"].clone();
+
+                // Convert level to LogLevel enum
+                use bubblefish_core::common::LogLevel;
+                let log_level = match level {
+                    "debug" => LogLevel::Debug,
+                    "info" => LogLevel::Info,
+                    "warn" => LogLevel::Warn,
+                    "error" => LogLevel::Error,
+                    _ => LogLevel::Info,
+                };
+
+                EVENT_SYSTEM.emit_log(log_level, message.to_string(), Some(data))
+                    .map_err(|e| format!("Failed to emit log: {}", e))?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            _ => Err(format!("Unknown events method: {}", method)),
         }
     }
 }

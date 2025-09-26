@@ -3,8 +3,10 @@ mod task;
 mod cancellation;
 mod executor;
 mod queue;
+mod plugin_manager;
 
 pub use task::{OCRModel, TranslationService, BunnyTask, TaskType, TaskStatus, BunnyTaskEvent};
+pub use plugin_manager::{BUNNY_PLUGIN_MANAGER, BunnyPluginManager, OCRServiceInfo, TranslationServiceInfo};
 
 use std::sync::Arc;
 use crate::common::{MarkerId, ImageId, ProjectId};

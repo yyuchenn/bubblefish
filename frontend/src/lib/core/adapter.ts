@@ -242,6 +242,29 @@ export interface BunnyAPI {
 	getBunnyQueuedTasks(projectId?: number): Promise<unknown[]>;
 	getOCRResult(markerId: number): Promise<string | null>;
 	getTranslationResult(markerId: number): Promise<string | null>;
+	getAvailableOCRServices(): Promise<OCRServiceInfo[]>;
+	getAvailableTranslationServices(): Promise<TranslationServiceInfo[]>;
+	registerOCRService(serviceInfo: OCRServiceInfo): Promise<void>;
+	registerTranslationService(serviceInfo: TranslationServiceInfo): Promise<void>;
+	unregisterBunnyService(serviceId: string): Promise<void>;
+}
+
+// Service info types for plugin-provided services
+export interface OCRServiceInfo {
+	id: string;
+	name: string;
+	plugin_id: string;
+	supported_languages: string[];
+	supported_image_formats: string[];
+}
+
+export interface TranslationServiceInfo {
+	id: string;
+	name: string;
+	plugin_id: string;
+	source_languages: string[];
+	target_languages: string[];
+	supports_auto_detect: boolean;
 }
 
 // 综合API接口
@@ -695,6 +718,26 @@ abstract class BaseCoreAPI implements CoreAPI {
 
 	async getTranslationResult(markerId: number): Promise<string | null> {
 		return this.callBackend<string | null>('get_translation_result', { markerId });
+	}
+
+	async getAvailableOCRServices(): Promise<OCRServiceInfo[]> {
+		return this.callBackend<OCRServiceInfo[]>('get_available_ocr_services', {});
+	}
+
+	async getAvailableTranslationServices(): Promise<TranslationServiceInfo[]> {
+		return this.callBackend<TranslationServiceInfo[]>('get_available_translation_services', {});
+	}
+
+	async registerOCRService(serviceInfo: OCRServiceInfo): Promise<void> {
+		await this.callBackend<void>('register_ocr_service', { serviceInfo });
+	}
+
+	async registerTranslationService(serviceInfo: TranslationServiceInfo): Promise<void> {
+		await this.callBackend<void>('register_translation_service', { serviceInfo });
+	}
+
+	async unregisterBunnyService(serviceId: string): Promise<void> {
+		await this.callBackend<void>('unregister_bunny_service', { serviceId });
 	}
 }
 

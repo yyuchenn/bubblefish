@@ -18,11 +18,12 @@ pub fn init_plugin_system() -> (Arc<ServiceRegistry>, Arc<UnifiedEventBus>) {
     
     // Register core services with the registry
     use crate::service::get_service;
-    use service_registry::adapters::{MarkerServiceAdapter, ProjectServiceAdapter};
-    
+    use service_registry::adapters::{MarkerServiceAdapter, ProjectServiceAdapter, BunnyServiceAdapter};
+
     let service = get_service();
     registry.register(Arc::new(MarkerServiceAdapter::new(service.marker_service.clone())));
     registry.register(Arc::new(ProjectServiceAdapter::new(service.project_service.clone())));
+    registry.register(Arc::new(BunnyServiceAdapter::new(service.bunny_service.clone())));
     
     (Arc::new(registry), event_bus)
 }

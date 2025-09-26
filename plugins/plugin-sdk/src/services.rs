@@ -20,18 +20,18 @@ impl PluginContext {
     }
 
     /// 调用Core服务
-    pub fn call_service(&self, service: &str, method: &str, params: Value) -> Result<Value, String> {
+    pub fn call_service(&self, _service: &str, _method: &str, _params: Value) -> Result<Value, String> {
         #[cfg(feature = "wasm")]
         {
-            crate::shared_buffer::call_service_sync(service, method, &params)
-                .map_err(|e| format!("Service call failed: {}", e))
+            return crate::shared_buffer::call_service_sync(_service, _method, &_params)
+                .map_err(|e| format!("Service call failed: {}", e));
         }
-        
+
         #[cfg(feature = "native")]
         {
-            crate::native::call_service_native(&self.plugin_id, service, method, params)
+            return crate::native::call_service_native(&self.plugin_id, _service, _method, _params);
         }
-        
+
         #[cfg(not(any(feature = "wasm", feature = "native")))]
         {
             Err("No platform feature enabled".to_string())

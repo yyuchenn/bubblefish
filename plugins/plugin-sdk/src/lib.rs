@@ -3,6 +3,7 @@ use serde_json::Value;
 
 pub mod services;
 pub mod events;
+pub mod bunny;
 
 #[cfg(feature = "wasm")]
 pub mod shared_buffer;
@@ -12,6 +13,7 @@ pub mod native;
 
 pub use services::*;
 pub use events::*;
+pub use bunny::*;
 
 #[cfg(feature = "wasm")]
 pub use shared_buffer::*;
@@ -192,6 +194,7 @@ macro_rules! export_plugin {
 
 /// 导出插件的宏 - Native版本
 #[cfg(feature = "native")]
+#[cfg(not(feature = "wasm"))]
 #[macro_export]
 macro_rules! export_plugin {
     ($plugin_type:ty) => {
