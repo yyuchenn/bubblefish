@@ -157,57 +157,36 @@ class BunnyService {
 		bunnyStore.addTask(task);
 		bunnyStore.setMarkerTaskId(markerId, taskId, 'ocr');
 
-		// Check if this is a plugin-based OCR service
-		if (ocrModel && ocrModel !== 'default') {
-			// Get the plugin ID from the OCR service list
-			const ocrServices = await coreAPI.getAvailableOCRServices();
-			const ocrServiceInfo = ocrServices.find(s => s.id === ocrModel);
+		// All OCR services are now plugin-based
+		const ocrServices = await coreAPI.getAvailableOCRServices();
+		const ocrServiceInfo = ocrServices.find(s => s.id === ocrModel);
 
-			if (ocrServiceInfo) {
-				// Get image data for the plugin
-				const imageData = await coreAPI.getImageBinaryData(imageId);
-
-				// Send OCR request directly to the plugin
-				const message = {
-					type: 'ocr_request',
-					task_id: taskId,
-					marker_id: markerId,
-					image_data: Array.from(imageData || new Uint8Array()),
-					service_id: ocrModel
-				};
-
-				// Send message to plugin using the pluginService instance
-				await pluginService.sendPluginMessage('bunny', ocrServiceInfo.plugin_id, message);
-
-				// Mark task as processing
-				bunnyStore.updateTask(taskId, {
-					status: 'processing',
-					startedAt: Date.now()
-				});
-
-				eventService.info(`OCR request sent to plugin ${ocrServiceInfo.plugin_id}`);
-			} else {
-				// Fallback to backend processing
-				try {
-					const backendTaskId = await coreAPI.requestOCR(markerId, ocrModel);
-					// Update task with backend ID
-					bunnyStore.updateTask(taskId, { id: backendTaskId });
-				} catch (error) {
-					eventService.error(`Failed to send OCR request for marker ${markerId}`, error);
-					throw error;
-				}
-			}
-		} else {
-			// Use default backend processing
-			try {
-				const backendTaskId = await coreAPI.requestOCR(markerId, ocrModel);
-				// Update task with backend ID
-				bunnyStore.updateTask(taskId, { id: backendTaskId });
-			} catch (error) {
-				eventService.error(`Failed to send OCR request for marker ${markerId}`, error);
-				throw error;
-			}
+		if (!ocrServiceInfo) {
+			throw new Error(`OCR service '${ocrModel}' not found. Please load an OCR plugin.`);
 		}
+
+		// Get image data for the plugin
+		const imageData = await coreAPI.getImageBinaryData(imageId);
+
+		// Send OCR request directly to the plugin
+		const message = {
+			type: 'ocr_request',
+			task_id: taskId,
+			marker_id: markerId,
+			image_data: Array.from(imageData || new Uint8Array()),
+			service_id: ocrModel
+		};
+
+		// Send message to plugin using the pluginService instance
+		await pluginService.sendPluginMessage('bunny', ocrServiceInfo.plugin_id, message);
+
+		// Mark task as processing
+		bunnyStore.updateTask(taskId, {
+			status: 'processing',
+			startedAt: Date.now()
+		});
+
+		eventService.info(`OCR request sent to plugin ${ocrServiceInfo.plugin_id}`);
 
 		return taskId;
 	}
@@ -248,56 +227,35 @@ class BunnyService {
 		bunnyStore.addTask(task);
 		bunnyStore.setMarkerTaskId(markerId, taskId, 'translation');
 
-		// Check if this is a plugin-based translation service
-		if (translationService && translationService !== 'default') {
-			// Get the plugin ID from the translation service list
-			const translationServices = await coreAPI.getAvailableTranslationServices();
-			const translationServiceInfo = translationServices.find(s => s.id === translationService);
+		// All translation services are now plugin-based
+		const translationServices = await coreAPI.getAvailableTranslationServices();
+		const translationServiceInfo = translationServices.find(s => s.id === translationService);
 
-			if (translationServiceInfo) {
-				// Send translation request directly to the plugin
-				const message = {
-					type: 'translation_request',
-					task_id: taskId,
-					marker_id: markerId,
-					text: textToTranslate,
-					source_lang: settings.sourceLang,
-					target_lang: settings.targetLang,
-					service_id: translationService
-				};
-
-				// Send message to plugin using the pluginService instance
-				await pluginService.sendPluginMessage('bunny', translationServiceInfo.plugin_id, message);
-
-				// Mark task as processing
-				bunnyStore.updateTask(taskId, {
-					status: 'processing',
-					startedAt: Date.now()
-				});
-
-				eventService.info(`Translation request sent to plugin ${translationServiceInfo.plugin_id}`);
-			} else {
-				// Fallback to backend processing
-				try {
-					const backendTaskId = await coreAPI.requestTranslation(markerId, translationService, settings.sourceLang, settings.targetLang);
-					// Update task with backend ID
-					bunnyStore.updateTask(taskId, { id: backendTaskId });
-				} catch (error) {
-					eventService.error(`Failed to send translation request for marker ${markerId}`, error);
-					throw error;
-				}
-			}
-		} else {
-			// Use default backend processing
-			try {
-				const backendTaskId = await coreAPI.requestTranslation(markerId, translationService, settings.sourceLang, settings.targetLang);
-				// Update task with backend ID
-				bunnyStore.updateTask(taskId, { id: backendTaskId });
-			} catch (error) {
-				eventService.error(`Failed to send translation request for marker ${markerId}`, error);
-				throw error;
-			}
+		if (!translationServiceInfo) {
+			throw new Error(`Translation service '${translationService}' not found. Please load a translation plugin.`);
 		}
+
+		// Send translation request directly to the plugin
+		const message = {
+			type: 'translation_request',
+			task_id: taskId,
+			marker_id: markerId,
+			text: textToTranslate,
+			source_lang: settings.sourceLang,
+			target_lang: settings.targetLang,
+			service_id: translationService
+		};
+
+		// Send message to plugin using the pluginService instance
+		await pluginService.sendPluginMessage('bunny', translationServiceInfo.plugin_id, message);
+
+		// Mark task as processing
+		bunnyStore.updateTask(taskId, {
+			status: 'processing',
+			startedAt: Date.now()
+		});
+
+		eventService.info(`Translation request sent to plugin ${translationServiceInfo.plugin_id}`);
 
 		return taskId;
 	}

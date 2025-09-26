@@ -4,47 +4,37 @@
 	import { coreAPI, type OCRServiceInfo, type TranslationServiceInfo } from '$lib/core/adapter';
 	import { onMount } from 'svelte';
 
-	// Dynamic service lists from plugins
-	let ocrServices: { value: string; label: string }[] = [
-		{ value: 'default', label: '默认 (Dummy)' }
-	];
-
-	let translationServices: { value: string; label: string }[] = [
-		{ value: 'default', label: '默认 (Dummy)' }
-	];
+	// Dynamic service lists from plugins - start empty
+	let ocrServices: { value: string; label: string }[] = [];
+	let translationServices: { value: string; label: string }[] = [];
 
 	// Load available services from plugins
 	async function loadAvailableServices() {
 		try {
-			// Get OCR services
+			// Get OCR services from plugins only
 			const ocrServiceList = await coreAPI.getAvailableOCRServices();
 			if (ocrServiceList && ocrServiceList.length > 0) {
-				const pluginOcrServices = ocrServiceList.map((service: OCRServiceInfo) => ({
+				ocrServices = ocrServiceList.map((service: OCRServiceInfo) => ({
 					value: service.id,
 					label: service.name
 				}));
-				ocrServices = [
-					{ value: 'default', label: '默认 (Dummy)' },
-					...pluginOcrServices
-				];
+			} else {
+				ocrServices = [];
 			}
 
-			// Get translation services
+			// Get translation services from plugins only
 			const translationServiceList = await coreAPI.getAvailableTranslationServices();
 			if (translationServiceList && translationServiceList.length > 0) {
-				const pluginTransServices = translationServiceList.map((service: TranslationServiceInfo) => ({
+				translationServices = translationServiceList.map((service: TranslationServiceInfo) => ({
 					value: service.id,
 					label: service.name
 				}));
-				translationServices = [
-					{ value: 'default', label: '默认 (Dummy)' },
-					...pluginTransServices
-				];
+			} else {
+				translationServices = [];
 			}
 		} catch {
-			// Silently keep default services
-			// This is expected during initial load when WASM is not yet ready
-			// The error will be retried automatically by the interval
+			// Keep services empty on error
+			// This is expected during initial load when plugins are not yet loaded
 		}
 	}
 
@@ -68,21 +58,31 @@
 			alert('请先选择要进行OCR的标记');
 			return;
 		}
-		
+
+		if (ocrServices.length === 0) {
+			alert('没有可用的OCR服务，请先加载OCR插件');
+			return;
+		}
+
 		if (markerIds.length === 1) {
 			await bunnyService.requestOCR(markerIds[0]);
 		} else {
 			await bunnyService.requestBatchOCR(markerIds);
 		}
 	}
-	
+
 	async function runTranslation() {
 		const markerIds = Array.from($selectedMarkerIds);
 		if (markerIds.length === 0) {
 			alert('请先选择要翻译的标记');
 			return;
 		}
-		
+
+		if (translationServices.length === 0) {
+			alert('没有可用的翻译服务，请先加载翻译插件');
+			return;
+		}
+
 		if (markerIds.length === 1) {
 			await bunnyService.requestTranslation(markerIds[0]);
 		} else {
@@ -113,10 +113,15 @@
 			class="px-2 py-1 text-xs bg-theme-surface border border-theme-outline rounded focus:outline-none focus:border-theme-primary"
 			value={$bunnySettings.ocrModel}
 			on:change={updateOCRModel}
+			disabled={ocrServices.length === 0}
 		>
-			{#each ocrServices as model (model.value)}
-				<option value={model.value}>{model.label}</option>
-			{/each}
+			{#if ocrServices.length === 0}
+				<option value="">无可用服务</option>
+			{:else}
+				{#each ocrServices as model (model.value)}
+					<option value={model.value}>{model.label}</option>
+				{/each}
+			{/if}
 		</select>
 	</div>
 	
@@ -127,10 +132,15 @@
 			class="px-2 py-1 text-xs bg-theme-surface border border-theme-outline rounded focus:outline-none focus:border-theme-primary"
 			value={$bunnySettings.translationService}
 			on:change={updateTranslationService}
+			disabled={translationServices.length === 0}
 		>
-			{#each translationServices as service (service.value)}
-				<option value={service.value}>{service.label}</option>
-			{/each}
+			{#if translationServices.length === 0}
+				<option value="">无可用服务</option>
+			{:else}
+				{#each translationServices as service (service.value)}
+					<option value={service.value}>{service.label}</option>
+				{/each}
+			{/if}
 		</select>
 	</div>
 	
@@ -139,15 +149,17 @@
 	<button
 		class="px-3 py-1 text-xs bg-theme-primary text-theme-on-primary rounded hover:opacity-90 disabled:opacity-50"
 		on:click={runOCR}
-		disabled={$selectedMarkerIds.size === 0}
+		disabled={$selectedMarkerIds.size === 0 || ocrServices.length === 0}
+		title={ocrServices.length === 0 ? '没有可用的OCR服务' : ''}
 	>
 		{$selectedMarkerIds.size > 1 ? '批量OCR' : 'OCR'}
 	</button>
-	
+
 	<button
 		class="px-3 py-1 text-xs bg-theme-secondary text-theme-on-secondary rounded hover:opacity-90 disabled:opacity-50"
 		on:click={runTranslation}
-		disabled={$selectedMarkerIds.size === 0}
+		disabled={$selectedMarkerIds.size === 0 || translationServices.length === 0}
+		title={translationServices.length === 0 ? '没有可用的翻译服务' : ''}
 	>
 		{$selectedMarkerIds.size > 1 ? '批量翻译' : '翻译'}
 	</button>
