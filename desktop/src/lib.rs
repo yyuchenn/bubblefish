@@ -630,6 +630,9 @@ async fn upload_plugin_from_path(app_handle: tauri::AppHandle, file_path: String
     fs::copy(source_path, &target_path)
         .map_err(|e| format!("Failed to copy plugin file: {}", e))?;
 
+    // Save metadata for plugin persistence
+    storage.save_plugin_metadata(&filename)?;
+
     // Load the plugin
     if let Some(loader) = get_plugin_loader() {
         if let Some(path_str) = target_path.to_str() {
