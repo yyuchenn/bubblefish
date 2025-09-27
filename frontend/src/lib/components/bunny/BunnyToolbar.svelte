@@ -45,7 +45,9 @@
 		}, 500);
 
 		// Reload services periodically when plugins are loaded/unloaded
-		const reloadInterval = setInterval(loadAvailableServices, 1000);
+		const reloadInterval = setInterval(() => {
+			loadAvailableServices();
+		}, 1000);
 
 		return () => {
 			clearInterval(reloadInterval);

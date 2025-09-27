@@ -20,12 +20,7 @@ use crate::api::marker::{
 };
 #[cfg(feature = "wasm")]
 use crate::api::bunny::{
-    request_ocr, request_translation, cancel_bunny_task, clear_all_bunny_tasks,
-    get_bunny_task_status, get_bunny_queued_tasks,
-    get_ocr_result, get_translation_result,
     get_available_ocr_services, get_available_translation_services,
-    register_ocr_service, register_translation_service,
-    unregister_bunny_service,
     get_bunny_cache, update_original_text, update_machine_translation, clear_bunny_cache
 };
 #[cfg(feature = "wasm")]
@@ -519,75 +514,6 @@ pub fn wasm_export_labelplus_data(project_id: u32) -> JsValue {
 }
 
 // Bunny (海兔) OCR and translation functions
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_request_ocr(marker_id: u32, ocr_model: String) -> JsValue {
-    match request_ocr(marker_id, ocr_model) {
-        Ok(task_id) => JsValue::from_str(&task_id),
-        Err(e) => {
-            Logger::error(&format!("Failed to request OCR: {}", e));
-            JsValue::from_str("")
-        }
-    }
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_request_translation(marker_id: u32, service_name: String, source_lang: Option<String>, target_lang: String) -> JsValue {
-    match request_translation(marker_id, service_name, source_lang, target_lang) {
-        Ok(task_id) => JsValue::from_str(&task_id),
-        Err(e) => {
-            Logger::error(&format!("Failed to request translation: {}", e));
-            JsValue::from_str("")
-        }
-    }
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_cancel_bunny_task(task_id: String) -> bool {
-    cancel_bunny_task(task_id)
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_clear_all_bunny_tasks() -> bool {
-    clear_all_bunny_tasks()
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_get_bunny_task_status(task_id: String) -> JsValue {
-    match get_bunny_task_status(task_id) {
-        Some(task) => to_value(&task).unwrap_or(JsValue::NULL),
-        None => JsValue::NULL,
-    }
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_get_bunny_queued_tasks(project_id: Option<u32>) -> JsValue {
-    let tasks = get_bunny_queued_tasks(project_id);
-    to_value(&tasks).unwrap_or(JsValue::NULL)
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_get_ocr_result(marker_id: u32) -> JsValue {
-    match get_ocr_result(marker_id) {
-        Some(result) => JsValue::from_str(&result),
-        None => JsValue::NULL,
-    }
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_get_translation_result(marker_id: u32) -> JsValue {
-    match get_translation_result(marker_id) {
-        Some(result) => JsValue::from_str(&result),
-        None => JsValue::NULL,
-    }
-}
 
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
@@ -601,50 +527,6 @@ pub fn wasm_get_available_ocr_services() -> JsValue {
 pub fn wasm_get_available_translation_services() -> JsValue {
     let services = get_available_translation_services();
     to_value(&services).unwrap_or(JsValue::NULL)
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_register_ocr_service(service_info: JsValue) -> JsValue {
-    match serde_wasm_bindgen::from_value::<crate::service::bunny::OCRServiceInfo>(service_info) {
-        Ok(info) => {
-            match register_ocr_service(info) {
-                Ok(_) => JsValue::undefined(),
-                Err(e) => {
-                    let error_obj = js_sys::Object::new();
-                    js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
-                    error_obj.into()
-                }
-            }
-        }
-        Err(e) => {
-            let error_obj = js_sys::Object::new();
-            js_sys::Reflect::set(&error_obj, &"error".into(), &format!("Invalid service info: {}", e).into()).unwrap();
-            error_obj.into()
-        }
-    }
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_register_translation_service(service_info: JsValue) -> JsValue {
-    match serde_wasm_bindgen::from_value::<crate::service::bunny::TranslationServiceInfo>(service_info) {
-        Ok(info) => {
-            match register_translation_service(info) {
-                Ok(_) => JsValue::undefined(),
-                Err(e) => {
-                    let error_obj = js_sys::Object::new();
-                    js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
-                    error_obj.into()
-                }
-            }
-        }
-        Err(e) => {
-            let error_obj = js_sys::Object::new();
-            js_sys::Reflect::set(&error_obj, &"error".into(), &format!("Invalid service info: {}", e).into()).unwrap();
-            error_obj.into()
-        }
-    }
 }
 
 #[cfg(feature = "wasm")]
@@ -691,19 +573,6 @@ pub fn wasm_update_machine_translation(marker_id: u32, text: String, service: St
 #[wasm_bindgen]
 pub fn wasm_clear_bunny_cache(marker_id: u32) -> JsValue {
     match clear_bunny_cache(crate::common::MarkerId(marker_id)) {
-        Ok(_) => JsValue::undefined(),
-        Err(e) => {
-            let error_obj = js_sys::Object::new();
-            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
-            error_obj.into()
-        }
-    }
-}
-
-#[cfg(feature = "wasm")]
-#[wasm_bindgen]
-pub fn wasm_unregister_bunny_service(service_id: String) -> JsValue {
-    match unregister_bunny_service(service_id) {
         Ok(_) => JsValue::undefined(),
         Err(e) => {
             let error_obj = js_sys::Object::new();

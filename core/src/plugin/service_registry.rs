@@ -516,28 +516,32 @@ pub mod adapters {
         fn call(&self, method: &str, params: Value) -> Result<Value, String> {
             match method {
                 "register_ocr_service" => {
-                    let _plugin_id = params["plugin_id"]
+                    let plugin_id = params["plugin_id"]
                         .as_str()
                         .ok_or("plugin_id required")?;
                     let service_info = serde_json::from_value::<crate::service::bunny::OCRServiceInfo>(
                         params["service_info"].clone()
                     ).map_err(|e| format!("Invalid service info: {}", e))?;
 
-                    crate::service::bunny::BUNNY_PLUGIN_MANAGER
-                        .register_ocr_service(service_info)?;
+                    crate::service::bunny::BUNNY_SERVICE_REGISTRY
+                        .write()
+                        .map_err(|e| format!("Failed to acquire write lock: {}", e))?
+                        .register_ocr_service(plugin_id.to_string(), service_info)?;
 
                     Ok(serde_json::json!({"success": true}))
                 }
                 "register_translation_service" => {
-                    let _plugin_id = params["plugin_id"]
+                    let plugin_id = params["plugin_id"]
                         .as_str()
                         .ok_or("plugin_id required")?;
                     let service_info = serde_json::from_value::<crate::service::bunny::TranslationServiceInfo>(
                         params["service_info"].clone()
                     ).map_err(|e| format!("Invalid service info: {}", e))?;
 
-                    crate::service::bunny::BUNNY_PLUGIN_MANAGER
-                        .register_translation_service(service_info)?;
+                    crate::service::bunny::BUNNY_SERVICE_REGISTRY
+                        .write()
+                        .map_err(|e| format!("Failed to acquire write lock: {}", e))?
+                        .register_translation_service(plugin_id.to_string(), service_info)?;
 
                     Ok(serde_json::json!({"success": true}))
                 }
@@ -546,7 +550,9 @@ pub mod adapters {
                         .as_str()
                         .ok_or("service_id required")?;
 
-                    crate::service::bunny::BUNNY_PLUGIN_MANAGER
+                    crate::service::bunny::BUNNY_SERVICE_REGISTRY
+                        .write()
+                        .map_err(|e| format!("Failed to acquire write lock: {}", e))?
                         .unregister_service(service_id)?;
 
                     Ok(serde_json::json!({"success": true}))
@@ -556,69 +562,38 @@ pub mod adapters {
                         .as_str()
                         .ok_or("plugin_id required")?;
 
-                    let _ = crate::service::bunny::BUNNY_PLUGIN_MANAGER
+                    crate::service::bunny::BUNNY_SERVICE_REGISTRY
+                        .write()
+                        .map_err(|e| format!("Failed to acquire write lock: {}", e))?
                         .unregister_plugin_services(plugin_id);
 
                     Ok(serde_json::json!({"success": true}))
                 }
                 "get_ocr_services" => {
-                    let services = crate::service::bunny::BUNNY_PLUGIN_MANAGER
+                    let services = crate::service::bunny::BUNNY_SERVICE_REGISTRY
+                        .read()
+                        .map_err(|e| format!("Failed to acquire read lock: {}", e))?
                         .get_ocr_services();
                     Ok(serde_json::to_value(services).unwrap_or(serde_json::json!([])))
                 }
                 "get_translation_services" => {
-                    let services = crate::service::bunny::BUNNY_PLUGIN_MANAGER
+                    let services = crate::service::bunny::BUNNY_SERVICE_REGISTRY
+                        .read()
+                        .map_err(|e| format!("Failed to acquire read lock: {}", e))?
                         .get_translation_services();
                     Ok(serde_json::to_value(services).unwrap_or(serde_json::json!([])))
                 }
-                "process_ocr" => {
+                "get_plugin_for_service" => {
                     let service_id = params["service_id"]
                         .as_str()
                         .ok_or("service_id required")?;
-                    let marker_id = params["marker_id"]
-                        .as_u64()
-                        .ok_or("marker_id required")? as u32;
-                    let image_id = params["image_id"]
-                        .as_u64()
-                        .ok_or("image_id required")? as u32;
 
-                    // Get plugin ID for this service
-                    let plugin_id = crate::service::bunny::BUNNY_PLUGIN_MANAGER
-                        .get_plugin_for_service(service_id)
-                        .ok_or_else(|| format!("Service '{}' not found", service_id))?;
+                    let plugin_id = crate::service::bunny::BUNNY_SERVICE_REGISTRY
+                        .read()
+                        .map_err(|e| format!("Failed to acquire read lock: {}", e))?
+                        .get_plugin_for_service(service_id);
 
-                    // Forward to the plugin (this would need implementation)
-                    // For now, return a placeholder
-                    Ok(serde_json::json!({
-                        "task_id": format!("ocr_{}_{}", marker_id, image_id),
-                        "plugin_id": plugin_id
-                    }))
-                }
-                "process_translation" => {
-                    let service_id = params["service_id"]
-                        .as_str()
-                        .ok_or("service_id required")?;
-                    let marker_id = params["marker_id"]
-                        .as_u64()
-                        .ok_or("marker_id required")? as u32;
-                    let _text = params["text"]
-                        .as_str()
-                        .ok_or("text required")?;
-                    let target_lang = params["target_lang"]
-                        .as_str()
-                        .ok_or("target_lang required")?;
-
-                    // Get plugin ID for this service
-                    let plugin_id = crate::service::bunny::BUNNY_PLUGIN_MANAGER
-                        .get_plugin_for_service(service_id)
-                        .ok_or_else(|| format!("Service '{}' not found", service_id))?;
-
-                    // Forward to the plugin (this would need implementation)
-                    // For now, return a placeholder
-                    Ok(serde_json::json!({
-                        "task_id": format!("trans_{}_{}", marker_id, target_lang),
-                        "plugin_id": plugin_id
-                    }))
+                    Ok(serde_json::json!({"plugin_id": plugin_id}))
                 }
                 _ => Err(format!("Unknown method: {}", method))
             }
@@ -665,6 +640,32 @@ pub mod adapters {
                     returns: "object".to_string(),
                 },
                 MethodInfo {
+                    name: "unregister_service".to_string(),
+                    description: "Unregister a bunny service".to_string(),
+                    params: vec![
+                        ParamInfo {
+                            name: "service_id".to_string(),
+                            param_type: "string".to_string(),
+                            required: true,
+                            description: "Service ID".to_string(),
+                        }
+                    ],
+                    returns: "object".to_string(),
+                },
+                MethodInfo {
+                    name: "unregister_plugin_services".to_string(),
+                    description: "Unregister all services from a plugin".to_string(),
+                    params: vec![
+                        ParamInfo {
+                            name: "plugin_id".to_string(),
+                            param_type: "string".to_string(),
+                            required: true,
+                            description: "Plugin ID".to_string(),
+                        }
+                    ],
+                    returns: "object".to_string(),
+                },
+                MethodInfo {
                     name: "get_ocr_services".to_string(),
                     description: "Get all registered OCR services".to_string(),
                     params: vec![],
@@ -677,57 +678,14 @@ pub mod adapters {
                     returns: "TranslationServiceInfo[]".to_string(),
                 },
                 MethodInfo {
-                    name: "process_ocr".to_string(),
-                    description: "Process OCR using a specific service".to_string(),
+                    name: "get_plugin_for_service".to_string(),
+                    description: "Get the plugin ID that provides a service".to_string(),
                     params: vec![
                         ParamInfo {
                             name: "service_id".to_string(),
                             param_type: "string".to_string(),
                             required: true,
                             description: "Service ID".to_string(),
-                        },
-                        ParamInfo {
-                            name: "marker_id".to_string(),
-                            param_type: "number".to_string(),
-                            required: true,
-                            description: "Marker ID".to_string(),
-                        },
-                        ParamInfo {
-                            name: "image_id".to_string(),
-                            param_type: "number".to_string(),
-                            required: true,
-                            description: "Image ID".to_string(),
-                        }
-                    ],
-                    returns: "object".to_string(),
-                },
-                MethodInfo {
-                    name: "process_translation".to_string(),
-                    description: "Process translation using a specific service".to_string(),
-                    params: vec![
-                        ParamInfo {
-                            name: "service_id".to_string(),
-                            param_type: "string".to_string(),
-                            required: true,
-                            description: "Service ID".to_string(),
-                        },
-                        ParamInfo {
-                            name: "marker_id".to_string(),
-                            param_type: "number".to_string(),
-                            required: true,
-                            description: "Marker ID".to_string(),
-                        },
-                        ParamInfo {
-                            name: "text".to_string(),
-                            param_type: "string".to_string(),
-                            required: true,
-                            description: "Text to translate".to_string(),
-                        },
-                        ParamInfo {
-                            name: "target_lang".to_string(),
-                            param_type: "string".to_string(),
-                            required: true,
-                            description: "Target language".to_string(),
                         }
                     ],
                     returns: "object".to_string(),

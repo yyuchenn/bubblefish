@@ -288,8 +288,8 @@ class BunnyService {
 		const pageMarkers = allMarkers.map(marker => ({
 			markerId: marker.id,
 			geometry: marker.geometry,
-			originalText: allMarkersData.get(marker.id)?.ocrText || null,
-			machineTranslation: allMarkersData.get(marker.id)?.translationText || null,
+			originalText: allMarkersData.get(marker.id)?.originalText || null,
+			machineTranslation: allMarkersData.get(marker.id)?.machineTranslation || null,
 			userTranslation: marker.translation || ''
 		}));
 

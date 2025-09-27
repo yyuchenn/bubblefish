@@ -622,28 +622,36 @@ impl PluginLoader {
 
     fn handle_bunny_service(&self, method: &str, params: &Value) -> Result<Value, String> {
         use bubblefish_core::api::bunny;
-        use bubblefish_core::service::bunny::{OCRServiceInfo, TranslationServiceInfo};
+        use bubblefish_core::service::bunny::{OCRServiceInfo, TranslationServiceInfo, BUNNY_SERVICE_REGISTRY};
 
         match method {
             "register_ocr_service" => {
-                // Parse the service info from params
+                // Parse plugin_id and service info from params
+                let plugin_id = params["plugin_id"].as_str()
+                    .ok_or("Missing plugin_id")?;
                 let service_info: OCRServiceInfo = serde_json::from_value(
                     params["service_info"].clone()
                 ).map_err(|e| format!("Invalid service info: {}", e))?;
 
-                bunny::register_ocr_service(service_info)
-                    .map_err(|e| format!("Failed to register OCR service: {}", e))?;
+                BUNNY_SERVICE_REGISTRY
+                    .write()
+                    .map_err(|e| format!("Failed to acquire write lock: {}", e))?
+                    .register_ocr_service(plugin_id.to_string(), service_info)?;
 
                 Ok(serde_json::json!({"success": true}))
             }
             "register_translation_service" => {
-                // Parse the service info from params
+                // Parse plugin_id and service info from params
+                let plugin_id = params["plugin_id"].as_str()
+                    .ok_or("Missing plugin_id")?;
                 let service_info: TranslationServiceInfo = serde_json::from_value(
                     params["service_info"].clone()
                 ).map_err(|e| format!("Invalid service info: {}", e))?;
 
-                bunny::register_translation_service(service_info)
-                    .map_err(|e| format!("Failed to register translation service: {}", e))?;
+                BUNNY_SERVICE_REGISTRY
+                    .write()
+                    .map_err(|e| format!("Failed to acquire write lock: {}", e))?
+                    .register_translation_service(plugin_id.to_string(), service_info)?;
 
                 Ok(serde_json::json!({"success": true}))
             }
@@ -651,8 +659,10 @@ impl PluginLoader {
                 let service_id = params["service_id"].as_str()
                     .ok_or("Missing service_id")?;
 
-                bunny::unregister_bunny_service(service_id.to_string())
-                    .map_err(|e| format!("Failed to unregister service: {}", e))?;
+                BUNNY_SERVICE_REGISTRY
+                    .write()
+                    .map_err(|e| format!("Failed to acquire write lock: {}", e))?
+                    .unregister_service(service_id)?;
 
                 Ok(serde_json::json!({"success": true}))
             }
@@ -745,9 +755,13 @@ extern "C" fn host_call_service(
                         .map(|s| s.into_raw())
                         .unwrap_or(std::ptr::null_mut())
                 }
-                Err(_) => std::ptr::null_mut(),
+                Err(e) => {
+                    eprintln!("[PluginLoader] Service call error: service={}, method={}, error={}", service, method, e);
+                    std::ptr::null_mut()
+                }
             }
         } else {
+            eprintln!("[PluginLoader] Plugin loader not initialized");
             std::ptr::null_mut()
         }
     }

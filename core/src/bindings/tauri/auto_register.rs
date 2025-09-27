@@ -70,14 +70,6 @@ macro_rules! generate_core_commands {
             // 项目保存命令
             $crate::bindings::tauri::tauri_save_project,
             // Bunny (海兔) OCR and translation commands
-            $crate::bindings::tauri::tauri_request_ocr,
-            $crate::bindings::tauri::tauri_request_translation,
-            $crate::bindings::tauri::tauri_cancel_bunny_task,
-            $crate::bindings::tauri::tauri_clear_all_bunny_tasks,
-            $crate::bindings::tauri::tauri_get_bunny_task_status,
-            $crate::bindings::tauri::tauri_get_bunny_queued_tasks,
-            $crate::bindings::tauri::tauri_get_ocr_result,
-            $crate::bindings::tauri::tauri_get_translation_result,
             $crate::bindings::tauri::tauri_get_available_ocr_services,
             $crate::bindings::tauri::tauri_get_available_translation_services,
             $crate::bindings::tauri::tauri_get_bunny_cache,
@@ -156,14 +148,6 @@ macro_rules! generate_all_commands {
             // 项目保存命令
             $crate::bindings::tauri::tauri_save_project,
             // Bunny (海兔) OCR and translation commands
-            $crate::bindings::tauri::tauri_request_ocr,
-            $crate::bindings::tauri::tauri_request_translation,
-            $crate::bindings::tauri::tauri_cancel_bunny_task,
-            $crate::bindings::tauri::tauri_clear_all_bunny_tasks,
-            $crate::bindings::tauri::tauri_get_bunny_task_status,
-            $crate::bindings::tauri::tauri_get_bunny_queued_tasks,
-            $crate::bindings::tauri::tauri_get_ocr_result,
-            $crate::bindings::tauri::tauri_get_translation_result,
             $crate::bindings::tauri::tauri_get_available_ocr_services,
             $crate::bindings::tauri::tauri_get_available_translation_services,
             $crate::bindings::tauri::tauri_get_bunny_cache,

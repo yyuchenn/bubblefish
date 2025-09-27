@@ -27,11 +27,16 @@ class PluginBridge {
     private pluginMessageHandlers: Map<string, (message: PluginMessage) => void>;
     private eventListeners: Map<string, Set<(event: any) => void>>;
 
+    // Local service registries for WASM plugins
+    private ocrServices: Map<string, any> = new Map();
+    private translationServices: Map<string, any> = new Map();
+    private serviceToPlugin: Map<string, string> = new Map();
+
     constructor() {
         this.serviceHandlers = new Map();
         this.pluginMessageHandlers = new Map();
         this.eventListeners = new Map();
-        
+
         this.initializeServiceHandlers();
         this.setupEventForwarding();
     }
@@ -343,48 +348,63 @@ class PluginBridge {
         this.serviceHandlers.set('bunny', async (method: string, params: any) => {
             switch (method) {
                 case 'register_ocr_service': {
-                    // Forward to backend via Core API
-                    try {
-                        await coreAPI.registerOCRService(params.service_info);
+                    const pluginId = params.plugin_id;
+                    const serviceInfo = params.service_info;
+
+                    if (isTauri()) {
+                        // Tauri: Services are registered in backend by plugin loader
+                        // This is called by the plugin, but registration already happened
                         return { success: true };
-                    } catch (error) {
-                        console.error(`[PluginBridge] Failed to register OCR service:`, error);
-                        throw error;
+                    } else {
+                        // WASM: Register locally with plugin_id
+                        const serviceWithPluginId = { ...serviceInfo, plugin_id: pluginId };
+                        this.ocrServices.set(serviceInfo.id, serviceWithPluginId);
+                        this.serviceToPlugin.set(serviceInfo.id, pluginId);
+                        return { success: true };
                     }
                 }
 
                 case 'register_translation_service': {
-                    // Forward to backend via Core API
-                    try {
-                        await coreAPI.registerTranslationService(params.service_info);
+                    const pluginId = params.plugin_id;
+                    const serviceInfo = params.service_info;
+
+                    if (isTauri()) {
+                        // Tauri: Services are registered in backend by plugin loader
                         return { success: true };
-                    } catch (error) {
-                        console.error(`[PluginBridge] Failed to register translation service:`, error);
-                        throw error;
+                    } else {
+                        // WASM: Register locally with plugin_id
+                        const serviceWithPluginId = { ...serviceInfo, plugin_id: pluginId };
+                        this.translationServices.set(serviceInfo.id, serviceWithPluginId);
+                        this.serviceToPlugin.set(serviceInfo.id, pluginId);
+                        return { success: true };
                     }
                 }
 
                 case 'unregister_service': {
-                    // Forward to backend via Core API
-                    try {
-                        await coreAPI.unregisterBunnyService(params.service_id);
+                    const serviceId = params.service_id;
+
+                    if (isTauri()) {
+                        // Tauri: Services are unregistered in backend
                         return { success: true };
-                    } catch (error) {
-                        console.error(`[PluginBridge] Failed to unregister service:`, error);
-                        throw error;
+                    } else {
+                        // WASM: Unregister locally
+                        this.ocrServices.delete(serviceId);
+                        this.translationServices.delete(serviceId);
+                        this.serviceToPlugin.delete(serviceId);
+                        return { success: true };
                     }
                 }
 
                 case 'get_ocr_services': {
-                    // Return available OCR services from backend
-                    const services = await coreAPI.getAvailableOCRServices();
-                    return services;
+                    // This should only be called for WASM
+                    // Tauri calls backend directly via coreAPI
+                    return Array.from(this.ocrServices.values());
                 }
 
                 case 'get_translation_services': {
-                    // Return available translation services from backend
-                    const services = await coreAPI.getAvailableTranslationServices();
-                    return services;
+                    // This should only be called for WASM
+                    // Tauri calls backend directly via coreAPI
+                    return Array.from(this.translationServices.values());
                 }
 
                 default:

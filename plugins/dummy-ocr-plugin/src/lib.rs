@@ -39,9 +39,10 @@ impl Plugin for DummyOCRPlugin {
             let service_info = serde_json::json!({
                 "id": "dummy-ocr",
                 "name": "Dummy OCR Service",
-                "plugin_id": ctx.plugin_id.clone(),
+                "version": "1.0.0",
                 "supported_languages": ["en", "zh", "ja"],
-                "supported_image_formats": ["png", "jpg", "jpeg"]
+                "supported_image_formats": ["png", "jpg", "jpeg"],
+                "max_image_size": null
             });
 
             match ctx.call_service("bunny", "register_ocr_service", serde_json::json!({

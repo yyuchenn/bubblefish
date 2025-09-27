@@ -245,9 +245,6 @@ export interface BunnyAPI {
 	getTranslationResult(markerId: number): Promise<string | null>;
 	getAvailableOCRServices(): Promise<OCRServiceInfo[]>;
 	getAvailableTranslationServices(): Promise<TranslationServiceInfo[]>;
-	registerOCRService(serviceInfo: OCRServiceInfo): Promise<void>;
-	registerTranslationService(serviceInfo: TranslationServiceInfo): Promise<void>;
-	unregisterBunnyService(serviceId: string): Promise<void>;
 	getBunnyCache(markerId: number): Promise<BunnyCacheData | null>;
 	updateOriginalText(markerId: number, text: string, model: string): Promise<void>;
 	updateMachineTranslation(markerId: number, text: string, service: string): Promise<void>;
@@ -738,23 +735,35 @@ abstract class BaseCoreAPI implements CoreAPI {
 	}
 
 	async getAvailableOCRServices(): Promise<OCRServiceInfo[]> {
-		return this.callBackend<OCRServiceInfo[]>('get_available_ocr_services', {});
+		// For WASM, get services from pluginBridge; for Tauri, get from backend
+		if (isTauri()) {
+			return this.callBackend<OCRServiceInfo[]>('get_available_ocr_services', {});
+		} else {
+			// Call pluginBridge to get locally registered services
+			const { pluginBridge } = await import('../services/pluginBridge');
+			return pluginBridge.handleServiceCall({
+				pluginId: 'core',
+				service: 'bunny',
+				method: 'get_ocr_services',
+				params: {}
+			});
+		}
 	}
 
 	async getAvailableTranslationServices(): Promise<TranslationServiceInfo[]> {
-		return this.callBackend<TranslationServiceInfo[]>('get_available_translation_services', {});
-	}
-
-	async registerOCRService(serviceInfo: OCRServiceInfo): Promise<void> {
-		await this.callBackend<void>('register_ocr_service', { serviceInfo });
-	}
-
-	async registerTranslationService(serviceInfo: TranslationServiceInfo): Promise<void> {
-		await this.callBackend<void>('register_translation_service', { serviceInfo });
-	}
-
-	async unregisterBunnyService(serviceId: string): Promise<void> {
-		await this.callBackend<void>('unregister_bunny_service', { serviceId });
+		// For WASM, get services from pluginBridge; for Tauri, get from backend
+		if (isTauri()) {
+			return this.callBackend<TranslationServiceInfo[]>('get_available_translation_services', {});
+		} else {
+			// Call pluginBridge to get locally registered services
+			const { pluginBridge } = await import('../services/pluginBridge');
+			return pluginBridge.handleServiceCall({
+				pluginId: 'core',
+				service: 'bunny',
+				method: 'get_translation_services',
+				params: {}
+			});
+		}
 	}
 
 	async getBunnyCache(markerId: number): Promise<BunnyCacheData | null> {

@@ -16,9 +16,6 @@ use crate::api::marker::{
 };
 #[cfg(feature = "tauri")]
 use crate::api::bunny::{
-    request_ocr, request_translation, cancel_bunny_task,
-    get_bunny_task_status, get_bunny_queued_tasks,
-    get_ocr_result, get_translation_result, clear_all_bunny_tasks,
     get_available_ocr_services, get_available_translation_services,
     get_bunny_cache, update_original_text, update_machine_translation, clear_bunny_cache
 };
@@ -461,75 +458,25 @@ pub fn register_data_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> 
         tauri_export_labelplus_data,
         tauri_save_project,
         // Bunny (海兔) OCR and translation commands
-        tauri_request_ocr,
-        tauri_request_translation,
-        tauri_cancel_bunny_task,
-        tauri_clear_all_bunny_tasks,
-        tauri_get_bunny_task_status,
-        tauri_get_bunny_queued_tasks,
-        tauri_get_ocr_result,
-        tauri_get_translation_result
+        tauri_get_available_ocr_services,
+        tauri_get_available_translation_services,
+        tauri_get_bunny_cache,
+        tauri_update_original_text,
+        tauri_update_machine_translation,
+        tauri_clear_bunny_cache
     ])
 }
 
 // Bunny (海兔) OCR and translation commands
 #[cfg(feature = "tauri")]
 #[tauri::command]
-pub fn tauri_request_ocr(marker_id: u32, ocr_model: String) -> Result<String, String> {
-    request_ocr(marker_id, ocr_model)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn tauri_request_translation(marker_id: u32, service_name: String, source_lang: Option<String>, target_lang: String) -> Result<String, String> {
-    request_translation(marker_id, service_name, source_lang, target_lang)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn tauri_cancel_bunny_task(task_id: String) -> bool {
-    cancel_bunny_task(task_id)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn tauri_get_bunny_task_status(task_id: String) -> Option<crate::service::bunny::BunnyTask> {
-    get_bunny_task_status(task_id)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn tauri_get_bunny_queued_tasks(project_id: Option<u32>) -> Vec<crate::service::bunny::BunnyTask> {
-    get_bunny_queued_tasks(project_id)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn tauri_get_ocr_result(marker_id: u32) -> Option<String> {
-    get_ocr_result(marker_id)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn tauri_get_translation_result(marker_id: u32) -> Option<String> {
-    get_translation_result(marker_id)
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn tauri_clear_all_bunny_tasks() -> bool {
-    clear_all_bunny_tasks()
-}
-
-#[cfg(feature = "tauri")]
-#[tauri::command]
-pub fn tauri_get_available_ocr_services() -> Vec<crate::service::bunny::OCRServiceInfo> {
+pub fn tauri_get_available_ocr_services() -> Vec<serde_json::Value> {
     get_available_ocr_services()
 }
 
 #[cfg(feature = "tauri")]
 #[tauri::command]
-pub fn tauri_get_available_translation_services() -> Vec<crate::service::bunny::TranslationServiceInfo> {
+pub fn tauri_get_available_translation_services() -> Vec<serde_json::Value> {
     get_available_translation_services()
 }
 
