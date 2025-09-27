@@ -235,8 +235,11 @@ export interface LabelplusFileAPI {
 
 // Bunny (海兔) API 接口
 export interface BunnyAPI {
-	requestOCR(markerId: number, ocrModel: string): Promise<string>;
-	requestTranslation(markerId: number, service: string, sourceLang?: string, targetLang?: string): Promise<string>;
+	requestOCR(markerId: number, imageId: number, projectId: number, serviceId: string): Promise<string>;
+	requestTranslation(markerId: number, imageId: number, projectId: number, serviceId: string, text: string): Promise<string>;
+	handleOCRCompleted(taskId: string, markerId: number, text: string, model: string): Promise<void>;
+	handleTranslationCompleted(taskId: string, markerId: number, translatedText: string, service: string): Promise<void>;
+	handleTaskFailed(taskId: string, error: string): Promise<void>;
 	cancelBunnyTask(taskId: string): Promise<boolean>;
 	clearAllBunnyTasks(): Promise<boolean>;
 	getBunnyTaskStatus(taskId: string): Promise<unknown | null>;
@@ -697,17 +700,24 @@ abstract class BaseCoreAPI implements CoreAPI {
 	}
 
 	// Bunny (海兔) API implementation
-	async requestOCR(markerId: number, ocrModel: string): Promise<string> {
-		return this.callBackend<string>('request_ocr', { markerId, ocrModel });
+	async requestOCR(markerId: number, imageId: number, projectId: number, serviceId: string): Promise<string> {
+		return this.callBackend<string>('request_ocr', { markerId, imageId, projectId, serviceId });
 	}
 
-	async requestTranslation(markerId: number, service: string, sourceLang?: string, targetLang?: string): Promise<string> {
-		return this.callBackend<string>('request_translation', { 
-			markerId, 
-			serviceName: service, 
-			sourceLang, 
-			targetLang: targetLang || 'zh-CN' 
-		});
+	async requestTranslation(markerId: number, imageId: number, projectId: number, serviceId: string, text: string): Promise<string> {
+		return this.callBackend<string>('request_translation', { markerId, imageId, projectId, serviceId, text });
+	}
+
+	async handleOCRCompleted(taskId: string, markerId: number, text: string, model: string): Promise<void> {
+		await this.callBackend<void>('handle_ocr_completed', { taskId, markerId, text, model });
+	}
+
+	async handleTranslationCompleted(taskId: string, markerId: number, translatedText: string, service: string): Promise<void> {
+		await this.callBackend<void>('handle_translation_completed', { taskId, markerId, translatedText, service });
+	}
+
+	async handleTaskFailed(taskId: string, error: string): Promise<void> {
+		await this.callBackend<void>('handle_task_failed', { taskId, error });
 	}
 
 	async cancelBunnyTask(taskId: string): Promise<boolean> {

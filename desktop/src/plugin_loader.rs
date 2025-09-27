@@ -687,6 +687,50 @@ impl PluginLoader {
                     .ok_or("Missing event_name")?;
                 let data = params["data"].clone();
 
+                // Handle plugin result events directly in desktop mode
+                if event_name == "plugin:ocr_result" {
+                    if let (Some(task_id), Some(text), Some(model)) = (
+                        data.get("task_id").and_then(|v| v.as_str()),
+                        data.get("text").and_then(|v| v.as_str()),
+                        data.get("model").and_then(|v| v.as_str())
+                    ) {
+                        // Get marker_id from task
+                        if let Ok(Some(task)) = bubblefish_core::service::bunny::TASK_MANAGER.get_task(task_id) {
+                            // Handle OCR completion
+                            bubblefish_core::api::bunny::handle_ocr_completed(
+                                task_id.to_string(),
+                                task.marker_id,
+                                text.to_string(),
+                                model.to_string()
+                            ).map_err(|e| format!("Failed to handle OCR completion: {}", e))?;
+                            log::debug!("OCR result handled for task {}", task_id);
+                        } else {
+                            log::warn!("Task {} not found when handling OCR result", task_id);
+                        }
+                    }
+                } else if event_name == "plugin:translation_result" {
+                    if let (Some(task_id), Some(translated_text), Some(service)) = (
+                        data.get("task_id").and_then(|v| v.as_str()),
+                        data.get("translated_text").and_then(|v| v.as_str()),
+                        data.get("service").and_then(|v| v.as_str())
+                    ) {
+                        // Get marker_id from task
+                        if let Ok(Some(task)) = bubblefish_core::service::bunny::TASK_MANAGER.get_task(task_id) {
+                            // Handle translation completion
+                            bubblefish_core::api::bunny::handle_translation_completed(
+                                task_id.to_string(),
+                                task.marker_id,
+                                translated_text.to_string(),
+                                service.to_string()
+                            ).map_err(|e| format!("Failed to handle translation completion: {}", e))?;
+                            log::debug!("Translation result handled for task {}", task_id);
+                        } else {
+                            log::warn!("Task {} not found when handling translation result", task_id);
+                        }
+                    }
+                }
+
+                // Emit the event to frontend as well
                 EVENT_SYSTEM.emit_business_event(event_name.to_string(), data)
                     .map_err(|e| format!("Failed to emit event: {:?}", e))?;
 

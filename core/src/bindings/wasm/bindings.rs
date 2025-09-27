@@ -21,6 +21,8 @@ use crate::api::marker::{
 #[cfg(feature = "wasm")]
 use crate::api::bunny::{
     get_available_ocr_services, get_available_translation_services,
+    request_ocr, request_translation,
+    handle_ocr_completed, handle_translation_completed, handle_task_failed,
     get_bunny_cache, update_original_text, update_machine_translation, clear_bunny_cache
 };
 #[cfg(feature = "wasm")]
@@ -560,6 +562,82 @@ pub fn wasm_update_original_text(marker_id: u32, text: String, model: String) ->
 #[wasm_bindgen]
 pub fn wasm_update_machine_translation(marker_id: u32, text: String, service: String) -> JsValue {
     match update_machine_translation(crate::common::MarkerId(marker_id), text, service) {
+        Ok(_) => JsValue::undefined(),
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_request_ocr(marker_id: u32, image_id: u32, project_id: u32, service_id: String) -> JsValue {
+    match request_ocr(
+        crate::common::MarkerId(marker_id),
+        crate::common::ImageId(image_id),
+        crate::common::ProjectId(project_id),
+        service_id
+    ) {
+        Ok(task_id) => task_id.into(),
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_request_translation(marker_id: u32, image_id: u32, project_id: u32, service_id: String, text: String) -> JsValue {
+    match request_translation(
+        crate::common::MarkerId(marker_id),
+        crate::common::ImageId(image_id),
+        crate::common::ProjectId(project_id),
+        service_id,
+        text
+    ) {
+        Ok(task_id) => task_id.into(),
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_handle_ocr_completed(task_id: String, marker_id: u32, text: String, model: String) -> JsValue {
+    match handle_ocr_completed(task_id, crate::common::MarkerId(marker_id), text, model) {
+        Ok(_) => JsValue::undefined(),
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_handle_translation_completed(task_id: String, marker_id: u32, translated_text: String, service: String) -> JsValue {
+    match handle_translation_completed(task_id, crate::common::MarkerId(marker_id), translated_text, service) {
+        Ok(_) => JsValue::undefined(),
+        Err(e) => {
+            let error_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&error_obj, &"error".into(), &e.into()).unwrap();
+            error_obj.into()
+        }
+    }
+}
+
+#[cfg(feature = "wasm")]
+#[wasm_bindgen]
+pub fn wasm_handle_task_failed(task_id: String, error: String) -> JsValue {
+    match handle_task_failed(task_id, error) {
         Ok(_) => JsValue::undefined(),
         Err(e) => {
             let error_obj = js_sys::Object::new();

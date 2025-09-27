@@ -32,6 +32,8 @@ pub struct OCRContext {
     pub image_id: u32,
     #[serde(rename = "imageData")]
     pub image_data: Vec<u8>,
+    #[serde(rename = "imageFormat")]
+    pub image_format: Option<String>,  // e.g., "png", "jpg", "webp"
     #[serde(rename = "markerGeometry")]
     pub marker_geometry: MarkerGeometry,
 }
@@ -49,17 +51,13 @@ pub struct TranslationContext {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OCROptions {
-    pub language: Option<String>,
-    pub enhance_image: bool,
-    pub dpi: Option<u32>,
+    pub source_language: Option<String>,
 }
 
 impl Default for OCROptions {
     fn default() -> Self {
         Self {
-            language: None,
-            enhance_image: false,
-            dpi: None,
+            source_language: None,
         }
     }
 }
@@ -68,7 +66,6 @@ impl Default for OCROptions {
 pub struct TranslationOptions {
     pub source_language: Option<String>,
     pub target_language: String,
-    pub preserve_formatting: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,8 +118,11 @@ pub trait OCRProvider: Send + Sync {
     /// Get information about this OCR service
     fn get_info(&self) -> OCRServiceInfo;
 
-    /// Process an image and extract text with full context
-    fn process_ocr(&self, context: OCRContext, options: OCROptions) -> Result<OCRResult, String>;
+    /// Process an image and extract text
+    /// image_data: Raw image bytes
+    /// marker_geometry: Geometry information of the marker
+    /// options: OCR options (source language)
+    fn process_ocr(&self, image_data: &[u8], marker_geometry: MarkerGeometry, options: OCROptions) -> Result<OCRResult, String>;
 
     /// Check if the service is available and properly configured
     fn is_available(&self) -> bool {
@@ -140,8 +140,10 @@ pub trait TranslationProvider: Send + Sync {
     /// Get information about this translation service
     fn get_info(&self) -> TranslationServiceInfo;
 
-    /// Translate text with full context
-    fn translate(&self, context: TranslationContext, options: TranslationOptions) -> Result<TranslationResult, String>;
+    /// Translate text
+    /// text: Text to translate
+    /// options: Translation options (source and target language)
+    fn translate(&self, text: String, options: TranslationOptions) -> Result<TranslationResult, String>;
 
     /// Check if the service is available and properly configured
     fn is_available(&self) -> bool {

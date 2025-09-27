@@ -1,6 +1,6 @@
 use bubblefish_plugin_sdk::{
     Plugin, PluginContext, ServiceProxyManager, CoreEvent, PluginMetadata,
-    OCRProvider, OCRServiceInfo, OCROptions, OCRResult,
+    OCRProvider, OCRServiceInfo, OCROptions, OCRResult, MarkerGeometry,
     plugin_metadata, export_plugin
 };
 use serde_json::Value;
@@ -63,34 +63,18 @@ impl Plugin for DummyOCRPlugin {
     }
 
     fn on_plugin_message(&mut self, from: &str, message: Value) -> Result<(), String> {
-        // Handle OCR requests forwarded from the core
+        // Handle OCR requests from frontend (relayed from backend)
         if let Some(msg_type) = message.get("type").and_then(|v| v.as_str()) {
             if msg_type == "ocr_request" {
                 self.log(&format!("Received OCR request from {}", from));
 
-                // Extract context
-                let context = message.get("context").ok_or("Missing context")?;
-
-                let marker_id = context.get("markerId")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-
-                let image_id = context.get("imageId")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-
-                // Extract marker geometry
-                let geometry = context.get("markerGeometry");
-                let marker_type = geometry
-                    .and_then(|g| g.get("type"))
+                let task_id = message.get("task_id")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-
-                self.log(&format!("OCR request for marker {} (type: {}) on image {}",
-                    marker_id, marker_type, image_id));
+                    .unwrap_or("")
+                    .to_string();
 
                 // Extract image data
-                let image_data = context.get("imageData")
+                let image_data = message.get("image_data")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
@@ -99,27 +83,95 @@ impl Plugin for DummyOCRPlugin {
                     })
                     .unwrap_or_else(Vec::new);
 
-                // Perform dummy OCR with context awareness
-                let result = self.perform_ocr_with_context(&image_data, marker_type);
-                self.log(&format!("OCR result for marker {}: {}", marker_id, result));
+                // Extract image format
+                let image_format = message.get("image_format")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
 
-                // Send result back via bunny event
+                // Extract marker geometry
+                let marker_geometry = message.get("marker_geometry");
+                let marker_type = marker_geometry
+                    .and_then(|g| g.get("markerType"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                // Extract options
+                let options = message.get("options");
+                let source_language = options
+                    .and_then(|o| o.get("source_language"))
+                    .and_then(|v| v.as_str());
+
+                self.log(&format!("Processing OCR for marker type: {}, format: {}, language: {:?}, {} bytes",
+                    marker_type, image_format, source_language, image_data.len()));
+
+                // Demonstrate plugin capabilities: calculate image hash
+                let image_hash = self.calculate_hash(&image_data);
+                self.log(&format!("Image hash: {}", image_hash));
+
+                // Perform dummy OCR with enhanced info
+                let result = self.perform_ocr(&image_data, marker_type, image_format, &image_hash, source_language);
+                self.log(&format!("OCR result: {}", result));
+
+                // Send result back to frontend (which will relay to backend)
                 if let Some(ctx) = &self.context {
                     // Emit OCR completion event
                     let event = serde_json::json!({
-                        "marker_id": marker_id,
-                        "original_text": result,
-                        "model": "dummy-ocr",
-                        "task_id": message.get("task_id").and_then(|v| v.as_str()).unwrap_or("")
+                        "task_id": task_id,
+                        "text": result,
+                        "model": "dummy-ocr"
                     });
 
-                    // Call the event system to emit the OCR completed event
+                    // The frontend will intercept this and call handle_ocr_completed
                     match ctx.call_service("events", "emit_business_event", serde_json::json!({
-                        "event_name": "bunny:ocr_completed",
+                        "event_name": "plugin:ocr_result",
                         "data": event
                     })) {
-                        Ok(_) => self.log("OCR completion event emitted successfully"),
-                        Err(e) => self.log(&format!("Failed to emit OCR completion event: {}", e)),
+                        Ok(_) => self.log("OCR result event emitted successfully"),
+                        Err(e) => self.log(&format!("Failed to emit OCR result event: {}", e)),
+                    }
+                }
+            } else if msg_type == "translation_request" {
+                self.log(&format!("Received translation request from {}", from));
+
+                let task_id = message.get("task_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let text = message.get("text")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                // Extract options
+                let options = message.get("options");
+                let source_language = options
+                    .and_then(|o| o.get("source_language"))
+                    .and_then(|v| v.as_str());
+                let target_language = options
+                    .and_then(|o| o.get("target_language"))
+                    .and_then(|v| v.as_str());
+
+                self.log(&format!("Translating text: {} chars, {:?} -> {:?}",
+                    text.len(), source_language, target_language));
+
+                // Perform dummy translation
+                let result = self.perform_translation(text);
+                self.log(&format!("Translation result: {}", result));
+
+                // Send result back to frontend (which will relay to backend)
+                if let Some(ctx) = &self.context {
+                    let event = serde_json::json!({
+                        "task_id": task_id,
+                        "translated_text": result,
+                        "service": "dummy-ocr"
+                    });
+
+                    match ctx.call_service("events", "emit_business_event", serde_json::json!({
+                        "event_name": "plugin:translation_result",
+                        "data": event
+                    })) {
+                        Ok(_) => self.log("Translation result event emitted successfully"),
+                        Err(e) => self.log(&format!("Failed to emit translation result event: {}", e)),
                     }
                 }
             }
@@ -157,38 +209,56 @@ impl Plugin for DummyOCRPlugin {
 }
 
 impl DummyOCRPlugin {
-    fn perform_ocr_with_context(&self, image_data: &[u8], marker_type: &str) -> String {
-        // This is a dummy implementation with context awareness
-        // Real implementation would process the image data using marker geometry
-        self.log(&format!("Processing {} bytes for {} marker",
-            image_data.len(), marker_type));
+    /// Calculate hash of data (demonstrates plugin's ability to process image data)
+    fn calculate_hash(&self, data: &[u8]) -> String {
+        // Simple hash implementation for demonstration
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
 
-        // Return different dummy text based on marker type and image size
-        // Note: JSON uses lowercase "point" and "rectangle" due to camelCase serialization
-        match marker_type {
+        let mut hasher = DefaultHasher::new();
+        data.hash(&mut hasher);
+        let hash = hasher.finish();
+
+        // Format as hex string (simplified for demo purposes)
+        format!("{:016x}", hash)
+    }
+
+    fn perform_ocr(&self, image_data: &[u8], marker_type: &str, image_format: &str, image_hash: &str, source_language: Option<&str>) -> String {
+        // This is a dummy implementation with enhanced information display
+        self.log(&format!("Processing {} bytes for {} marker in {} format",
+            image_data.len(), marker_type, image_format));
+
+        // Build result with enhanced information
+        let base_text = match marker_type {
             "rectangle" => {
                 if image_data.len() > 100000 {
-                    "Rectangle marker - Large text area:\n\
-                     这是一个矩形区域内的大段文本。\n\
-                     Lorem ipsum dolor sit amet.\n\
-                     [Context-aware Dummy OCR]".to_string()
+                    "Large text area:\n这是一个大段文本。\nLorem ipsum dolor sit amet."
                 } else {
-                    "Rectangle marker text.\n\
-                     矩形标记文本。\n\
-                     [Context-aware Dummy OCR]".to_string()
+                    "Rectangle text.\n矩形文本。"
                 }
             },
             "point" => {
-                "Point marker annotation\n\
-                 点标记注释\n\
-                 [Context-aware Dummy OCR]".to_string()
+                "Point annotation\n点注释"
             },
             _ => {
-                format!("Unknown marker type '{}'\n\
-                        未知标记类型\n\
-                        [Context-aware Dummy OCR]", marker_type)
+                "Unknown marker type\n未知类型"
             }
-        }
+        };
+
+        // Add metadata footer showing plugin capabilities
+        format!(
+            "{}\n\n---\n[Dummy OCR Plugin]\nImage Format: {}\nImage Hash: {}\nLanguage: {}\nImage size: {} bytes",
+            base_text,
+            image_format,
+            image_hash,
+            source_language.unwrap_or("auto"),
+            image_data.len()
+        )
+    }
+
+    fn perform_translation(&self, text: &str) -> String {
+        // This is a dummy implementation
+        format!("[Translated] {}", text)
     }
 }
 

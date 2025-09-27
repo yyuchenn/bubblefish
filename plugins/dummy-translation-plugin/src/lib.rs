@@ -1,6 +1,5 @@
 use bubblefish_plugin_sdk::{
     Plugin, PluginContext, ServiceProxyManager, CoreEvent, PluginMetadata,
-    TranslationProvider, TranslationServiceInfo, TranslationOptions, TranslationResult,
     plugin_metadata, export_plugin
 };
 use serde_json::Value;
@@ -63,34 +62,20 @@ impl Plugin for DummyTranslationPlugin {
     }
 
     fn on_plugin_message(&mut self, from: &str, message: Value) -> Result<(), String> {
-        // Handle translation requests forwarded from the core
+        // Handle translation requests from bunny service (relayed from backend)
         if let Some(msg_type) = message.get("type").and_then(|v| v.as_str()) {
             if msg_type == "translation_request" {
                 self.log(&format!("Received translation request from {}", from));
 
-                // Extract context
-                let context = message.get("context").ok_or("Missing context")?;
+                let task_id = message.get("task_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
 
-                let marker_id = context.get("markerId")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-
-                let image_id = context.get("imageId")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as u32;
-
-                let text = context.get("text")
+                // Extract text to translate
+                let text = message.get("text")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-
-                // Extract all markers on the page for context
-                let all_markers = context.get("allMarkers")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.len())
-                    .unwrap_or(0);
-
-                self.log(&format!("Translation request for marker {} on image {} (page has {} markers)",
-                    marker_id, image_id, all_markers));
 
                 // Extract options
                 let options = message.get("options");
@@ -102,27 +87,28 @@ impl Plugin for DummyTranslationPlugin {
                     .and_then(|o| o.get("source_language"))
                     .and_then(|v| v.as_str());
 
-                // Perform dummy translation with context awareness
-                let result = self.perform_translation_with_context(text, source_lang, target_lang, all_markers);
-                self.log(&format!("Translation result for marker {}: {}", marker_id, result));
+                self.log(&format!("Translating text: {} chars, {:?} -> {}",
+                    text.len(), source_lang, target_lang));
 
-                // Send result back via bunny event
+                // Perform dummy translation with metadata
+                let result = self.perform_translation(text, source_lang, target_lang);
+                self.log(&format!("Translation result: {}", result));
+
+                // Send result back to frontend (which will relay to backend)
                 if let Some(ctx) = &self.context {
-                    // Emit translation completion event
                     let event = serde_json::json!({
-                        "marker_id": marker_id,
-                        "machine_translation": result,
-                        "service": "dummy-translate",
-                        "task_id": message.get("task_id").and_then(|v| v.as_str()).unwrap_or("")
+                        "task_id": task_id,
+                        "translated_text": result,
+                        "service": "dummy-translate"
                     });
 
-                    // Call the event system to emit the translation completed event
+                    // The frontend will intercept this and call handle_translation_completed
                     match ctx.call_service("events", "emit_business_event", serde_json::json!({
-                        "event_name": "bunny:translation_completed",
+                        "event_name": "plugin:translation_result",
                         "data": event
                     })) {
-                        Ok(_) => self.log("Translation completion event emitted successfully"),
-                        Err(e) => self.log(&format!("Failed to emit translation completion event: {}", e)),
+                        Ok(_) => self.log("Translation result event emitted successfully"),
+                        Err(e) => self.log(&format!("Failed to emit translation result event: {}", e)),
                     }
                 }
             }
@@ -160,40 +146,35 @@ impl Plugin for DummyTranslationPlugin {
 }
 
 impl DummyTranslationPlugin {
-    fn perform_translation_with_context(
+    fn perform_translation(
         &self,
         text: &str,
         source_lang: Option<&str>,
-        target_lang: &str,
-        page_marker_count: usize
+        target_lang: &str
     ) -> String {
-        // This is a context-aware dummy implementation
-        // Real implementation would use page context for better translation
+        // This is a dummy implementation with enhanced information
         self.log(&format!(
-            "Translating '{}' from {:?} to {} (page has {} markers)",
-            text, source_lang, target_lang, page_marker_count
+            "Processing '{}' from {:?} to {}",
+            text, source_lang, target_lang
         ));
 
-        // Context awareness: add page number info if multiple markers
-        let context_prefix = if page_marker_count > 1 {
-            format!("[Page context: {} markers] ", page_marker_count)
-        } else {
-            String::new()
-        };
-
-        // Return some dummy translation based on target language
-        let translation = match target_lang {
-            "zh" | "zh-CN" => format!("[翻译] {}", text),
-            "ja" => format!("[翻訳] {}", text),
-            "ko" => format!("[번역] {}", text),
-            "fr" => format!("[Traduction] {}", text),
-            "de" => format!("[Übersetzung] {}", text),
-            "en" => {
+        // Perform basic translation
+        let translated = match target_lang {
+            "zh" | "zh-CN" | "chinese" => format!("[翻译] {}", text),
+            "ja" | "japanese" => format!("[翻訳] {}", text),
+            "ko" | "korean" => format!("[번역] {}", text),
+            "fr" | "french" => format!("[Traduction] {}", text),
+            "de" | "german" => format!("[Übersetzung] {}", text),
+            "en" | "english" => {
                 // Simple mock translation from Chinese to English
                 if text.contains("你好") {
                     "Hello".to_string()
                 } else if text.contains("谢谢") {
                     "Thank you".to_string()
+                } else if text.contains("这是") {
+                    "This is".to_string()
+                } else if text.contains("大段文本") {
+                    "Large text area".to_string()
                 } else {
                     format!("[Translation] {}", text)
                 }
@@ -201,7 +182,15 @@ impl DummyTranslationPlugin {
             _ => format!("[Translated to {}] {}", target_lang, text)
         };
 
-        format!("{}{}", context_prefix, translation)
+        // Add metadata footer showing plugin capabilities
+        format!(
+            "{}\n\n---\n[Dummy Translation Plugin]\nDirection: {:?} → {}\nCharacter count: {}\nWord count: {}",
+            translated,
+            source_lang.unwrap_or("auto"),
+            target_lang,
+            text.chars().count(),
+            text.split_whitespace().count()
+        )
     }
 }
 

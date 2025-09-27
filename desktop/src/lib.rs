@@ -696,7 +696,7 @@ pub fn run() {
       
       // 初始化插件加载器
       init_plugin_loader(app.handle().clone());
-      
+
       // 自动加载内置插件
       let app_handle_builtin = app.handle().clone();
       tauri::async_runtime::spawn(async move {

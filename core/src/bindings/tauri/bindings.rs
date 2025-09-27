@@ -17,6 +17,8 @@ use crate::api::marker::{
 #[cfg(feature = "tauri")]
 use crate::api::bunny::{
     get_available_ocr_services, get_available_translation_services,
+    request_ocr, request_translation,
+    handle_ocr_completed, handle_translation_completed, handle_task_failed,
     get_bunny_cache, update_original_text, update_machine_translation, clear_bunny_cache
 };
 #[cfg(feature = "tauri")]
@@ -460,6 +462,11 @@ pub fn register_data_commands<R: tauri::Runtime>(builder: tauri::Builder<R>) -> 
         // Bunny (海兔) OCR and translation commands
         tauri_get_available_ocr_services,
         tauri_get_available_translation_services,
+        tauri_request_ocr,
+        tauri_request_translation,
+        tauri_handle_ocr_completed,
+        tauri_handle_translation_completed,
+        tauri_handle_task_failed,
         tauri_get_bunny_cache,
         tauri_update_original_text,
         tauri_update_machine_translation,
@@ -496,6 +503,47 @@ pub fn tauri_update_original_text(marker_id: u32, text: String, model: String) -
 #[tauri::command]
 pub fn tauri_update_machine_translation(marker_id: u32, text: String, service: String) -> Result<(), String> {
     update_machine_translation(crate::common::MarkerId(marker_id), text, service)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_request_ocr(marker_id: u32, image_id: u32, project_id: u32, service_id: String) -> Result<String, String> {
+    request_ocr(
+        crate::common::MarkerId(marker_id),
+        crate::common::ImageId(image_id),
+        crate::common::ProjectId(project_id),
+        service_id
+    )
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_request_translation(marker_id: u32, image_id: u32, project_id: u32, service_id: String, text: String) -> Result<String, String> {
+    request_translation(
+        crate::common::MarkerId(marker_id),
+        crate::common::ImageId(image_id),
+        crate::common::ProjectId(project_id),
+        service_id,
+        text
+    )
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_handle_ocr_completed(task_id: String, marker_id: u32, text: String, model: String) -> Result<(), String> {
+    handle_ocr_completed(task_id, crate::common::MarkerId(marker_id), text, model)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_handle_translation_completed(task_id: String, marker_id: u32, translated_text: String, service: String) -> Result<(), String> {
+    handle_translation_completed(task_id, crate::common::MarkerId(marker_id), translated_text, service)
+}
+
+#[cfg(feature = "tauri")]
+#[tauri::command]
+pub fn tauri_handle_task_failed(task_id: String, error: String) -> Result<(), String> {
+    handle_task_failed(task_id, error)
 }
 
 #[cfg(feature = "tauri")]

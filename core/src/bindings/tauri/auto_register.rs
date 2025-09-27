@@ -72,6 +72,11 @@ macro_rules! generate_core_commands {
             // Bunny (海兔) OCR and translation commands
             $crate::bindings::tauri::tauri_get_available_ocr_services,
             $crate::bindings::tauri::tauri_get_available_translation_services,
+            $crate::bindings::tauri::tauri_request_ocr,
+            $crate::bindings::tauri::tauri_request_translation,
+            $crate::bindings::tauri::tauri_handle_ocr_completed,
+            $crate::bindings::tauri::tauri_handle_translation_completed,
+            $crate::bindings::tauri::tauri_handle_task_failed,
             $crate::bindings::tauri::tauri_get_bunny_cache,
             $crate::bindings::tauri::tauri_update_original_text,
             $crate::bindings::tauri::tauri_update_machine_translation,
@@ -150,6 +155,11 @@ macro_rules! generate_all_commands {
             // Bunny (海兔) OCR and translation commands
             $crate::bindings::tauri::tauri_get_available_ocr_services,
             $crate::bindings::tauri::tauri_get_available_translation_services,
+            $crate::bindings::tauri::tauri_request_ocr,
+            $crate::bindings::tauri::tauri_request_translation,
+            $crate::bindings::tauri::tauri_handle_ocr_completed,
+            $crate::bindings::tauri::tauri_handle_translation_completed,
+            $crate::bindings::tauri::tauri_handle_task_failed,
             $crate::bindings::tauri::tauri_get_bunny_cache,
             $crate::bindings::tauri::tauri_update_original_text,
             $crate::bindings::tauri::tauri_update_machine_translation,
