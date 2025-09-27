@@ -33,43 +33,21 @@ impl BunnyService {
             .map_err(|e| format!("Failed to get marker: {:?}", e))?
             .ok_or("Marker not found")?;
 
-        // Get image info for format
-        let image = crate::storage::image::get_image_storage(image_id)
-            .map_err(|e| format!("Failed to get image: {:?}", e))?
-            .ok_or("Image not found")?;
+        // Get full image binary data
+        let image_service = &crate::service::get_service().image_service;
+        let full_image_data = image_service.get_image_binary_data(image_id.into())?;
 
-        // Extract image format as string
-        let image_format = image.metadata.format.as_ref().map(|fmt| {
-            match fmt {
-                crate::storage::image_data::ImageFormat::Jpeg => "jpg",
-                crate::storage::image_data::ImageFormat::Png => "png",
-                crate::storage::image_data::ImageFormat::Gif => "gif",
-                crate::storage::image_data::ImageFormat::Webp => "webp",
-                crate::storage::image_data::ImageFormat::Bmp => "bmp",
-            }.to_string()
-        });
-
-        // Convert geometry enum to plugin-friendly format with markerType field
-        let marker_geometry = match marker.geometry {
+        // Crop the image based on marker geometry
+        let (x, y, width, height) = match marker.geometry {
             crate::storage::marker::MarkerGeometry::Point { x, y } => {
-                serde_json::json!({
-                    "markerType": "point",
-                    "x": x,
-                    "y": y,
-                    "width": null,
-                    "height": null
-                })
+                (x, y, None, None)
             },
             crate::storage::marker::MarkerGeometry::Rectangle { x, y, width, height } => {
-                serde_json::json!({
-                    "markerType": "rectangle",
-                    "x": x,
-                    "y": y,
-                    "width": width,
-                    "height": height
-                })
+                (x, y, Some(width), Some(height))
             }
         };
+
+        let cropped_image_data = image_service.crop_image_region(&full_image_data, x, y, width, height)?;
 
         // Create task
         let task_id = TASK_MANAGER.create_task(marker_id, image_id, TaskType::OCR, service_id.clone())?;
@@ -78,15 +56,14 @@ impl BunnyService {
         let task = TASK_MANAGER.get_task(&task_id)?.ok_or("Task not found")?;
         let _ = EVENT_SYSTEM.emit_business_event("bunny:task_created".to_string(), serde_json::json!(task));
 
-        // Emit request to frontend to relay to plugin
+        // Emit request to frontend to relay to plugin (with cropped image)
         let _ = EVENT_SYSTEM.emit_business_event("bunny:request_plugin_ocr".to_string(), serde_json::json!({
             "task_id": task_id,
             "marker_id": marker_id,
-            "image_id": image_id,
+            "cropped_image_data": cropped_image_data,
+            "image_format": "png",  // Cropped images are always PNG
             "service_id": service_id,
             "source_language": project.source_language,
-            "marker_geometry": marker_geometry,
-            "image_format": image_format,
         }));
 
         Ok(task_id)

@@ -172,7 +172,7 @@ class BunnyService {
 
 	// Relay OCR request from backend to plugin
 	private async relayOCRRequestToPlugin(data: any) {
-		const { task_id, marker_id, image_id, service_id, source_language, marker_geometry, image_format } = data;
+		const { task_id, cropped_image_data, image_format, service_id, source_language } = data;
 
 		try {
 			// Get the plugin_id for the service
@@ -183,16 +183,12 @@ class BunnyService {
 				throw new Error(`OCR service '${service_id}' not found`);
 			}
 
-			// Get image data
-			const imageData = await coreAPI.getImageBinaryData(image_id);
-
-			// Send message to plugin
+			// Send message to plugin with cropped image data from backend
 			const message = {
 				type: 'ocr_request',
 				task_id: task_id,
-				image_data: Array.from(imageData || new Uint8Array()),
-				image_format: image_format,
-				marker_geometry: marker_geometry,
+				image_data: cropped_image_data,  // Already cropped by backend
+				image_format: image_format,      // Always "png" from backend
 				options: {
 					source_language: source_language
 				}
@@ -210,7 +206,7 @@ class BunnyService {
 
 	// Relay translation request from backend to plugin
 	private async relayTranslationRequestToPlugin(data: any) {
-		const { task_id, marker_id, image_id, service_id, text, source_language, target_language } = data;
+		const { task_id, service_id, text, source_language, target_language } = data;
 
 		try {
 			// Get the plugin_id for the service

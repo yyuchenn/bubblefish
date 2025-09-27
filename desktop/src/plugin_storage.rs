@@ -31,6 +31,14 @@ impl PluginStorage {
         Ok(Self { storage_dir })
     }
     
+    pub fn get_plugin_storage_path(&self, filename: &str) -> Result<PathBuf, String> {
+        let expected_ext = get_platform_extension();
+        if !filename.ends_with(expected_ext) {
+            return Err(format!("Invalid plugin file extension. Expected {}", expected_ext));
+        }
+        Ok(self.storage_dir.join(filename))
+    }
+
     pub fn save_plugin(&self, file_data: Vec<u8>, filename: String) -> Result<PathBuf, String> {
         // Validate filename has correct extension for the platform
         let expected_ext = get_platform_extension();

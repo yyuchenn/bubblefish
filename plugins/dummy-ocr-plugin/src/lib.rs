@@ -1,6 +1,5 @@
 use bubblefish_plugin_sdk::{
     Plugin, PluginContext, ServiceProxyManager, CoreEvent, PluginMetadata,
-    OCRProvider, OCRServiceInfo, OCROptions, OCRResult, MarkerGeometry,
     plugin_metadata, export_plugin
 };
 use serde_json::Value;
@@ -83,17 +82,10 @@ impl Plugin for DummyOCRPlugin {
                     })
                     .unwrap_or_else(Vec::new);
 
-                // Extract image format
+                // Extract image format (always "png" from backend after cropping)
                 let image_format = message.get("image_format")
                     .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
-
-                // Extract marker geometry
-                let marker_geometry = message.get("marker_geometry");
-                let marker_type = marker_geometry
-                    .and_then(|g| g.get("markerType"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("unknown");
+                    .unwrap_or("png");
 
                 // Extract options
                 let options = message.get("options");
@@ -101,15 +93,11 @@ impl Plugin for DummyOCRPlugin {
                     .and_then(|o| o.get("source_language"))
                     .and_then(|v| v.as_str());
 
-                self.log(&format!("Processing OCR for marker type: {}, format: {}, language: {:?}, {} bytes",
-                    marker_type, image_format, source_language, image_data.len()));
+                self.log(&format!("Processing OCR: format: {}, language: {:?}, {} bytes",
+                    image_format, source_language, image_data.len()));
 
-                // Demonstrate plugin capabilities: calculate image hash
-                let image_hash = self.calculate_hash(&image_data);
-                self.log(&format!("Image hash: {}", image_hash));
-
-                // Perform dummy OCR with enhanced info
-                let result = self.perform_ocr(&image_data, marker_type, image_format, &image_hash, source_language);
+                // Perform dummy OCR
+                let result = self.perform_ocr(&image_data, source_language);
                 self.log(&format!("OCR result: {}", result));
 
                 // Send result back to frontend (which will relay to backend)
@@ -209,55 +197,25 @@ impl Plugin for DummyOCRPlugin {
 }
 
 impl DummyOCRPlugin {
-    /// Calculate hash of data (demonstrates plugin's ability to process image data)
-    fn calculate_hash(&self, data: &[u8]) -> String {
-        // Simple hash implementation for demonstration
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-        data.hash(&mut hasher);
-        let hash = hasher.finish();
-
-        // Format as hex string (simplified for demo purposes)
-        format!("{:016x}", hash)
-    }
-
-    fn perform_ocr(&self, image_data: &[u8], marker_type: &str, image_format: &str, image_hash: &str, source_language: Option<&str>) -> String {
-        // This is a dummy implementation with enhanced information display
-        self.log(&format!("Processing {} bytes for {} marker in {} format",
-            image_data.len(), marker_type, image_format));
-
-        // Build result with enhanced information
-        let base_text = match marker_type {
-            "rectangle" => {
-                if image_data.len() > 100000 {
-                    "Large text area:\n这是一个大段文本。\nLorem ipsum dolor sit amet."
-                } else {
-                    "Rectangle text.\n矩形文本。"
-                }
-            },
-            "point" => {
-                "Point annotation\n点注释"
-            },
-            _ => {
-                "Unknown marker type\n未知类型"
-            }
+    fn perform_ocr(&self, image_data: &[u8], source_language: Option<&str>) -> String {
+        // Simple dummy OCR result based on image size
+        let base_text = if image_data.len() > 50000 {
+            "Large text detected:\n这是一个大段文本。\nLorem ipsum dolor sit amet."
+        } else if image_data.len() > 10000 {
+            "Medium text detected:\n中等长度文本\nMedium length text"
+        } else {
+            "Short text:\n短文本\nShort"
         };
 
-        // Add metadata footer showing plugin capabilities
         format!(
-            "{}\n\n---\n[Dummy OCR Plugin]\nImage Format: {}\nImage Hash: {}\nLanguage: {}\nImage size: {} bytes",
+            "{}\n\n[Dummy OCR Plugin]\nLanguage: {}\nImage size: {} bytes",
             base_text,
-            image_format,
-            image_hash,
             source_language.unwrap_or("auto"),
             image_data.len()
         )
     }
 
     fn perform_translation(&self, text: &str) -> String {
-        // This is a dummy implementation
         format!("[Translated] {}", text)
     }
 }

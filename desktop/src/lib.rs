@@ -594,10 +594,45 @@ async fn upload_plugin(app_handle: tauri::AppHandle, file_data: Vec<u8>, filenam
     // Save the plugin to storage
     let storage = PluginStorage::new(&app_handle)?;
     let plugin_path = storage.save_plugin(file_data, filename)?;
-    
+
     // Load the plugin
     if let Some(loader) = get_plugin_loader() {
         if let Some(path_str) = plugin_path.to_str() {
+            loader.load_plugin(path_str)
+        } else {
+            Err("Invalid plugin path".to_string())
+        }
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn upload_plugin_from_path(app_handle: tauri::AppHandle, file_path: String) -> Result<PluginMetadata, String> {
+    use std::fs;
+    use std::path::Path;
+
+    let source_path = Path::new(&file_path);
+    if !source_path.exists() {
+        return Err("File does not exist".to_string());
+    }
+
+    let filename = source_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("Invalid filename".to_string())?
+        .to_string();
+
+    // Read file in chunks if large, but for now copy directly to storage
+    let storage = PluginStorage::new(&app_handle)?;
+    let target_path = storage.get_plugin_storage_path(&filename)?;
+
+    fs::copy(source_path, &target_path)
+        .map_err(|e| format!("Failed to copy plugin file: {}", e))?;
+
+    // Load the plugin
+    if let Some(loader) = get_plugin_loader() {
+        if let Some(path_str) = target_path.to_str() {
             loader.load_plugin(path_str)
         } else {
             Err("Invalid plugin path".to_string())
@@ -804,6 +839,7 @@ pub fn run() {
         list_native_plugins,
         send_message_to_plugin,
         upload_plugin,
+        upload_plugin_from_path,
         delete_uploaded_plugin,
         get_stored_plugins,
         get_plugin_path

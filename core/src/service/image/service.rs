@@ -312,6 +312,87 @@ impl ImageService {
             .map(|(data, format)| self.process_image_parallel(&data, &format))
             .collect()
     }
+
+    /// Crop a region from an image and return as PNG bytes
+    /// Coordinates are in percentage (0-100) relative to image dimensions
+    /// For Point markers, uses a fixed percentage size (10% width/height) centered on the point
+    pub(crate) fn crop_image_region(
+        &self,
+        image_data: &[u8],
+        x: f64,
+        y: f64,
+        width: Option<f64>,
+        height: Option<f64>,
+    ) -> Result<Vec<u8>, String> {
+        use image::ImageFormat as ImgFormat;
+
+        // Load the image
+        let img = image::load_from_memory(image_data)
+            .map_err(|e| format!("Failed to load image: {}", e))?;
+
+        let img_width = img.width() as f64;
+        let img_height = img.height() as f64;
+
+        // Convert percentage coordinates to pixel coordinates
+        let (crop_x, crop_y, crop_width, crop_height) = match (width, height) {
+            (Some(w), Some(h)) => {
+                // Rectangle marker: convert percentage to pixels
+                let px = (x / 100.0 * img_width).max(0.0) as u32;
+                let py = (y / 100.0 * img_height).max(0.0) as u32;
+                let pw = (w / 100.0 * img_width).max(1.0) as u32;
+                let ph = (h / 100.0 * img_height).max(1.0) as u32;
+                (px, py, pw, ph)
+            }
+            _ => {
+                // Point marker: use fixed percentage size (10% of width/height) centered on point
+                const POINT_CROP_PERCENT: f64 = 10.0;
+                let crop_size_w = (POINT_CROP_PERCENT / 100.0 * img_width).max(50.0) as u32; // at least 50px
+                let crop_size_h = (POINT_CROP_PERCENT / 100.0 * img_height).max(50.0) as u32;
+
+                let center_x = (x / 100.0 * img_width) as i32;
+                let center_y = (y / 100.0 * img_height) as i32;
+
+                let half_w = (crop_size_w / 2) as i32;
+                let half_h = (crop_size_h / 2) as i32;
+
+                let px = (center_x - half_w).max(0) as u32;
+                let py = (center_y - half_h).max(0) as u32;
+
+                (px, py, crop_size_w, crop_size_h)
+            }
+        };
+
+        // Ensure crop dimensions are within image bounds
+        let img_width_u32 = img.width();
+        let img_height_u32 = img.height();
+
+        let final_x = crop_x.min(img_width_u32.saturating_sub(1));
+        let final_y = crop_y.min(img_height_u32.saturating_sub(1));
+        let final_width = crop_width.min(img_width_u32 - final_x);
+        let final_height = crop_height.min(img_height_u32 - final_y);
+
+        crate::common::Logger::debug_with_data(
+            "Crop result",
+            serde_json::json!({
+                "crop_region_px": [final_x, final_y, final_width, final_height]
+            })
+        );
+
+        if final_width == 0 || final_height == 0 {
+            return Err("Crop region is empty or out of bounds".to_string());
+        }
+
+        // Crop the image
+        let cropped = img.crop_imm(final_x, final_y, final_width, final_height);
+
+        // Encode as PNG
+        let mut buffer = Vec::new();
+        cropped
+            .write_to(&mut std::io::Cursor::new(&mut buffer), ImgFormat::Png)
+            .map_err(|e| format!("Failed to encode cropped image: {}", e))?;
+
+        Ok(buffer)
+    }
 }
 
 // 实现事件处理器 - 自动处理级联删除

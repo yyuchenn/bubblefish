@@ -645,10 +645,60 @@ class PluginService {
         return derived(this.plugins, $plugins => $plugins.get(pluginId));
     }
 
-    // Upload a plugin file
+    // Upload a plugin via file dialog (desktop only, avoids memory issues with large files)
+    async uploadPluginWithDialog(): Promise<void> {
+        if (!platformService.isTauri()) {
+            throw new Error('File dialog upload is only available on desktop');
+        }
+
+        try {
+            // Use file dialog to select and upload plugin without loading into memory
+            const metadata = await pluginStorageService.savePluginDesktopWithDialog();
+
+            // Extract storage ID and plugin ID from metadata
+            const storageId = metadata.id;
+            const actualPluginId = storageId.replace(/_/g, '-');
+
+            // Check for conflicts
+            const plugins = get(this.plugins);
+            const existingPlugin = plugins.get(actualPluginId);
+
+            if (existingPlugin) {
+                if (existingPlugin.source === 'builtin') {
+                    console.log(`[PluginService] User plugin will override builtin plugin ${existingPlugin.metadata.id}`);
+                    this.removePlugin(existingPlugin.metadata.id);
+                }
+            }
+
+            // Plugin is already loaded by the backend, just add to our store
+            const pluginInfo: PluginInfo = {
+                metadata,
+                enabled: true,
+                loaded: true,
+                isNative: true,
+                source: 'uploaded',
+                storageId: storageId
+            };
+
+            this.plugins.update(plugins => {
+                plugins.set(actualPluginId, pluginInfo);
+                return plugins;
+            });
+
+        } catch (error) {
+            console.error('[PluginService] Failed to upload plugin:', error);
+            throw error;
+        }
+    }
+
+    // Upload a plugin file (legacy method, may cause memory issues with large files)
     async uploadPlugin(file: File): Promise<void> {
         try {
             if (platformService.isTauri()) {
+                // For desktop, prefer uploadPluginWithDialog() for large files
+                // This legacy method loads entire file into memory
+                console.warn('[PluginService] Using legacy upload method. Consider using uploadPluginWithDialog() for large files.');
+
                 // Desktop: validate file extension
                 const platform = platformService.getPlatform();
                 let expectedExt = '.dylib';
@@ -657,22 +707,22 @@ class PluginService {
                 } else if (platform === 'windows') {
                     expectedExt = '.dll';
                 }
-                
+
                 if (!file.name.endsWith(expectedExt)) {
                     throw new Error(`Invalid plugin file. Expected ${expectedExt} file for ${platform}`);
                 }
-                
+
                 // Check for conflicts BEFORE uploading
                 // First, try to extract plugin ID from filename to check conflicts
                 const tempStorageId = file.name
                     .replace(/^lib/, '')
                     .replace(/\.(dylib|so|dll)$/, '');
-                
+
                 // Check if there's an existing plugin with this ID
                 const plugins = get(this.plugins);
                 let existingPlugin: PluginInfo | undefined = undefined;
                 let shouldUnloadFirst = false;
-                
+
                 // Try to find existing plugin by matching storage ID pattern
                 for (const [id, plugin] of plugins) {
                     if (plugin.storageId === tempStorageId || id === tempStorageId.replace(/_/g, '-')) {
@@ -680,7 +730,7 @@ class PluginService {
                         break;
                     }
                 }
-                
+
                 if (existingPlugin) {
                     if (existingPlugin.source === 'builtin') {
                         // Overriding a builtin plugin
@@ -696,16 +746,16 @@ class PluginService {
                         existingPlugin = undefined; // It's been deleted
                     }
                 }
-                
+
                 // Now upload and load the plugin
                 const metadata = await pluginStorageService.savePlugin(file);
-                
+
                 // If we need to unload a builtin plugin, do it after loading the new one
                 if (shouldUnloadFirst && existingPlugin) {
                     // Just remove from frontend store, don't unload from backend
                     this.removePlugin(existingPlugin.metadata.id);
                 }
-                
+
                 // Extract storage ID from filename (keep full name for storage)
                 const storageId = file.name
                     .replace(/^lib/, '')
@@ -729,7 +779,7 @@ class PluginService {
                     plugins.set(actualPluginId, pluginInfo);
                     return plugins;
                 });
-                
+
             } else {
                 // Web: validate ZIP file
                 if (!file.name.endsWith('.zip')) {

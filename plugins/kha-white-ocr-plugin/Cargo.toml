@@ -1,0 +1,53 @@
+[workspace]
+
+[package]
+name = "kha-white-ocr-plugin"
+version = "0.1.0"
+edition = "2021"
+authors = ["Bubblefish Team"]
+description = "Kha White OCR plugin with ONNX model for Bubblefish"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+bubblefish-plugin-sdk = { path = "../plugin-sdk", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+once_cell = "1.17"
+image = "0.25"
+ndarray = "0.16"
+regex = "1.10"
+anyhow = "1.0"
+
+[dependencies.ort]
+version = "2.0.0-rc.10"
+default-features = false
+features = ["download-binaries"]
+
+[features]
+default = []
+wasm = ["bubblefish-plugin-sdk/wasm", "wasm-bindgen", "web-sys", "js-sys", "getrandom", "serde-wasm-bindgen"]
+native = ["bubblefish-plugin-sdk/native"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.wasm-bindgen]
+version = "0.2"
+optional = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
+version = "0.3"
+features = ["console"]
+optional = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.js-sys]
+version = "0.3"
+optional = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.getrandom]
+version = "0.2"
+features = ["js"]
+optional = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.serde-wasm-bindgen]
+version = "0.6"
+optional = true
