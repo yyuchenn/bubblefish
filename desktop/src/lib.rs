@@ -942,6 +942,7 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
         .build()?;
 
     // 创建编辑菜单
+    use tauri::menu::PredefinedMenuItem;
     let edit_menu = SubmenuBuilder::new(app, "编辑")
         .item(&MenuItemBuilder::new("撤销")
             .id("undo")
@@ -951,6 +952,11 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
             .id("redo")
             .accelerator("CmdOrCtrl+Shift+Z")
             .build(app)?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(app, None)?)
+        .item(&PredefinedMenuItem::copy(app, None)?)
+        .item(&PredefinedMenuItem::paste(app, None)?)
+        .item(&PredefinedMenuItem::select_all(app, None)?)
         .separator()
         .item(&MenuItemBuilder::new("上一个标记")
             .id("prev-marker")
@@ -1076,7 +1082,7 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
                 if cfg!(debug_assertions) {
                     println!("Unknown menu event: {}", event.id().0);
                 }
-                return; // 忽略未知的菜单项
+                return;
             }
         };
 
