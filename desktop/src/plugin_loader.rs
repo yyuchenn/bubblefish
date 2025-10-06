@@ -32,6 +32,12 @@ struct LoadedPlugin {
     enabled: bool,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct PluginSummary {
+    metadata: PluginMetadata,
+    enabled: bool,
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PluginMetadata {
     pub id: String,
@@ -55,6 +61,37 @@ impl PluginLoader {
         Self {
             plugins: Arc::new(Mutex::new(HashMap::new())),
             _app_handle: app_handle,
+        }
+    }
+
+    fn collect_plugin_summaries(&self) -> Vec<PluginSummary> {
+        let plugins = self.plugins.lock().unwrap();
+        plugins
+            .values()
+            .map(|plugin| PluginSummary {
+                metadata: plugin.metadata.clone(),
+                enabled: plugin.enabled,
+            })
+            .collect()
+    }
+
+    fn emit_plugin_event(
+        &self,
+        kind: &str,
+        plugin_id: Option<String>,
+        plugin_metadata: Option<PluginMetadata>,
+    ) {
+        let payload = serde_json::json!({
+            "kind": kind,
+            "plugin_id": plugin_id,
+            "plugin": plugin_metadata,
+            "plugins": self.collect_plugin_summaries(),
+        });
+
+        if let Err(err) = bubblefish_core::common::EVENT_SYSTEM
+            .emit_business_event("plugins:changed".to_string(), payload)
+        {
+            log::warn!("Failed to emit plugin change event: {:?}", err);
         }
     }
     
@@ -309,6 +346,9 @@ impl PluginLoader {
                 log::info!("Replaced existing plugin with ID: {}", stored_id);
             }
             
+            let event_metadata = metadata.clone();
+            let event_plugin_id = event_metadata.id.clone();
+
             plugins.insert(
                 stored_id,
                 LoadedPlugin {
@@ -318,6 +358,10 @@ impl PluginLoader {
                 },
             );
 
+            drop(plugins);
+
+            self.emit_plugin_event("loaded", Some(event_plugin_id), Some(event_metadata));
+
             Ok(metadata)
         }
     }
@@ -325,7 +369,8 @@ impl PluginLoader {
     /// Unload a plugin
     pub fn unload_plugin(&self, plugin_id: &str) -> Result<(), String> {
         let mut plugins = self.plugins.lock().unwrap();
-        
+        let metadata_snapshot = plugins.get(plugin_id).map(|p| p.metadata.clone());
+
         if let Some(plugin) = plugins.get(plugin_id) {
             unsafe {
                 // Call destroy before unloading
@@ -335,7 +380,18 @@ impl PluginLoader {
             }
         }
 
-        plugins.remove(plugin_id);
+        let removed = plugins.remove(plugin_id);
+
+        drop(plugins);
+
+        if removed.is_some() {
+            self.emit_plugin_event(
+                "unloaded",
+                Some(plugin_id.to_string()),
+                metadata_snapshot,
+            );
+        }
+
         Ok(())
     }
 
@@ -404,6 +460,8 @@ impl PluginLoader {
     /// Enable/disable plugin
     pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) -> Result<(), String> {
         let mut plugins = self.plugins.lock().unwrap();
+        let mut metadata_snapshot = None;
+        let mut changed = false;
         
         if let Some(plugin) = plugins.get_mut(plugin_id) {
             if enabled && !plugin.enabled {
@@ -416,6 +474,8 @@ impl PluginLoader {
                         }
                     }
                 }
+                plugin.enabled = true;
+                changed = true;
             } else if !enabled && plugin.enabled {
                 // Deactivate plugin
                 unsafe {
@@ -426,9 +486,20 @@ impl PluginLoader {
                         }
                     }
                 }
+                plugin.enabled = false;
+                changed = true;
             }
-            
-            plugin.enabled = enabled;
+
+            if changed {
+                metadata_snapshot = Some(plugin.metadata.clone());
+            }
+        }
+
+        drop(plugins);
+
+        if changed {
+            let kind = if enabled { "enabled" } else { "disabled" };
+            self.emit_plugin_event(kind, Some(plugin_id.to_string()), metadata_snapshot);
         }
 
         Ok(())

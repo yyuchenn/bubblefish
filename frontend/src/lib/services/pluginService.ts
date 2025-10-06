@@ -2,6 +2,7 @@ import { writable, derived, get } from 'svelte/store';
 import { pluginBridge } from './pluginBridge';
 import { platformService } from './platformService';
 import { pluginStorageService } from './pluginStorageService';
+import { eventService } from './eventService';
 import { invoke } from '@tauri-apps/api/core';
 import { fetchWasmResource } from '../utils/wasmLoader';
 
@@ -34,6 +35,18 @@ export interface CoreEvent {
     [key: string]: any;
 }
 
+interface PluginRegistrySnapshotEntry {
+    metadata: PluginMetadata;
+    enabled: boolean;
+}
+
+interface PluginChangeEventData {
+    kind?: string;
+    plugin_id?: string;
+    plugin?: PluginMetadata;
+    plugins?: PluginRegistrySnapshotEntry[];
+}
+
 const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
 
 // Builtin plugins list with versions - keep in sync with plugins/plugins.conf.json
@@ -56,6 +69,7 @@ class PluginService {
     private plugins = writable<Map<string, PluginInfo>>(new Map());
     private workers = new Map<string, Worker>();
     private serviceCallHandlers = new Map<Worker, Map<number, any>>();
+    private pluginEventsUnsubscribe?: () => void;
 
     /**
      * Convert plugin filename to plugin ID
@@ -76,6 +90,7 @@ class PluginService {
         this.initializeEventBridge();
         // Only restore state in browser environment
         if (typeof window !== 'undefined') {
+            this.subscribeToPluginEvents();
             // Load builtin plugins first, then user plugins
             this.initializePlugins().catch(console.error);
         }
@@ -95,6 +110,73 @@ class PluginService {
         pluginBridge.subscribeToEvent('*', (event) => {
             this.dispatchEventToPlugins(event);
         });
+    }
+
+    private subscribeToPluginEvents() {
+        if (this.pluginEventsUnsubscribe) {
+            return;
+        }
+
+        this.pluginEventsUnsubscribe = eventService.onBusinessEvent(event => {
+            if (event.event_name === 'plugins:changed') {
+                this.handleBackendPluginChange(event.data).catch(error => {
+                    console.error('[PluginService] Failed to handle plugin change event:', error);
+                });
+            }
+        });
+    }
+
+    private async handleBackendPluginChange(data: unknown): Promise<void> {
+        if (!platformService.isTauri()) {
+            return;
+        }
+
+        const payload = data as PluginChangeEventData | null;
+        if (!payload || !Array.isArray(payload.plugins)) {
+            return;
+        }
+
+        try {
+            const storedPlugins = await invoke<any[]>('get_stored_plugins');
+            const storageMap = new Map<string, string>();
+
+            if (Array.isArray(storedPlugins)) {
+                storedPlugins.forEach(info => {
+                    if (info && typeof info.id === 'string') {
+                        const normalizedId = info.id.replace(/_/g, '-');
+                        storageMap.set(normalizedId, info.id);
+                    }
+                });
+            }
+
+            const pluginMap = new Map<string, PluginInfo>();
+
+            for (const entry of payload.plugins as PluginRegistrySnapshotEntry[]) {
+                if (!entry || !entry.metadata || typeof entry.metadata.id !== 'string') {
+                    continue;
+                }
+
+                const metadata = entry.metadata;
+                const pluginId = metadata.id;
+                const storageId = storageMap.get(pluginId);
+                const isBuiltin = BUILTIN_PLUGINS.some(p => p.id === pluginId);
+                const source: PluginSource = isBuiltin ? 'builtin' : storageId ? 'uploaded' : 'external';
+
+                pluginMap.set(pluginId, {
+                    metadata,
+                    enabled: Boolean(entry.enabled),
+                    loaded: true,
+                    isNative: true,
+                    source,
+                    storageId
+                });
+            }
+
+            this.plugins.set(pluginMap);
+            this.savePluginState();
+        } catch (error) {
+            console.error('[PluginService] Failed to synchronize plugins from backend event:', error);
+        }
     }
 
     // Helper method to update plugin properties with reactivity

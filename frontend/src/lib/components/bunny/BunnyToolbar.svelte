@@ -2,19 +2,29 @@
 	import { bunnySettings, selectedMarkerIds } from '$lib/stores/bunnyStore';
 	import { bunnyService } from '$lib/services/bunnyService';
 	import { coreAPI, type OCRServiceInfo, type TranslationServiceInfo } from '$lib/core/adapter';
-	import { onMount } from 'svelte';
+	import { pluginService, type PluginInfo } from '$lib/services/pluginService';
+	import { eventService } from '$lib/services/eventService';
+	import { get } from 'svelte/store';
+	import { onDestroy, onMount } from 'svelte';
 
 	// Dynamic service lists from plugins - start empty
 	let ocrServices: { value: string; label: string }[] = [];
 	let translationServices: { value: string; label: string }[] = [];
+	let pluginEventsUnsubscribe: (() => void) | undefined;
+	let pluginStoreUnsubscribe: (() => void) | undefined;
+	let enabledPluginIds: Set<string> = new Set();
 
 	// Load available services from plugins
 	async function loadAvailableServices() {
 		try {
 			// Get OCR services from plugins only
 			const ocrServiceList = await coreAPI.getAvailableOCRServices();
-			if (ocrServiceList && ocrServiceList.length > 0) {
-				ocrServices = ocrServiceList.map((service: OCRServiceInfo) => ({
+			const filteredOCR = (ocrServiceList || []).filter((service: OCRServiceInfo) => {
+				return !service.plugin_id || enabledPluginIds.has(service.plugin_id);
+			});
+
+			if (filteredOCR.length > 0) {
+				ocrServices = filteredOCR.map((service: OCRServiceInfo) => ({
 					value: service.id,
 					label: service.name
 				}));
@@ -24,8 +34,12 @@
 
 			// Get translation services from plugins only
 			const translationServiceList = await coreAPI.getAvailableTranslationServices();
-			if (translationServiceList && translationServiceList.length > 0) {
-				translationServices = translationServiceList.map((service: TranslationServiceInfo) => ({
+			const filteredTranslation = (translationServiceList || []).filter((service: TranslationServiceInfo) => {
+				return !service.plugin_id || enabledPluginIds.has(service.plugin_id);
+			});
+
+			if (filteredTranslation.length > 0) {
+				translationServices = filteredTranslation.map((service: TranslationServiceInfo) => ({
 					value: service.id,
 					label: service.name
 				}));
@@ -39,19 +53,45 @@
 	}
 
 	onMount(() => {
-		// Try to load plugin services after a short delay to ensure initialization
-		setTimeout(() => {
-			loadAvailableServices();
-		}, 500);
+		const pluginsStore = pluginService.getPlugins();
+		const initialPlugins = get(pluginsStore) as PluginInfo[];
+		enabledPluginIds = new Set(
+			initialPlugins
+				.filter(plugin => plugin.enabled)
+				.map(plugin => plugin.metadata.id)
+		);
 
-		// Reload services periodically when plugins are loaded/unloaded
-		const reloadInterval = setInterval(() => {
+		pluginStoreUnsubscribe = pluginsStore.subscribe((pluginList: PluginInfo[]) => {
+			enabledPluginIds = new Set(
+				pluginList
+					.filter(plugin => plugin.enabled)
+					.map(plugin => plugin.metadata.id)
+			);
 			loadAvailableServices();
-		}, 1000);
+		});
 
-		return () => {
-			clearInterval(reloadInterval);
-		};
+		pluginEventsUnsubscribe = eventService.onBusinessEvent(event => {
+			if (
+				event.event_name === 'plugins:bunny_services_updated' ||
+				event.event_name === 'plugins:changed'
+			) {
+				loadAvailableServices();
+			}
+		});
+
+		loadAvailableServices();
+	});
+
+	onDestroy(() => {
+		if (pluginEventsUnsubscribe) {
+			pluginEventsUnsubscribe();
+			pluginEventsUnsubscribe = undefined;
+		}
+
+		if (pluginStoreUnsubscribe) {
+			pluginStoreUnsubscribe();
+			pluginStoreUnsubscribe = undefined;
+		}
 	});
 	
 	async function runOCR() {

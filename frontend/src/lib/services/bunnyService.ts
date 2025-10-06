@@ -10,11 +10,22 @@ import { projectStore } from '../stores/projectStore';
 
 class BunnyService {
 	private initialized = false;
+	private enabledPluginIds: Set<string> = new Set();
+	private pluginStoreUnsubscribe: (() => void) | null = null;
 
 	async initialize() {
 		if (this.initialized) return;
 
 		try {
+			if (!this.pluginStoreUnsubscribe) {
+				const pluginStore = pluginService.getPlugins();
+				this.pluginStoreUnsubscribe = pluginStore.subscribe(pluginList => {
+					this.enabledPluginIds = new Set(
+						pluginList.filter(plugin => plugin.enabled).map(plugin => plugin.metadata.id)
+					);
+				});
+			}
+
 			// Subscribe to business events from backend and plugins
 			eventService.onBusinessEvent((event) => {
 				if (event && event.event_name) {
@@ -36,6 +47,11 @@ class BunnyService {
 			eventService.error('Failed to initialize Bunny service', error);
 			throw error;
 		}
+	}
+
+	private isPluginEnabled(pluginId?: string): boolean {
+		if (!pluginId) return true;
+		return this.enabledPluginIds.has(pluginId);
 	}
 
 	private handleMarkersLoaded(data: any) {
@@ -179,7 +195,7 @@ class BunnyService {
 			const ocrServices = await coreAPI.getAvailableOCRServices();
 			const serviceInfo = ocrServices.find(s => s.id === service_id);
 
-			if (!serviceInfo) {
+			if (!serviceInfo || !this.isPluginEnabled(serviceInfo.plugin_id)) {
 				throw new Error(`OCR service '${service_id}' not found`);
 			}
 
@@ -213,7 +229,7 @@ class BunnyService {
 			const translationServices = await coreAPI.getAvailableTranslationServices();
 			const serviceInfo = translationServices.find(s => s.id === service_id);
 
-			if (!serviceInfo) {
+			if (!serviceInfo || !this.isPluginEnabled(serviceInfo.plugin_id)) {
 				throw new Error(`Translation service '${service_id}' not found`);
 			}
 
@@ -391,6 +407,11 @@ class BunnyService {
 	// Cleanup
 	destroy() {
 		this.initialized = false;
+		if (this.pluginStoreUnsubscribe) {
+			this.pluginStoreUnsubscribe();
+			this.pluginStoreUnsubscribe = null;
+		}
+		this.enabledPluginIds.clear();
 		bunnyStore.reset();
 	}
 }
