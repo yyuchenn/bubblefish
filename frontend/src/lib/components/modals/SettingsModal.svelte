@@ -2,7 +2,7 @@
 	import Modal from './Modal.svelte';
 	import { currentTheme, availableThemes, themeActions } from '$lib/stores/themeStore';
 	import { platformService } from '$lib/services/platformService';
-	import { 
+	import {
 		updaterService,
 		updateInfo,
 		updateSettings,
@@ -12,6 +12,7 @@
 		UPDATE_SOURCE_NAMES,
 		type UpdateSource
 	} from '$lib/services/updaterService';
+	import PluginSettings from '../settings/PluginSettings.svelte';
 	import { onMount } from 'svelte';
 	
 	const {
@@ -22,7 +23,7 @@
 		onClose?: () => void;
 	}>();
 	
-	let activeTab = $state<'appearance' | 'editor' | 'update'>('appearance');
+	let activeTab = $state<'appearance' | 'editor' | 'plugins' | 'update'>('appearance');
 
 	function handleClose() {
 		onClose();
@@ -86,6 +87,12 @@
 				>
 					编辑器
 				</button>
+				<button
+					class="px-4 py-2 rounded-md transition-colors {activeTab === 'plugins' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
+					onclick={() => activeTab = 'plugins'}
+				>
+					插件
+				</button>
 				{#if platformService.isTauri()}
 					<button
 						class="px-4 py-2 rounded-md transition-colors {activeTab === 'update' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
@@ -133,6 +140,8 @@
 					<h3 class="text-lg font-semibold text-theme-on-background mb-4">编辑器设置</h3>
 					<p class="text-sm text-theme-on-surface-variant">更多设置选项即将推出...</p>
 				</div>
+			{:else if activeTab === 'plugins'}
+				<PluginSettings />
 			{:else if activeTab === 'update'}
 				<div class="space-y-6">
 					<div>

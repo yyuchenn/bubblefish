@@ -4,6 +4,7 @@ use serde_json::Value;
 pub mod services;
 pub mod events;
 pub mod bunny;
+pub mod config;
 
 #[cfg(feature = "wasm")]
 pub mod shared_buffer;
@@ -14,6 +15,7 @@ pub mod native;
 pub use services::*;
 pub use events::*;
 pub use bunny::*;
+pub use config::*;
 
 #[cfg(feature = "wasm")]
 pub use shared_buffer::*;
@@ -26,6 +28,8 @@ pub struct PluginMetadata {
     pub description: String,
     pub author: String,
     pub subscribed_events: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<ConfigSchema>,
 }
 
 /// 增强的Plugin trait - 支持完整的服务访问和事件系统
@@ -63,6 +67,7 @@ macro_rules! plugin_metadata {
             description: env!("CARGO_PKG_DESCRIPTION").to_string(),
             author: env!("CARGO_PKG_AUTHORS").to_string(),
             subscribed_events: vec![],
+            config_schema: None,
         }
     };
     ($($event:expr),* $(,)?) => {
@@ -73,6 +78,34 @@ macro_rules! plugin_metadata {
             description: env!("CARGO_PKG_DESCRIPTION").to_string(),
             author: env!("CARGO_PKG_AUTHORS").to_string(),
             subscribed_events: vec![$($event.to_string()),*],
+            config_schema: None,
+        }
+    };
+}
+
+/// 用于生成带配置的 PluginMetadata 的宏
+#[macro_export]
+macro_rules! plugin_metadata_with_config {
+    ($schema:expr) => {
+        $crate::PluginMetadata {
+            id: env!("CARGO_PKG_NAME").to_string(),
+            name: env!("CARGO_PKG_NAME").to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            description: env!("CARGO_PKG_DESCRIPTION").to_string(),
+            author: env!("CARGO_PKG_AUTHORS").to_string(),
+            subscribed_events: vec![],
+            config_schema: Some($schema),
+        }
+    };
+    ($schema:expr, $($event:expr),* $(,)?) => {
+        $crate::PluginMetadata {
+            id: env!("CARGO_PKG_NAME").to_string(),
+            name: env!("CARGO_PKG_NAME").to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            description: env!("CARGO_PKG_DESCRIPTION").to_string(),
+            author: env!("CARGO_PKG_AUTHORS").to_string(),
+            subscribed_events: vec![$($event.to_string()),*],
+            config_schema: Some($schema),
         }
     };
 }

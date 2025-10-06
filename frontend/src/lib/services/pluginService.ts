@@ -5,6 +5,8 @@ import { pluginStorageService } from './pluginStorageService';
 import { invoke } from '@tauri-apps/api/core';
 import { fetchWasmResource } from '../utils/wasmLoader';
 
+import type { ConfigSchema } from './pluginConfigService';
+
 export interface PluginMetadata {
     id: string;
     name: string;
@@ -12,6 +14,7 @@ export interface PluginMetadata {
     description: string;
     author: string;
     subscribed_events: string[];
+    config_schema?: ConfigSchema;
 }
 
 export type PluginSource = 'builtin' | 'uploaded' | 'external';  // external for future use (e.g., from URL)
@@ -35,7 +38,8 @@ const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
 
 // Builtin plugins list with versions - keep in sync with plugins/plugins.conf.json
 const BUILTIN_PLUGINS = [
-    { id: 'marker-logger-plugin', version: '1.0.0' }
+    { id: 'marker-logger-plugin', version: '1.0.0' },
+    { id: 'doubao-translation-plugin', version: '0.1.0' }
 ];
 
 interface PluginState {

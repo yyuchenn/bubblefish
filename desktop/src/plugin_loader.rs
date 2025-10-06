@@ -40,6 +40,8 @@ pub struct PluginMetadata {
     pub description: String,
     pub author: String,
     pub subscribed_events: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<serde_json::Value>,
 }
 
 /// Plugin loader manages all native plugins
@@ -455,6 +457,7 @@ impl PluginLoader {
             "files" => self.handle_file_service(method, params),
             "bunny" => self.handle_bunny_service(method, params),
             "events" => self.handle_events_service(method, params),
+            "config" => self.handle_config_service(method, params),
             _ => Err(format!("Unknown service: {}", service)),
         }
     }
@@ -758,6 +761,101 @@ impl PluginLoader {
                 Ok(serde_json::json!({"success": true}))
             }
             _ => Err(format!("Unknown events method: {}", method)),
+        }
+    }
+
+    fn handle_config_service(&self, method: &str, params: &Value) -> Result<Value, String> {
+        // Bridge to frontend config service through Tauri state
+        // We use a file-based config storage for native plugins
+        use std::fs;
+
+        let plugin_id = params["plugin_id"].as_str()
+            .or_else(|| params["pluginId"].as_str())
+            .ok_or("Missing plugin_id")?;
+
+        // Get app data directory for config storage
+        let config_dir = self._app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {}", e))?
+            .join("plugin_configs");
+
+        // Ensure config directory exists
+        if !config_dir.exists() {
+            fs::create_dir_all(&config_dir)
+                .map_err(|e| format!("Failed to create config dir: {}", e))?;
+        }
+
+        let config_file = config_dir.join(format!("{}.json", plugin_id));
+
+        match method {
+            "get" => {
+                let key = params["key"].as_str();
+
+                // Read config from file
+                if config_file.exists() {
+                    let config_str = fs::read_to_string(&config_file)
+                        .map_err(|e| format!("Failed to read config file: {}", e))?;
+
+                    let config: Value = serde_json::from_str(&config_str)
+                        .map_err(|e| format!("Failed to parse config: {}", e))?;
+
+                    if let Some(key) = key {
+                        Ok(config.get(key).unwrap_or(&Value::Null).clone())
+                    } else {
+                        Ok(config)
+                    }
+                } else {
+                    // No config file yet, return empty or null
+                    if key.is_some() {
+                        Ok(Value::Null)
+                    } else {
+                        Ok(serde_json::json!({}))
+                    }
+                }
+            }
+            "set" => {
+                let config = params.get("config");
+                let key = params.get("key").and_then(|v| v.as_str());
+                let value = params.get("value");
+
+                if let Some(config) = config {
+                    // Set entire config
+                    let config_str = serde_json::to_string_pretty(config)
+                        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+                    fs::write(&config_file, config_str)
+                        .map_err(|e| format!("Failed to write config file: {}", e))?;
+                } else if let (Some(key), Some(value)) = (key, value) {
+                    // Update single key
+                    let mut config = if config_file.exists() {
+                        let config_str = fs::read_to_string(&config_file)
+                            .map_err(|e| format!("Failed to read config file: {}", e))?;
+                        serde_json::from_str(&config_str)
+                            .unwrap_or_else(|_| serde_json::json!({}))
+                    } else {
+                        serde_json::json!({})
+                    };
+
+                    config[key] = value.clone();
+
+                    let config_str = serde_json::to_string_pretty(&config)
+                        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+                    fs::write(&config_file, config_str)
+                        .map_err(|e| format!("Failed to write config file: {}", e))?;
+                } else {
+                    return Err("Either config or key-value pair required".to_string());
+                }
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "delete" => {
+                if config_file.exists() {
+                    fs::remove_file(&config_file)
+                        .map_err(|e| format!("Failed to delete config file: {}", e))?;
+                }
+                Ok(serde_json::json!({"success": true}))
+            }
+            _ => Err(format!("Unknown config method: {}", method)),
         }
     }
 }

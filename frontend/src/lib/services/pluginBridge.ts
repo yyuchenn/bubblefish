@@ -5,6 +5,7 @@ import { projectStore } from '../stores/projectStore';
 import { imageStore } from '../stores/imageStore';
 import { isTauri } from '../core/tauri';
 import { eventService } from './eventService';
+import { pluginConfigService } from './pluginConfigService';
 
 export interface ServiceCallRequest {
     pluginId: string;
@@ -409,6 +410,50 @@ class PluginBridge {
 
                 default:
                     throw new Error(`Unknown bunny method: ${method}`);
+            }
+        });
+
+        // Config服务 - 插件配置管理
+        this.serviceHandlers.set('config', async (method: string, params: any) => {
+            const pluginId = params.plugin_id || params.pluginId;
+            if (!pluginId) {
+                throw new Error('plugin_id is required for config service');
+            }
+
+            switch (method) {
+                case 'get': {
+                    const key = params.key;
+                    if (key) {
+                        return pluginConfigService.getConfigValue(pluginId, key);
+                    }
+                    return pluginConfigService.getConfig(pluginId);
+                }
+
+                case 'set': {
+                    const { config, key, value } = params;
+                    if (config) {
+                        pluginConfigService.setConfig(pluginId, config);
+                    } else if (key !== undefined) {
+                        pluginConfigService.updateConfigValue(pluginId, key, value);
+                    } else {
+                        throw new Error('Either config object or key-value pair required');
+                    }
+                    return { success: true };
+                }
+
+                case 'delete': {
+                    pluginConfigService.deleteConfig(pluginId);
+                    return { success: true };
+                }
+
+                case 'subscribe': {
+                    // Note: Subscription is handled differently for plugins
+                    // They will get config updates through plugin messages
+                    return { success: true, message: 'Use plugin message events for config updates' };
+                }
+
+                default:
+                    throw new Error(`Unknown config method: ${method}`);
             }
         });
 

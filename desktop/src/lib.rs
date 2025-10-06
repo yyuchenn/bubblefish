@@ -669,6 +669,57 @@ async fn get_plugin_path(app_handle: tauri::AppHandle, plugin_id: String) -> Res
     Ok(storage.get_plugin_path(&plugin_id).and_then(|p| p.to_str().map(|s| s.to_string())))
 }
 
+// Plugin configuration commands
+#[tauri::command]
+async fn get_plugin_config(app_handle: tauri::AppHandle, plugin_id: String) -> Result<serde_json::Value, String> {
+    use std::fs;
+
+    let config_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?
+        .join("plugin_configs");
+
+    let config_file = config_dir.join(format!("{}.json", plugin_id));
+
+    if config_file.exists() {
+        let config_str = fs::read_to_string(&config_file)
+            .map_err(|e| format!("Failed to read config file: {}", e))?;
+
+        serde_json::from_str(&config_str)
+            .map_err(|e| format!("Failed to parse config: {}", e))
+    } else {
+        Ok(serde_json::json!({}))
+    }
+}
+
+#[tauri::command]
+async fn set_plugin_config(app_handle: tauri::AppHandle, plugin_id: String, config: serde_json::Value) -> Result<(), String> {
+    use std::fs;
+
+    let config_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?
+        .join("plugin_configs");
+
+    // Ensure config directory exists
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create config dir: {}", e))?;
+    }
+
+    let config_file = config_dir.join(format!("{}.json", plugin_id));
+
+    let config_str = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    fs::write(&config_file, config_str)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+    Ok(())
+}
+
 use std::sync::Mutex;
 
 // 存储待打开的文件路径
@@ -845,7 +896,9 @@ pub fn run() {
         upload_plugin_from_path,
         delete_uploaded_plugin,
         get_stored_plugins,
-        get_plugin_path
+        get_plugin_path,
+        get_plugin_config,
+        set_plugin_config
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")

@@ -1,15 +1,15 @@
 use bubblefish_plugin_sdk::{
     Plugin, PluginContext, ServiceProxyManager, CoreEvent, PluginMetadata,
-    plugin_metadata, export_plugin
+    plugin_metadata_with_config, export_plugin,
+    ConfigSchema, ConfigField, SelectOption, ConfigValidation
 };
 use serde_json::Value;
 use serde::{Deserialize, Serialize};
 
-const API_KEY: &str = include_str!("../api_key");
 const API_ENDPOINT: &str = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
-const MODEL: &str = "doubao-seed-1-6-250615";
+const DEFAULT_MODEL: &str = "doubao-seed-1-6-250615";
 
-const SYSTEM_PROMPT_TEMPLATE: &str = "你是一个专业的{source_lang}到{target_lang}的漫画翻译。请只输出翻译后的文本，不要任何解释或额外信息。";
+const DEFAULT_SYSTEM_PROMPT: &str = "你是一个专业的{source_lang}到{target_lang}的漫画翻译。请只输出翻译后的文本，不要任何解释或额外信息。";
 
 fn normalize_language_name(lang: &str) -> &str {
     match lang {
@@ -77,10 +77,80 @@ impl DoubaoTranslationPlugin {
         println!("[DoubaoTranslation] {}", message);
     }
 
+    fn get_api_key(&self) -> Result<String, String> {
+        if let Some(ctx) = &self.context {
+            // Get API key from config service
+            match ctx.call_service("config", "get", serde_json::json!({
+                "plugin_id": ctx.plugin_id.clone(),
+                "key": "api_key"
+            })) {
+                Ok(value) => {
+                    if let Some(api_key) = value.as_str() {
+                        if !api_key.is_empty() {
+                            return Ok(api_key.to_string());
+                        }
+                    }
+                    Err("API Key not configured. Please configure it in Settings > Plugins.".to_string())
+                }
+                Err(e) => {
+                    self.log(&format!("Failed to get API key from config: {}", e));
+                    Err("Failed to retrieve API key from configuration".to_string())
+                }
+            }
+        } else {
+            Err("Plugin context not initialized".to_string())
+        }
+    }
+
+    fn get_model(&self) -> String {
+        if let Some(ctx) = &self.context {
+            // Get model from config service, fallback to default
+            match ctx.call_service("config", "get", serde_json::json!({
+                "plugin_id": ctx.plugin_id.clone(),
+                "key": "model"
+            })) {
+                Ok(value) => {
+                    if let Some(model) = value.as_str() {
+                        if !model.is_empty() {
+                            return model.to_string();
+                        }
+                    }
+                    DEFAULT_MODEL.to_string()
+                }
+                Err(_) => DEFAULT_MODEL.to_string()
+            }
+        } else {
+            DEFAULT_MODEL.to_string()
+        }
+    }
+
+    fn get_system_prompt_template(&self) -> String {
+        if let Some(ctx) = &self.context {
+            // Get custom prompt from config service, fallback to default
+            match ctx.call_service("config", "get", serde_json::json!({
+                "plugin_id": ctx.plugin_id.clone(),
+                "key": "system_prompt"
+            })) {
+                Ok(value) => {
+                    if let Some(prompt) = value.as_str() {
+                        if !prompt.is_empty() {
+                            return prompt.to_string();
+                        }
+                    }
+                    DEFAULT_SYSTEM_PROMPT.to_string()
+                }
+                Err(_) => DEFAULT_SYSTEM_PROMPT.to_string()
+            }
+        } else {
+            DEFAULT_SYSTEM_PROMPT.to_string()
+        }
+    }
+
     fn build_system_prompt(&self, source_lang: Option<&str>, target_lang: &str) -> String {
         let source = normalize_language_name(source_lang.unwrap_or("auto"));
         let target = normalize_language_name(target_lang);
-        SYSTEM_PROMPT_TEMPLATE
+        let template = self.get_system_prompt_template();
+        template
             .replace("{source_lang}", source)
             .replace("{target_lang}", target)
     }
@@ -91,8 +161,12 @@ impl DoubaoTranslationPlugin {
         use wasm_bindgen_futures::JsFuture;
         use web_sys::{Request, RequestInit, RequestMode, Response, Headers};
 
+        // Get API key first
+        let api_key = self.get_api_key()?;
+        let model = self.get_model();
+
         let request_body = ChatRequest {
-            model: MODEL.to_string(),
+            model,
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
@@ -123,7 +197,7 @@ impl DoubaoTranslationPlugin {
             .map_err(|e| format!("Failed to create headers: {:?}", e))?;
         headers.set("Content-Type", "application/json")
             .map_err(|e| format!("Failed to set Content-Type: {:?}", e))?;
-        headers.set("Authorization", &format!("Bearer {}", API_KEY))
+        headers.set("Authorization", &format!("Bearer {}", api_key))
             .map_err(|e| format!("Failed to set Authorization: {:?}", e))?;
 
         let window = web_sys::window().ok_or("No window object")?;
@@ -150,10 +224,14 @@ impl DoubaoTranslationPlugin {
 
     #[cfg(not(target_arch = "wasm32"))]
     fn call_doubao_api_sync(&self, system_prompt: &str, user_text: &str) -> Result<String, String> {
+        // Get API key first
+        let api_key = self.get_api_key()?;
+        let model = self.get_model();
+
         let client = reqwest::blocking::Client::new();
 
         let request_body = ChatRequest {
-            model: MODEL.to_string(),
+            model,
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
@@ -172,7 +250,7 @@ impl DoubaoTranslationPlugin {
         let response = client
             .post(API_ENDPOINT)
             .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", API_KEY))
+            .header("Authorization", format!("Bearer {}", api_key))
             .json(&request_body)
             .send()
             .map_err(|e| format!("Request failed: {}", e))?;
@@ -361,7 +439,41 @@ impl Plugin for DoubaoTranslationPlugin {
     }
 
     fn get_metadata(&self) -> PluginMetadata {
-        plugin_metadata!("*")
+        let config_schema = ConfigSchema::simple(vec![
+            ConfigField::password("api_key", "API Key")
+                .required()
+                .with_placeholder("请输入 Doubao API Key")
+                .with_help("从 Volcano Engine 控制台获取的 API Key")
+                .with_validation(vec![ConfigValidation::MinLength(10)]),
+
+            ConfigField::select(
+                "model",
+                "模型选择",
+                vec![
+                    SelectOption {
+                        value: "doubao-seed-1-6-250615".to_string(),
+                        label: "Doubao Seed 1.6".to_string()
+                    },
+                    SelectOption {
+                        value: "doubao-seed-1-6-flash-250828".to_string(),
+                        label: "Doubao Seed 1.6 Flash".to_string()
+                    },
+                    SelectOption {
+                        value: "doubao-1-5-pro-32k-250115".to_string(),
+                        label: "Doubao 1.5 Pro 32K".to_string()
+                    }
+                ]
+            )
+            .with_default("doubao-seed-1-6-250615")
+            .with_help("选择要使用的 Doubao 模型"),
+
+            ConfigField::textarea("system_prompt", "系统提示词")
+                .with_placeholder("自定义翻译提示词，使用 {source_lang} 和 {target_lang} 作为占位符")
+                .with_help("留空使用默认提示词。可以使用 {source_lang} 和 {target_lang} 占位符")
+                .with_default(DEFAULT_SYSTEM_PROMPT),
+        ]);
+
+        plugin_metadata_with_config!(config_schema, "*")
     }
 }
 
