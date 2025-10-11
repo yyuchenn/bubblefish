@@ -64,6 +64,65 @@ impl PluginLoader {
         }
     }
 
+    /// Get the path to the plugin states configuration file
+    fn get_plugin_states_path(&self) -> Result<PathBuf, String> {
+        let app_data_dir = self._app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+        Ok(app_data_dir.join("plugin_states.json"))
+    }
+
+    /// Load plugin states from disk
+    fn load_plugin_states(&self) -> HashMap<String, bool> {
+        match self.get_plugin_states_path() {
+            Ok(path) => {
+                if path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        if let Ok(states) = serde_json::from_str::<HashMap<String, bool>>(&content) {
+                            return states;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to get plugin states path: {}", e);
+            }
+        }
+        HashMap::new()
+    }
+
+    /// Save plugin states to disk
+    fn save_plugin_states(&self) {
+        let plugins = self.plugins.lock().unwrap();
+        let mut states = HashMap::new();
+
+        for (id, plugin) in plugins.iter() {
+            states.insert(id.clone(), plugin.enabled);
+        }
+
+        drop(plugins);
+
+        match self.get_plugin_states_path() {
+            Ok(path) => {
+                // Ensure parent directory exists
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+
+                if let Ok(content) = serde_json::to_string_pretty(&states) {
+                    if let Err(e) = std::fs::write(&path, content) {
+                        log::error!("Failed to save plugin states: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to get plugin states path: {}", e);
+            }
+        }
+    }
+
     fn collect_plugin_summaries(&self) -> Vec<PluginSummary> {
         let plugins = self.plugins.lock().unwrap();
         plugins
@@ -331,9 +390,9 @@ impl PluginLoader {
             }
 
             // Store the loaded plugin with the metadata's ID (not the generated one)
-            let mut plugins = self.plugins.lock().unwrap();
+            let plugins = self.plugins.lock().unwrap();
             let stored_id = metadata.id.clone(); // Use the ID from metadata
-            
+
             // Check if there's already a plugin with this ID
             if let Some(existing_plugin) = plugins.get(&stored_id) {
                 // If there's an existing plugin, we need to deactivate it first
@@ -345,16 +404,23 @@ impl PluginLoader {
                 }
                 log::info!("Replaced existing plugin with ID: {}", stored_id);
             }
-            
+
             let event_metadata = metadata.clone();
             let event_plugin_id = event_metadata.id.clone();
 
+            // Load saved plugin states to determine if this plugin should be enabled
+            drop(plugins); // Drop the lock before calling load_plugin_states
+            let saved_states = self.load_plugin_states();
+            let enabled = saved_states.get(&stored_id).copied().unwrap_or(true); // Default to enabled if no saved state
+
+            #[allow(unused_mut)] // We need mut to insert into HashMap
+            let mut plugins = self.plugins.lock().unwrap();
             plugins.insert(
                 stored_id,
                 LoadedPlugin {
                     library,
                     metadata: metadata.clone(),
-                    enabled: true,
+                    enabled,
                 },
             );
 
@@ -498,6 +564,9 @@ impl PluginLoader {
         drop(plugins);
 
         if changed {
+            // Save plugin states to disk
+            self.save_plugin_states();
+
             let kind = if enabled { "enabled" } else { "disabled" };
             self.emit_plugin_event(kind, Some(plugin_id.to_string()), metadata_snapshot);
         }

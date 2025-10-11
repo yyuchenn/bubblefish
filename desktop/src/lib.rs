@@ -490,8 +490,7 @@ async fn download_and_install_update(app: tauri::AppHandle, source: String) -> R
 async fn load_builtin_plugins_on_startup(_app_handle: tauri::AppHandle) {
     // List of builtin plugins to load
     let builtin_plugins = vec![
-        "libmarker_logger_plugin",
-        "libmd5_calculator_plugin",
+        "libdoubao_translation_plugin"
     ];
     
     // Get the appropriate file extension for this platform

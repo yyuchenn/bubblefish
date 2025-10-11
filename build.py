@@ -1241,6 +1241,36 @@ class BuildScript:
         else:  # Linux
             return f"lib{name}.so"
     
+    def is_workspace_member(self, plugin_name: str) -> bool:
+        """Check if a plugin is a workspace member"""
+        workspace_cargo_toml = self.root_dir / "Cargo.toml"
+        if not workspace_cargo_toml.exists():
+            return False
+
+        try:
+            import toml
+            with open(workspace_cargo_toml, 'r') as f:
+                cargo_data = toml.load(f)
+                workspace_members = cargo_data.get('workspace', {}).get('members', [])
+                # Check if plugin is in workspace members
+                # Members can be like "plugins/plugin-name" or exact package name
+                for member in workspace_members:
+                    if member.endswith(plugin_name) or member == plugin_name:
+                        return True
+                return False
+        except ImportError:
+            # Fallback to regex if toml library is not available
+            import re
+            with open(workspace_cargo_toml, 'r') as f:
+                content = f.read()
+                # Look for the plugin in workspace members
+                if f'plugins/{plugin_name}' in content or f'"{plugin_name}"' in content:
+                    return True
+                return False
+        except Exception as e:
+            log_warning(f"Failed to check workspace membership: {e}")
+            return False
+
     def build_plugin_sdk_native(self, dev: bool = False) -> bool:
         """Build the plugin SDK as a native dynamic library"""
         log_step("Building plugin SDK as native library...")
@@ -1275,13 +1305,23 @@ class BuildScript:
     def build_single_plugin_native(self, plugin_dir: Path, plugin_name: str, dev: bool = False) -> bool:
         """Build a single plugin as native dynamic library"""
         log_step(f"Building native plugin: {plugin_name}")
-        
+
+        # Check if plugin is a workspace member
+        is_workspace_member = self.is_workspace_member(plugin_name)
+
         cmd = ["cargo", "build", "--lib", "--features", "native"]
-        
+
         if not dev:
             cmd.append("--release")
-        
-        if not self.run_command(cmd, cwd=plugin_dir):
+
+        # If the plugin is a workspace member, build from workspace root with --package
+        if is_workspace_member:
+            cmd.extend(["--package", plugin_name])
+            build_cwd = self.root_dir
+        else:
+            build_cwd = plugin_dir
+
+        if not self.run_command(cmd, cwd=build_cwd):
             return False
         
         # Copy the built library to a standard location

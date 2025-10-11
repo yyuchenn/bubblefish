@@ -51,7 +51,6 @@ const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
 
 // Builtin plugins list with versions - keep in sync with plugins/plugins.conf.json
 const BUILTIN_PLUGINS = [
-    { id: 'marker-logger-plugin', version: '1.0.0' },
     { id: 'doubao-translation-plugin', version: '0.1.0' }
 ];
 
@@ -223,27 +222,26 @@ class PluginService {
     private savePluginState() {
         // Only save state in browser environment
         if (typeof window === 'undefined') return;
-        
+
         const plugins = get(this.plugins);
         const states: PluginStates = {
             builtin_plugins: {},
             user_plugins: {}
         };
-        
+
         plugins.forEach((plugin) => {
             if (plugin.source === 'builtin') {
                 // Only save enabled state for builtin plugins
                 states.builtin_plugins[plugin.metadata.id] = { enabled: plugin.enabled };
-            } else if (plugin.source === 'external') {
-                // For external plugins (future use)
-                states.user_plugins[plugin.metadata.id] = { 
+            } else if (plugin.source === 'uploaded' || plugin.source === 'external') {
+                // Save state for uploaded and external plugins
+                states.user_plugins[plugin.metadata.id] = {
                     enabled: plugin.enabled,
-                    loaded: true
+                    loaded: plugin.loaded
                 };
             }
-            // Uploaded plugins are restored via loadStoredPlugins()
         });
-        
+
         localStorage.setItem(PLUGIN_STATE_KEY, JSON.stringify(states));
     }
 
@@ -771,6 +769,9 @@ class PluginService {
                 return plugins;
             });
 
+            // Save state after uploading
+            this.savePluginState();
+
         } catch (error) {
             console.error('[PluginService] Failed to upload plugin:', error);
             throw error;
@@ -1121,6 +1122,20 @@ class PluginService {
     // Load all stored plugins on startup
     async loadStoredPlugins(): Promise<void> {
         try {
+            // Get saved states from localStorage
+            let savedUserStates: Record<string, { enabled: boolean; loaded: boolean }> = {};
+            if (typeof window !== 'undefined') {
+                const savedState = localStorage.getItem(PLUGIN_STATE_KEY);
+                if (savedState) {
+                    try {
+                        const parsed = JSON.parse(savedState);
+                        savedUserStates = parsed.user_plugins || {};
+                    } catch (e) {
+                        console.warn('[PluginService] Failed to parse saved plugin states');
+                    }
+                }
+            }
+
             if (platformService.isTauri()) {
                 // Desktop: actively get stored plugins from backend
                 const storedPlugins = await invoke<any[]>('get_stored_plugins');
@@ -1129,27 +1144,33 @@ class PluginService {
                     if (pluginPath) {
                         try {
                             // Load the plugin and get its actual metadata
-                            const metadata = await invoke<PluginMetadata>('load_native_plugin', { 
-                                pluginPath: pluginPath 
+                            const metadata = await invoke<PluginMetadata>('load_native_plugin', {
+                                pluginPath: pluginPath
                             });
-                            
+
+                            // Check if we have saved state for this plugin
+                            const savedState = savedUserStates[metadata.id];
+                            const enabled = savedState ? savedState.enabled : true; // Default to enabled
+
                             const pluginInfo: PluginInfo = {
                                 metadata,
-                                enabled: true,
+                                enabled: enabled,
                                 loaded: true,
                                 isNative: true,
                                 source: 'uploaded',
                                 storageId: storedPluginInfo.id  // Save the storage ID for deletion
                             };
-                            
+
                             // Use the actual metadata ID as the key
                             this.plugins.update(plugins => {
                                 plugins.set(metadata.id, pluginInfo);
                                 return plugins;
                             });
-                            
-                            // Save state after successfully loading
-                            this.savePluginState();
+
+                            // Apply the enabled/disabled state to the backend
+                            if (!enabled) {
+                                await invoke('enable_native_plugin', { pluginId: metadata.id, enabled: false });
+                            }
                         } catch (error) {
                             console.error(`Failed to load stored plugin ${storedPluginInfo.id}:`, error);
                         }
@@ -1161,11 +1182,21 @@ class PluginService {
                 for (const plugin of storedPlugins) {
                     try {
                         await this.loadUploadedWasmPlugin(plugin.id);
+
+                        // Apply saved state after loading
+                        const savedState = savedUserStates[plugin.id];
+                        if (savedState && !savedState.enabled) {
+                            // If plugin should be disabled, disable it
+                            await this.disablePlugin(plugin.id);
+                        }
                     } catch (error) {
                         console.error(`Failed to load stored plugin ${plugin.id}:`, error);
                     }
                 }
             }
+
+            // Save the final state
+            this.savePluginState();
         } catch (error) {
             console.error('[PluginService] Failed to load stored plugins:', error);
         }
