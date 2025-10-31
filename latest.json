@@ -1,15 +1,15 @@
 {
-  "version": "0.2.1",
-  "notes": "更新日志：\r\n\r\n1. 修复了输入文本时光标乱跑的问题（这次真修复了，大概）\r\n2. 修复了网页版在离线时无法使用缓存的问题（#13）\r\n3. 新特性：安装桌面版软件后可以通过双击.bf文件打开项目\r\n4. 新特性：在桌面版软件添加“最近打开”的功能（#11）\r\n5. 改进了插件系统的编译流程和加载方式，允许加载第三方插件\r\n6. 改进了桌面端的UI：让Windows端的关闭窗口按钮对齐右上角；修复了更新日志没有显示换行的错误\r\n7. 提升了打开项目的鲁棒性：在遇到图片文件名重名的时候忽略添加重复的图片",
-  "pub_date": "2025-09-08T17:03:55Z",
+  "version": "0.3.0",
+  "notes": "更新日志：\r\n\r\n1. 添加了海兔面板，可以使用海兔面板进行OCR和机器翻译\r\n2. 改进了插件系统，允许插件添加OCR和机器翻译服务\r\n3. 添加了通知中心，允许主程序和插件触发全局的信息通知和报错\r\n4. 在设置界面添加了插件设置的页面，运行用户进行插件的配置\r\n5. 改进了插件在桌面端的存储\r\n6. 改进了翻译输入框和右键菜单相关的UI交互",
+  "pub_date": "2025-10-31T17:13:07Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZDFnSUwzV3E1TG5PNGxaZ0hJT0lYSWJFeVNpRVhXbDh5aGlINjlLT09LWnlXY0xMZnNXeTloUnZzNmNrZ3BhSXg0NjhCZnhESG55eVVMcG5BSmMwdXdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzU3MzUwODQxCWZpbGU6QnViYmxlZmlzaC5hcHAudGFyLmd6CkRDb2dqWnVNeEJ6V2pCeElKTUYwa1BaaE9NVWZlczFjcHNzalZHK2JPUW4xbE9YcSt1MkNEVndtUWVoTU41cWx3NzM1RElEUnZYbXN1QXBoSW5PeEJ3PT0K",
-      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.2.1/Bubblefish.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZDRlSDV6V1NrMDVZbytHYzZBL1pGRDBiKzkwVkxpWk9IYXYxa3p4RElFMzRJQ2RuMlY4bVB2MS9iZUhCWS84Zm9JcW9kKzYveVBKbXRBK0hjRDNLMVE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYxOTMwMzcyCWZpbGU6QnViYmxlZmlzaC5hcHAudGFyLmd6ClRZdjZjZWs3cFhDN1hkSU1FUUJPQmpwUzBWbUF5TmI0Smo2ZVB3Qk5qNDlKVTFYQW42cUs2UkZYeTBKK1lFTXRoanJUQzVwc0VabkVUNHc5VllhMURRPT0K",
+      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.3.0/Bubblefish.app.tar.gz"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZHlUQ21xSEI3UzBXZUV3YXVCQnlVMmZ4Snp6eFp0T3dhckdxY2d0Z3VBalFhNW1wWFFVa1I2QnMvMm1PQldDNGczYjc0RUlPcVlVcUxZLzJiYmJFZ3dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzU3MzUxMDA2CWZpbGU6QnViYmxlZmlzaF8wLjIuMV94NjQubXNpCjlqTUlUQUJpdlBXbXlZUDBsWkRwOXBBZWZDaHlnNGZobDZDdXhZZVFQYVZjbEl4S3NZMzBPS2NSVjVaOGFiVklsK3BLdDlUMnRqdTl1Um03d3VwMERRPT0K",
-      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.2.1/Bubblefish_0.2.1_x64.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZDdQUkE2TkpJMnVZSmM2c2ZERDZBU0M4YkpTZjUzUVJBcTloUTV1aWh2MUhqYmdMY3FmSE5LdWRaRmthV1h4NzhNTHlCQU15WEJrbElYbjRuZjhNOUFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYxOTMwNzUxCWZpbGU6QnViYmxlZmlzaF8wLjMuMF94NjQubXNpCmwxeEdaMVhqNDE0ek40MnVScWJ2TjAwa09wZTMvTmREK0R4Qk9aTDJLakxIMWRYRGxlSkxHakVSZ2FmRVM0ZlpOYVZXcE1xSnJLZGRzQ1JnT3dJUkNnPT0K",
+      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.3.0/Bubblefish_0.3.0_x64.msi"
     }
   }
 }
