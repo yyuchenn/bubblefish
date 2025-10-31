@@ -89,6 +89,13 @@ pub fn get_marker_info(marker_id: u32) -> Option<MarkerDTO> {
     service.marker_service.get_marker(marker_id)
 }
 
+/// 获取图片上的所有标记
+pub fn get_markers_for_image(image_id: u32) -> Vec<MarkerDTO> {
+    log_function_call("get_markers_for_image", Some(serde_json::json!({"image_id": image_id})));
+    let service = get_service();
+    service.marker_service.get_markers_for_image(image_id)
+}
+
 /// 更新点型标记位置
 pub fn update_point_marker_position(marker_id: u32, x: f64, y: f64) -> bool {
     log_function_call("update_point_marker_position", Some(serde_json::json!({
@@ -183,12 +190,17 @@ pub fn remove_marker_from_image(image_id: u32, marker_id: u32) -> bool {
         "image_id": image_id,
         "marker_id": marker_id
     })));
-    
+
     let service = get_service();
-    
+
     let removed_from_image = service.image_service.remove_marker_from_image(image_id, marker_id);
     let removed_marker = service.marker_service.remove_marker(marker_id);
-    
+
+    // Clear bunny cache for this marker
+    if removed_marker {
+        let _ = crate::storage::bunny_cache::clear_bunny_cache_storage(crate::common::MarkerId(marker_id));
+    }
+
     removed_from_image && removed_marker
 }
 

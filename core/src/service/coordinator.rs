@@ -9,6 +9,7 @@ use super::{
     stats::StatsService,
     undo_redo::UndoRedoService,
     io::{IOService, IoEventHandler},
+    bunny::BunnyService,
 };
 
 pub struct ServiceCoordinator {
@@ -20,6 +21,7 @@ pub struct ServiceCoordinator {
     pub stats_service: Arc<StatsService>,
     pub undo_redo_service: Arc<UndoRedoService>,
     pub io_service: Arc<IOService>,
+    pub bunny_service: Arc<BunnyService>,
 }
 
 impl ServiceCoordinator {
@@ -35,6 +37,7 @@ impl ServiceCoordinator {
         let stats_service = Arc::new(StatsService::new());
         let undo_redo_service = Arc::new(UndoRedoService::new(event_bus.clone()));
         let io_service = Arc::new(IOService::new(event_bus.clone()));
+        let bunny_service = Arc::new(BunnyService::new());
         
         // 创建IO事件处理器
         let io_event_handler = Arc::new(IoEventHandler::new(event_bus.clone()));
@@ -55,6 +58,7 @@ impl ServiceCoordinator {
             stats_service,
             undo_redo_service,
             io_service,
+            bunny_service,
         }
     }
 }

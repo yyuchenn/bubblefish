@@ -2,8 +2,11 @@ import { writable, derived, get } from 'svelte/store';
 import { pluginBridge } from './pluginBridge';
 import { platformService } from './platformService';
 import { pluginStorageService } from './pluginStorageService';
+import { eventService } from './eventService';
 import { invoke } from '@tauri-apps/api/core';
 import { fetchWasmResource } from '../utils/wasmLoader';
+
+import type { ConfigSchema } from './pluginConfigService';
 
 export interface PluginMetadata {
     id: string;
@@ -12,6 +15,7 @@ export interface PluginMetadata {
     description: string;
     author: string;
     subscribed_events: string[];
+    config_schema?: ConfigSchema;
 }
 
 export type PluginSource = 'builtin' | 'uploaded' | 'external';  // external for future use (e.g., from URL)
@@ -31,11 +35,23 @@ export interface CoreEvent {
     [key: string]: any;
 }
 
+interface PluginRegistrySnapshotEntry {
+    metadata: PluginMetadata;
+    enabled: boolean;
+}
+
+interface PluginChangeEventData {
+    kind?: string;
+    plugin_id?: string;
+    plugin?: PluginMetadata;
+    plugins?: PluginRegistrySnapshotEntry[];
+}
+
 const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
 
 // Builtin plugins list with versions - keep in sync with plugins/plugins.conf.json
 const BUILTIN_PLUGINS = [
-    { id: 'marker-logger-plugin', version: '1.0.0' }
+    { id: 'doubao-translation-plugin', version: '0.1.0' }
 ];
 
 interface PluginState {
@@ -52,11 +68,28 @@ class PluginService {
     private plugins = writable<Map<string, PluginInfo>>(new Map());
     private workers = new Map<string, Worker>();
     private serviceCallHandlers = new Map<Worker, Map<number, any>>();
-    
+    private pluginEventsUnsubscribe?: () => void;
+
+    /**
+     * Convert plugin filename to plugin ID
+     * This matches the logic in desktop/src/plugin_loader.rs
+     * e.g., "libdummy_ocr_plugin.dylib" -> "dummy-ocr-plugin"
+     *
+     * We keep the full name including "-plugin" suffix for consistency
+     * with the Cargo package names.
+     */
+    private filenameToPluginId(filename: string): string {
+        return filename
+            .replace(/^lib/, '')                    // Remove "lib" prefix
+            .replace(/\.(dylib|so|dll)$/, '')       // Remove extension
+            .replace(/_/g, '-');                    // Replace _ with -
+    }
+
     constructor() {
         this.initializeEventBridge();
         // Only restore state in browser environment
         if (typeof window !== 'undefined') {
+            this.subscribeToPluginEvents();
             // Load builtin plugins first, then user plugins
             this.initializePlugins().catch(console.error);
         }
@@ -76,6 +109,73 @@ class PluginService {
         pluginBridge.subscribeToEvent('*', (event) => {
             this.dispatchEventToPlugins(event);
         });
+    }
+
+    private subscribeToPluginEvents() {
+        if (this.pluginEventsUnsubscribe) {
+            return;
+        }
+
+        this.pluginEventsUnsubscribe = eventService.onBusinessEvent(event => {
+            if (event.event_name === 'plugins:changed') {
+                this.handleBackendPluginChange(event.data).catch(error => {
+                    console.error('[PluginService] Failed to handle plugin change event:', error);
+                });
+            }
+        });
+    }
+
+    private async handleBackendPluginChange(data: unknown): Promise<void> {
+        if (!platformService.isTauri()) {
+            return;
+        }
+
+        const payload = data as PluginChangeEventData | null;
+        if (!payload || !Array.isArray(payload.plugins)) {
+            return;
+        }
+
+        try {
+            const storedPlugins = await invoke<any[]>('get_stored_plugins');
+            const storageMap = new Map<string, string>();
+
+            if (Array.isArray(storedPlugins)) {
+                storedPlugins.forEach(info => {
+                    if (info && typeof info.id === 'string') {
+                        const normalizedId = info.id.replace(/_/g, '-');
+                        storageMap.set(normalizedId, info.id);
+                    }
+                });
+            }
+
+            const pluginMap = new Map<string, PluginInfo>();
+
+            for (const entry of payload.plugins as PluginRegistrySnapshotEntry[]) {
+                if (!entry || !entry.metadata || typeof entry.metadata.id !== 'string') {
+                    continue;
+                }
+
+                const metadata = entry.metadata;
+                const pluginId = metadata.id;
+                const storageId = storageMap.get(pluginId);
+                const isBuiltin = BUILTIN_PLUGINS.some(p => p.id === pluginId);
+                const source: PluginSource = isBuiltin ? 'builtin' : storageId ? 'uploaded' : 'external';
+
+                pluginMap.set(pluginId, {
+                    metadata,
+                    enabled: Boolean(entry.enabled),
+                    loaded: true,
+                    isNative: true,
+                    source,
+                    storageId
+                });
+            }
+
+            this.plugins.set(pluginMap);
+            this.savePluginState();
+        } catch (error) {
+            console.error('[PluginService] Failed to synchronize plugins from backend event:', error);
+        }
     }
 
     // Helper method to update plugin properties with reactivity
@@ -122,27 +222,26 @@ class PluginService {
     private savePluginState() {
         // Only save state in browser environment
         if (typeof window === 'undefined') return;
-        
+
         const plugins = get(this.plugins);
         const states: PluginStates = {
             builtin_plugins: {},
             user_plugins: {}
         };
-        
+
         plugins.forEach((plugin) => {
             if (plugin.source === 'builtin') {
                 // Only save enabled state for builtin plugins
                 states.builtin_plugins[plugin.metadata.id] = { enabled: plugin.enabled };
-            } else if (plugin.source === 'external') {
-                // For external plugins (future use)
-                states.user_plugins[plugin.metadata.id] = { 
+            } else if (plugin.source === 'uploaded' || plugin.source === 'external') {
+                // Save state for uploaded and external plugins
+                states.user_plugins[plugin.metadata.id] = {
                     enabled: plugin.enabled,
-                    loaded: true
+                    loaded: plugin.loaded
                 };
             }
-            // Uploaded plugins are restored via loadStoredPlugins()
         });
-        
+
         localStorage.setItem(PLUGIN_STATE_KEY, JSON.stringify(states));
     }
 
@@ -236,7 +335,11 @@ class PluginService {
                 isNative: true,
                 source: 'external'  // Default source, will be overridden if builtin or uploaded
             };
-            
+
+            // The pluginId passed to this function should already be the correct ID
+            // (either from builtin list or manually specified)
+            // The desktop backend will derive the same ID from the filename
+
             this.plugins.update(plugins => {
                 plugins.set(pluginId, pluginInfo);
                 return plugins;
@@ -626,10 +729,63 @@ class PluginService {
         return derived(this.plugins, $plugins => $plugins.get(pluginId));
     }
 
-    // Upload a plugin file
+    // Upload a plugin via file dialog (desktop only, avoids memory issues with large files)
+    async uploadPluginWithDialog(): Promise<void> {
+        if (!platformService.isTauri()) {
+            throw new Error('File dialog upload is only available on desktop');
+        }
+
+        try {
+            // Use file dialog to select and upload plugin without loading into memory
+            const metadata = await pluginStorageService.savePluginDesktopWithDialog();
+
+            // Extract storage ID and plugin ID from metadata
+            const storageId = metadata.id;
+            const actualPluginId = storageId.replace(/_/g, '-');
+
+            // Check for conflicts
+            const plugins = get(this.plugins);
+            const existingPlugin = plugins.get(actualPluginId);
+
+            if (existingPlugin) {
+                if (existingPlugin.source === 'builtin') {
+                    console.log(`[PluginService] User plugin will override builtin plugin ${existingPlugin.metadata.id}`);
+                    this.removePlugin(existingPlugin.metadata.id);
+                }
+            }
+
+            // Plugin is already loaded by the backend, just add to our store
+            const pluginInfo: PluginInfo = {
+                metadata,
+                enabled: true,
+                loaded: true,
+                isNative: true,
+                source: 'uploaded',
+                storageId: storageId
+            };
+
+            this.plugins.update(plugins => {
+                plugins.set(actualPluginId, pluginInfo);
+                return plugins;
+            });
+
+            // Save state after uploading
+            this.savePluginState();
+
+        } catch (error) {
+            console.error('[PluginService] Failed to upload plugin:', error);
+            throw error;
+        }
+    }
+
+    // Upload a plugin file (legacy method, may cause memory issues with large files)
     async uploadPlugin(file: File): Promise<void> {
         try {
             if (platformService.isTauri()) {
+                // For desktop, prefer uploadPluginWithDialog() for large files
+                // This legacy method loads entire file into memory
+                console.warn('[PluginService] Using legacy upload method. Consider using uploadPluginWithDialog() for large files.');
+
                 // Desktop: validate file extension
                 const platform = platformService.getPlatform();
                 let expectedExt = '.dylib';
@@ -638,22 +794,22 @@ class PluginService {
                 } else if (platform === 'windows') {
                     expectedExt = '.dll';
                 }
-                
+
                 if (!file.name.endsWith(expectedExt)) {
                     throw new Error(`Invalid plugin file. Expected ${expectedExt} file for ${platform}`);
                 }
-                
+
                 // Check for conflicts BEFORE uploading
                 // First, try to extract plugin ID from filename to check conflicts
                 const tempStorageId = file.name
                     .replace(/^lib/, '')
                     .replace(/\.(dylib|so|dll)$/, '');
-                
+
                 // Check if there's an existing plugin with this ID
                 const plugins = get(this.plugins);
                 let existingPlugin: PluginInfo | undefined = undefined;
                 let shouldUnloadFirst = false;
-                
+
                 // Try to find existing plugin by matching storage ID pattern
                 for (const [id, plugin] of plugins) {
                     if (plugin.storageId === tempStorageId || id === tempStorageId.replace(/_/g, '-')) {
@@ -661,7 +817,7 @@ class PluginService {
                         break;
                     }
                 }
-                
+
                 if (existingPlugin) {
                     if (existingPlugin.source === 'builtin') {
                         // Overriding a builtin plugin
@@ -677,21 +833,24 @@ class PluginService {
                         existingPlugin = undefined; // It's been deleted
                     }
                 }
-                
+
                 // Now upload and load the plugin
                 const metadata = await pluginStorageService.savePlugin(file);
-                
+
                 // If we need to unload a builtin plugin, do it after loading the new one
                 if (shouldUnloadFirst && existingPlugin) {
                     // Just remove from frontend store, don't unload from backend
                     this.removePlugin(existingPlugin.metadata.id);
                 }
-                
-                // Extract storage ID from filename
+
+                // Extract storage ID from filename (keep full name for storage)
                 const storageId = file.name
                     .replace(/^lib/, '')
                     .replace(/\.(dylib|so|dll)$/, '');
-                
+
+                // Generate the actual plugin ID that the desktop uses
+                const actualPluginId = this.filenameToPluginId(file.name);
+
                 // Plugin is already loaded by the backend, just add to our store
                 const pluginInfo: PluginInfo = {
                     metadata,
@@ -701,12 +860,13 @@ class PluginService {
                     source: 'uploaded',
                     storageId: storageId
                 };
-                
+
                 this.plugins.update(plugins => {
-                    plugins.set(metadata.id, pluginInfo);
+                    // Use the actual plugin ID that desktop recognizes
+                    plugins.set(actualPluginId, pluginInfo);
                     return plugins;
                 });
-                
+
             } else {
                 // Web: validate ZIP file
                 if (!file.name.endsWith('.zip')) {
@@ -962,6 +1122,20 @@ class PluginService {
     // Load all stored plugins on startup
     async loadStoredPlugins(): Promise<void> {
         try {
+            // Get saved states from localStorage
+            let savedUserStates: Record<string, { enabled: boolean; loaded: boolean }> = {};
+            if (typeof window !== 'undefined') {
+                const savedState = localStorage.getItem(PLUGIN_STATE_KEY);
+                if (savedState) {
+                    try {
+                        const parsed = JSON.parse(savedState);
+                        savedUserStates = parsed.user_plugins || {};
+                    } catch (e) {
+                        console.warn('[PluginService] Failed to parse saved plugin states');
+                    }
+                }
+            }
+
             if (platformService.isTauri()) {
                 // Desktop: actively get stored plugins from backend
                 const storedPlugins = await invoke<any[]>('get_stored_plugins');
@@ -970,27 +1144,33 @@ class PluginService {
                     if (pluginPath) {
                         try {
                             // Load the plugin and get its actual metadata
-                            const metadata = await invoke<PluginMetadata>('load_native_plugin', { 
-                                pluginPath: pluginPath 
+                            const metadata = await invoke<PluginMetadata>('load_native_plugin', {
+                                pluginPath: pluginPath
                             });
-                            
+
+                            // Check if we have saved state for this plugin
+                            const savedState = savedUserStates[metadata.id];
+                            const enabled = savedState ? savedState.enabled : true; // Default to enabled
+
                             const pluginInfo: PluginInfo = {
                                 metadata,
-                                enabled: true,
+                                enabled: enabled,
                                 loaded: true,
                                 isNative: true,
                                 source: 'uploaded',
                                 storageId: storedPluginInfo.id  // Save the storage ID for deletion
                             };
-                            
+
                             // Use the actual metadata ID as the key
                             this.plugins.update(plugins => {
                                 plugins.set(metadata.id, pluginInfo);
                                 return plugins;
                             });
-                            
-                            // Save state after successfully loading
-                            this.savePluginState();
+
+                            // Apply the enabled/disabled state to the backend
+                            if (!enabled) {
+                                await invoke('enable_native_plugin', { pluginId: metadata.id, enabled: false });
+                            }
                         } catch (error) {
                             console.error(`Failed to load stored plugin ${storedPluginInfo.id}:`, error);
                         }
@@ -1002,11 +1182,21 @@ class PluginService {
                 for (const plugin of storedPlugins) {
                     try {
                         await this.loadUploadedWasmPlugin(plugin.id);
+
+                        // Apply saved state after loading
+                        const savedState = savedUserStates[plugin.id];
+                        if (savedState && !savedState.enabled) {
+                            // If plugin should be disabled, disable it
+                            await this.disablePlugin(plugin.id);
+                        }
                     } catch (error) {
                         console.error(`Failed to load stored plugin ${plugin.id}:`, error);
                     }
                 }
             }
+
+            // Save the final state
+            this.savePluginState();
         } catch (error) {
             console.error('[PluginService] Failed to load stored plugins:', error);
         }
@@ -1016,7 +1206,7 @@ class PluginService {
     async sendPluginMessage(from: string, to: string, message: any) {
         const plugins = get(this.plugins);
         const targetPlugin = plugins.get(to);
-        
+
         if (targetPlugin?.isNative && platformService.isTauri()) {
             // 发送消息到原生插件
             await invoke('send_message_to_plugin', { to, from, message });

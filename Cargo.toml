@@ -4,7 +4,11 @@ members = [
     "desktop",
     "plugins/plugin-sdk",
     "plugins/marker-logger-plugin",
-    "plugins/md5-calculator-plugin"
+    "plugins/md5-calculator-plugin",
+    "plugins/dummy-ocr-plugin",
+    "plugins/dummy-translation-plugin",
+    "plugins/kha-white-ocr-plugin",
+    "plugins/doubao-translation-plugin"
 ]
 resolver = "2"
 

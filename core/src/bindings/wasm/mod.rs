@@ -8,6 +8,7 @@ pub use shared_buffer::*;
 
 // WASM初始化和panic处理
 use wasm_bindgen::prelude::*;
+use crate::common::Logger;
 
 #[wasm_bindgen(start)]
 pub fn wasm_main() {
@@ -41,11 +42,11 @@ pub fn wasm_main() {
         }));
         
         // 同时输出到控制台以便立即可见
-        web_sys::console::error_1(&wasm_bindgen::JsValue::from_str(&panic_msg));
+        Logger::error(&panic_msg);
     }));
     
     // 初始化日志
-    web_sys::console::log_1(&"🦀 BubbleFish Core (WASM) - Ready for action!".into());
+    Logger::info("🦀 BubbleFish Core (WASM) - Ready for action!");
 }
 
 // Re-export wasm-bindgen-rayon's init_thread_pool function for JavaScript to call

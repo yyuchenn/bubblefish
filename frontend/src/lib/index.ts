@@ -6,6 +6,7 @@ export * from './services/imageLoaderService';
 export * from './services/markerService';
 export * from './services/imageViewerService';
 export * from './services/projectService';
+export * from './services/notificationService';
 
 // 导出工具
 export * from './utils/progressManager';
@@ -21,6 +22,7 @@ export * from './stores/imageViewerStore';
 export * from './stores/layoutStore';
 export * from './stores/logViewerStore';
 export * from './stores/themeStore';
+export * from './stores/notificationStore';
 
 // 导出核心功能
 export * from './core/adapter';

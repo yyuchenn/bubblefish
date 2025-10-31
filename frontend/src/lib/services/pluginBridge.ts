@@ -4,6 +4,9 @@ import { markerStore } from '../stores/markerStore';
 import { projectStore } from '../stores/projectStore';
 import { imageStore } from '../stores/imageStore';
 import { isTauri } from '../core/tauri';
+import { eventService } from './eventService';
+import { pluginConfigService } from './pluginConfigService';
+import { notificationStore } from '../stores/notificationStore';
 
 export interface ServiceCallRequest {
     pluginId: string;
@@ -26,11 +29,16 @@ class PluginBridge {
     private pluginMessageHandlers: Map<string, (message: PluginMessage) => void>;
     private eventListeners: Map<string, Set<(event: any) => void>>;
 
+    // Local service registries for WASM plugins
+    private ocrServices: Map<string, any> = new Map();
+    private translationServices: Map<string, any> = new Map();
+    private serviceToPlugin: Map<string, string> = new Map();
+
     constructor() {
         this.serviceHandlers = new Map();
         this.pluginMessageHandlers = new Map();
         this.eventListeners = new Map();
-        
+
         this.initializeServiceHandlers();
         this.setupEventForwarding();
     }
@@ -300,6 +308,218 @@ class PluginBridge {
                 
                 default:
                     throw new Error(`Unknown stats method: ${method}`);
+            }
+        });
+
+        // Events服务 - 事件发送
+        this.serviceHandlers.set('events', async (method: string, params: any) => {
+            switch (method) {
+                case 'emit_business_event': {
+                    const { event_name, data } = params;
+                    eventService.emitBusinessEvent(event_name, data);
+                    return { success: true };
+                }
+
+                case 'emit_log_event': {
+                    const { level, message, data } = params;
+                    switch (level) {
+                        case 'info':
+                            eventService.info(message, data);
+                            break;
+                        case 'warn':
+                            eventService.warn(message, data);
+                            break;
+                        case 'error':
+                            eventService.error(message, data);
+                            break;
+                        case 'debug':
+                            eventService.debug(message, data);
+                            break;
+                        default:
+                            eventService.info(message, data);
+                    }
+                    return { success: true };
+                }
+
+                default:
+                    throw new Error(`Unknown events method: ${method}`);
+            }
+        });
+
+        // Notifications 服务 - 插件通知前端
+        this.serviceHandlers.set('notifications', async (method: string, params: any) => {
+            switch (method) {
+                case 'push': {
+                    if (!params || typeof params !== 'object') {
+                        throw new Error('Notification payload is required');
+                    }
+
+                    const notificationParams = params ?? {};
+                    if (typeof notificationParams.message !== 'string' || notificationParams.message.trim().length === 0) {
+                        throw new Error('Notification message is required');
+                    }
+                    const level = typeof notificationParams.level === 'string'
+                        ? notificationParams.level.toLowerCase()
+                        : 'info';
+
+                    const actions = Array.isArray(notificationParams.actions)
+                        ? notificationParams.actions
+                            .filter((action: any) => action && typeof action === 'object' && typeof action.label === 'string')
+                            .map((action: any) => ({
+                                label: action.label as string,
+                                href: typeof action.href === 'string' ? action.href : undefined
+                            }))
+                        : undefined;
+
+                    const id = notificationStore.notify({
+                        id: typeof notificationParams.id === 'string' ? notificationParams.id : undefined,
+                        title: typeof notificationParams.title === 'string' ? notificationParams.title : undefined,
+                        message: notificationParams.message,
+                        level: ['success', 'warning', 'error'].includes(level)
+                            ? level
+                            : 'info',
+                        toast: notificationParams.toast !== undefined ? Boolean(notificationParams.toast) : true,
+                        sticky: notificationParams.sticky === true,
+                        autoClose: typeof notificationParams.auto_close === 'number'
+                            ? notificationParams.auto_close
+                            : typeof notificationParams.autoClose === 'number'
+                                ? notificationParams.autoClose
+                                : undefined,
+                        source: typeof notificationParams.source === 'string' ? notificationParams.source : undefined,
+                        actions,
+                        extra: typeof notificationParams.extra === 'object' && notificationParams.extra !== null
+                            ? notificationParams.extra
+                            : undefined
+                    });
+
+                    return { id };
+                }
+
+                case 'clear':
+                    notificationStore.clear();
+                    return { success: true };
+
+                case 'dismiss':
+                    if (!params || typeof params.id !== 'string') {
+                        throw new Error('Notification id is required');
+                    }
+                    notificationStore.dismiss(params.id);
+                    return { success: true };
+
+                default:
+                    throw new Error(`Unknown notifications method: ${method}`);
+            }
+        });
+
+        // Bunny服务 - OCR和翻译服务注册
+        this.serviceHandlers.set('bunny', async (method: string, params: any) => {
+            switch (method) {
+                case 'register_ocr_service': {
+                    const pluginId = params.plugin_id;
+                    const serviceInfo = params.service_info;
+
+                    if (isTauri()) {
+                        // Tauri: Services are registered in backend by plugin loader
+                        // This is called by the plugin, but registration already happened
+                        return { success: true };
+                    } else {
+                        // WASM: Register locally with plugin_id
+                        const serviceWithPluginId = { ...serviceInfo, plugin_id: pluginId };
+                        this.ocrServices.set(serviceInfo.id, serviceWithPluginId);
+                        this.serviceToPlugin.set(serviceInfo.id, pluginId);
+                        return { success: true };
+                    }
+                }
+
+                case 'register_translation_service': {
+                    const pluginId = params.plugin_id;
+                    const serviceInfo = params.service_info;
+
+                    if (isTauri()) {
+                        // Tauri: Services are registered in backend by plugin loader
+                        return { success: true };
+                    } else {
+                        // WASM: Register locally with plugin_id
+                        const serviceWithPluginId = { ...serviceInfo, plugin_id: pluginId };
+                        this.translationServices.set(serviceInfo.id, serviceWithPluginId);
+                        this.serviceToPlugin.set(serviceInfo.id, pluginId);
+                        return { success: true };
+                    }
+                }
+
+                case 'unregister_service': {
+                    const serviceId = params.service_id;
+
+                    if (isTauri()) {
+                        // Tauri: Services are unregistered in backend
+                        return { success: true };
+                    } else {
+                        // WASM: Unregister locally
+                        this.ocrServices.delete(serviceId);
+                        this.translationServices.delete(serviceId);
+                        this.serviceToPlugin.delete(serviceId);
+                        return { success: true };
+                    }
+                }
+
+                case 'get_ocr_services': {
+                    // This should only be called for WASM
+                    // Tauri calls backend directly via coreAPI
+                    return Array.from(this.ocrServices.values());
+                }
+
+                case 'get_translation_services': {
+                    // This should only be called for WASM
+                    // Tauri calls backend directly via coreAPI
+                    return Array.from(this.translationServices.values());
+                }
+
+                default:
+                    throw new Error(`Unknown bunny method: ${method}`);
+            }
+        });
+
+        // Config服务 - 插件配置管理
+        this.serviceHandlers.set('config', async (method: string, params: any) => {
+            const pluginId = params.plugin_id || params.pluginId;
+            if (!pluginId) {
+                throw new Error('plugin_id is required for config service');
+            }
+
+            switch (method) {
+                case 'get': {
+                    const key = params.key;
+                    if (key) {
+                        return pluginConfigService.getConfigValue(pluginId, key);
+                    }
+                    return pluginConfigService.getConfig(pluginId);
+                }
+
+                case 'set': {
+                    const { config, key, value } = params;
+                    if (config) {
+                        pluginConfigService.setConfig(pluginId, config);
+                    } else if (key !== undefined) {
+                        pluginConfigService.updateConfigValue(pluginId, key, value);
+                    } else {
+                        throw new Error('Either config object or key-value pair required');
+                    }
+                    return { success: true };
+                }
+
+                case 'delete': {
+                    pluginConfigService.deleteConfig(pluginId);
+                    return { success: true };
+                }
+
+                case 'subscribe': {
+                    // Note: Subscription is handled differently for plugins
+                    // They will get config updates through plugin messages
+                    return { success: true, message: 'Use plugin message events for config updates' };
+                }
+
+                default:
+                    throw new Error(`Unknown config method: ${method}`);
             }
         });
 

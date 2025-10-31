@@ -1,6 +1,17 @@
 // Language enum matching backend
 export type Language = 'japanese' | 'english' | 'simplifiedChinese' | 'traditionalChinese';
 
+// Re-export Bunny types
+export type {
+	BunnyTask,
+	BunnyMarkerData,
+	BunnySettings,
+	BunnyQueueStatus,
+	BunnyWorkerMessage,
+	BunnyWorkerResponse,
+	BunnyTaskEvent
+} from './types/bunny';
+
 export interface MarkerStyle {
 	/** 是否是覆盖式文字 */
 	overlayText: boolean;

@@ -18,6 +18,7 @@
 	import { imageService } from '$lib/services/imageService';
 	import { fileAssociationService } from '$lib/services/fileAssociationService';
 	import { recentMenuService } from '$lib/services/recentMenuService';
+	import { notificationService } from '$lib/services/notificationService';
 
 	// 创建响应式引用
 	const activeProgress = $derived(progressManager.activeProgress);
@@ -47,6 +48,9 @@
 
 		// Initialize coordinator service for managing side effects
 		coordinatorService.initialize();
+
+		// Initialize notification bridge (handles backend/UI notifications)
+		notificationService.initialize();
 
 		// Initialize file association service (for handling .bf file double-click)
 		fileAssociationService.init();
@@ -95,6 +99,7 @@
 			unsubscribeUndoRedo();
 			unsubscribeImageService();
 			coordinatorService.destroy();
+			notificationService.destroy();
 		};
 	});
 </script>

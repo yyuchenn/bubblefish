@@ -52,6 +52,21 @@ pub enum MarkerEntry {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BunnyCacheEntry {
+    pub page_index: usize,
+    pub marker_index: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub machine_translation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_ocr_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_translation_service: Option<String>,
+}
+
 pub fn save_project_to_path(project_id: crate::common::ProjectId, path: &str) -> CoreResult<Vec<u8>> {
     let data = save_project(project_id)?;
     
@@ -184,17 +199,44 @@ pub fn save_project(project_id: crate::common::ProjectId) -> CoreResult<Vec<u8>>
     }
     
     let markers_json = serde_json::to_string_pretty(&markers_list)?;
-    
-    // 5. Create tar archive with gzip compression
+
+    // 5. Create bunny_cache.json
+    let mut bunny_cache_list = Vec::new();
+    let bunny_cache_storage = APP_STATE.bunny_cache.read()?;
+
+    for (page_index, image_id) in project.image_ids.iter().enumerate() {
+        if let Ok(Some(image)) = APP_STATE.get_image(*image_id) {
+            for (marker_index, marker_id) in image.marker_ids.iter().enumerate() {
+                if let Some(cache_data) = bunny_cache_storage.get(marker_id) {
+                    if cache_data.original_text.is_some() || cache_data.machine_translation.is_some() {
+                        bunny_cache_list.push(BunnyCacheEntry {
+                            page_index,
+                            marker_index,
+                            original_text: cache_data.original_text.clone(),
+                            machine_translation: cache_data.machine_translation.clone(),
+                            last_ocr_model: cache_data.last_ocr_model.clone(),
+                            last_translation_service: cache_data.last_translation_service.clone(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    drop(bunny_cache_storage);
+
+    let bunny_cache_json = serde_json::to_string_pretty(&bunny_cache_list)?;
+
+    // 6. Create tar archive with gzip compression
     let tar_gz_data = Vec::new();
     let encoder = GzEncoder::new(tar_gz_data, Compression::default());
     let mut tar = Builder::new(encoder);
-    
+
     // Add files to tar
     add_json_to_tar(&mut tar, "metadata.json", metadata_json.as_bytes())?;
     add_json_to_tar(&mut tar, "styles.json", styles_json.as_bytes())?;
     add_json_to_tar(&mut tar, "images.json", images_json.as_bytes())?;
     add_json_to_tar(&mut tar, "markers.json", markers_json.as_bytes())?;
+    add_json_to_tar(&mut tar, "bunny_cache.json", bunny_cache_json.as_bytes())?;
     
     // Finish writing the tar archive
     let encoder = tar.into_inner()?;
@@ -220,6 +262,8 @@ pub struct BfProjectData {
     pub styles: Vec<StyleEntry>,
     pub images: Vec<ImageEntry>,
     pub markers: Vec<Vec<MarkerEntry>>,
+    #[serde(default)]
+    pub bunny_cache: Vec<BunnyCacheEntry>,
 }
 
 pub fn parse_bf_file(data: &[u8]) -> CoreResult<BfProjectData> {
@@ -238,19 +282,21 @@ pub fn parse_bf_file(data: &[u8]) -> CoreResult<BfProjectData> {
     let mut styles_json = None;
     let mut images_json = None;
     let mut markers_json = None;
-    
+    let mut bunny_cache_json = None;
+
     for entry_result in archive.entries()? {
         let mut entry = entry_result?;
         let path = entry.path()?.to_string_lossy().to_string();
-        
+
         let mut content = String::new();
         entry.read_to_string(&mut content)?;
-        
+
         match path.as_str() {
             "metadata.json" => metadata_json = Some(content),
             "styles.json" => styles_json = Some(content),
             "images.json" => images_json = Some(content),
             "markers.json" => markers_json = Some(content),
+            "bunny_cache.json" => bunny_cache_json = Some(content),
             _ => {}
         }
     }
@@ -292,16 +338,24 @@ pub fn parse_bf_file(data: &[u8]) -> CoreResult<BfProjectData> {
     if markers.len() != images.len() {
         return Err(CoreError::ValidationFailed {
             field: "markers".to_string(),
-            reason: format!("Markers array length ({}) doesn't match images array length ({})", 
+            reason: format!("Markers array length ({}) doesn't match images array length ({})",
                 markers.len(), images.len()),
         });
     }
-    
+
+    // Parse bunny_cache.json (optional for backward compatibility)
+    let bunny_cache: Vec<BunnyCacheEntry> = if let Some(cache_json) = bunny_cache_json {
+        serde_json::from_str(&cache_json).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+
     Ok(BfProjectData {
         metadata,
         styles,
         images,
         markers,
+        bunny_cache,
     })
 }
 
@@ -456,6 +510,34 @@ pub fn import_bf_data_direct(
         }
     }
     drop(image_storage);
-    
+
+    // Import bunny cache data
+    if !bf_data.bunny_cache.is_empty() {
+        let mut bunny_cache_storage = APP_STATE.bunny_cache.write()?;
+
+        for cache_entry in bf_data.bunny_cache {
+            // Find the marker_id based on page_index and marker_index
+            if cache_entry.page_index < image_mapping.len() {
+                if let Some(image_id) = image_mapping[cache_entry.page_index] {
+                    if let Ok(Some(image)) = APP_STATE.get_image(image_id) {
+                        if cache_entry.marker_index < image.marker_ids.len() {
+                            let marker_id = image.marker_ids[cache_entry.marker_index];
+
+                            let mut cache_data = crate::storage::bunny_cache::BunnyCacheData::new(marker_id);
+                            cache_data.original_text = cache_entry.original_text;
+                            cache_data.machine_translation = cache_entry.machine_translation;
+                            cache_data.last_ocr_model = cache_entry.last_ocr_model;
+                            cache_data.last_translation_service = cache_entry.last_translation_service;
+
+                            let _ = bunny_cache_storage.insert(marker_id, cache_data);
+                        }
+                    }
+                }
+            }
+        }
+
+        drop(bunny_cache_storage);
+    }
+
     Ok(())
 }

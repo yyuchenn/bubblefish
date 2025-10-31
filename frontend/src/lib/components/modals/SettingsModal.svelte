@@ -2,7 +2,7 @@
 	import Modal from './Modal.svelte';
 	import { currentTheme, availableThemes, themeActions } from '$lib/stores/themeStore';
 	import { platformService } from '$lib/services/platformService';
-	import { 
+	import {
 		updaterService,
 		updateInfo,
 		updateSettings,
@@ -12,6 +12,7 @@
 		UPDATE_SOURCE_NAMES,
 		type UpdateSource
 	} from '$lib/services/updaterService';
+	import PluginSettings from '../settings/PluginSettings.svelte';
 	import { onMount } from 'svelte';
 	
 	const {
@@ -22,7 +23,7 @@
 		onClose?: () => void;
 	}>();
 	
-	let activeTab = $state<'appearance' | 'editor' | 'update'>('appearance');
+	let activeTab = $state<'appearance' | 'editor' | 'plugins' | 'update'>('appearance');
 
 	function handleClose() {
 		onClose();
@@ -70,7 +71,10 @@
 </script>
 
 <Modal {visible} onClose={handleClose}>
-	<div class="h-[80vh] w-[80vw] flex flex-col">
+	<div
+		class="w-[80vw] flex flex-col max-h-[calc(85vh-3rem)]"
+		style="height: min(80vh, calc(85vh - 3rem));"
+	>
 		<div class="border-b border-theme-outline pb-4 mb-6">
 			<h2 class="text-2xl font-bold text-theme-on-background">设置</h2>
 			<div class="flex gap-2 mt-4">
@@ -86,6 +90,12 @@
 				>
 					编辑器
 				</button>
+				<button
+					class="px-4 py-2 rounded-md transition-colors {activeTab === 'plugins' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
+					onclick={() => activeTab = 'plugins'}
+				>
+					插件
+				</button>
 				{#if platformService.isTauri()}
 					<button
 						class="px-4 py-2 rounded-md transition-colors {activeTab === 'update' ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}"
@@ -97,7 +107,7 @@
 			</div>
 		</div>
 		
-		<div class="flex-1 overflow-y-auto">
+		<div class="flex-1 min-h-0 overflow-y-auto">
 			{#if activeTab === 'appearance'}
 				<div class="space-y-6">
 					<div>
@@ -133,6 +143,8 @@
 					<h3 class="text-lg font-semibold text-theme-on-background mb-4">编辑器设置</h3>
 					<p class="text-sm text-theme-on-surface-variant">更多设置选项即将推出...</p>
 				</div>
+			{:else if activeTab === 'plugins'}
+				<PluginSettings />
 			{:else if activeTab === 'update'}
 				<div class="space-y-6">
 					<div>

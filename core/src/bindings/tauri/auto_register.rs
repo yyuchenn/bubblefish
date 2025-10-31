@@ -68,7 +68,19 @@ macro_rules! generate_core_commands {
             $crate::bindings::tauri::tauri_import_labelplus_data,
             $crate::bindings::tauri::tauri_export_labelplus_data,
             // 项目保存命令
-            $crate::bindings::tauri::tauri_save_project
+            $crate::bindings::tauri::tauri_save_project,
+            // Bunny (海兔) OCR and translation commands
+            $crate::bindings::tauri::tauri_get_available_ocr_services,
+            $crate::bindings::tauri::tauri_get_available_translation_services,
+            $crate::bindings::tauri::tauri_request_ocr,
+            $crate::bindings::tauri::tauri_request_translation,
+            $crate::bindings::tauri::tauri_handle_ocr_completed,
+            $crate::bindings::tauri::tauri_handle_translation_completed,
+            $crate::bindings::tauri::tauri_handle_task_failed,
+            $crate::bindings::tauri::tauri_get_bunny_cache,
+            $crate::bindings::tauri::tauri_update_original_text,
+            $crate::bindings::tauri::tauri_update_machine_translation,
+            $crate::bindings::tauri::tauri_clear_bunny_cache
         ]
     };
 }
@@ -139,7 +151,19 @@ macro_rules! generate_all_commands {
             $crate::bindings::tauri::tauri_import_labelplus_data,
             $crate::bindings::tauri::tauri_export_labelplus_data,
             // 项目保存命令
-            $crate::bindings::tauri::tauri_save_project
+            $crate::bindings::tauri::tauri_save_project,
+            // Bunny (海兔) OCR and translation commands
+            $crate::bindings::tauri::tauri_get_available_ocr_services,
+            $crate::bindings::tauri::tauri_get_available_translation_services,
+            $crate::bindings::tauri::tauri_request_ocr,
+            $crate::bindings::tauri::tauri_request_translation,
+            $crate::bindings::tauri::tauri_handle_ocr_completed,
+            $crate::bindings::tauri::tauri_handle_translation_completed,
+            $crate::bindings::tauri::tauri_handle_task_failed,
+            $crate::bindings::tauri::tauri_get_bunny_cache,
+            $crate::bindings::tauri::tauri_update_original_text,
+            $crate::bindings::tauri::tauri_update_machine_translation,
+            $crate::bindings::tauri::tauri_clear_bunny_cache
         ]
     };
 }

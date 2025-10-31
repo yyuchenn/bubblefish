@@ -3,6 +3,7 @@ import { coreAPI } from '../core/adapter';
 import { markerStore } from '../stores/markerStore';
 import { errorStore } from '../stores/errorStore';
 import { loadingStore } from '../stores/loadingStore';
+import { eventService } from './eventService';
 import type { Marker } from '../types';
 import { derived } from 'svelte/store';
 
@@ -29,6 +30,13 @@ export const markerService = {
 		try {
 			const markers = await coreAPI.getImageMarkers(imageId);
 			markerStore.setMarkers(markers);
+
+			// Emit event for markers loaded - other services can subscribe to load their data
+			eventService.emitBusinessEvent('markers:loaded', {
+				imageId,
+				markerIds: markers.map(m => m.id)
+			});
+
 			return markers;
 		} catch (error) {
 			const message = error instanceof Error ? error.message : 'Failed to load markers';

@@ -20,18 +20,18 @@ impl PluginContext {
     }
 
     /// 调用Core服务
-    pub fn call_service(&self, service: &str, method: &str, params: Value) -> Result<Value, String> {
+    pub fn call_service(&self, _service: &str, _method: &str, _params: Value) -> Result<Value, String> {
         #[cfg(feature = "wasm")]
         {
-            crate::shared_buffer::call_service_sync(service, method, &params)
-                .map_err(|e| format!("Service call failed: {}", e))
+            return crate::shared_buffer::call_service_sync(_service, _method, &_params)
+                .map_err(|e| format!("Service call failed: {}", e));
         }
-        
+
         #[cfg(feature = "native")]
         {
-            crate::native::call_service_native(&self.plugin_id, service, method, params)
+            return crate::native::call_service_native(&self.plugin_id, _service, _method, _params);
         }
-        
+
         #[cfg(not(any(feature = "wasm", feature = "native")))]
         {
             Err("No platform feature enabled".to_string())
@@ -272,6 +272,41 @@ impl StatsServiceProxy {
     }
 }
 
+/// 通知服务代理
+pub struct NotificationServiceProxy {
+    context: PluginContext,
+}
+
+impl NotificationServiceProxy {
+    pub fn new(context: PluginContext) -> Self {
+        Self { context }
+    }
+
+    pub fn push(&self, notification: NotificationPayload) -> Result<String, String> {
+        let payload = serde_json::to_value(&notification).map_err(|e| e.to_string())?;
+        let result = self.context.call_service("notifications", "push", payload)?;
+        Ok(result
+            .get("id")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string())
+    }
+
+    pub fn clear(&self) -> Result<(), String> {
+        self
+            .context
+            .call_service("notifications", "clear", json!({}))?;
+        Ok(())
+    }
+
+    pub fn dismiss(&self, id: &str) -> Result<(), String> {
+        self
+            .context
+            .call_service("notifications", "dismiss", json!({ "id": id }))?;
+        Ok(())
+    }
+}
+
 /// 服务代理管理器
 #[derive(Clone)]
 pub struct ServiceProxyManager {
@@ -297,6 +332,10 @@ impl ServiceProxyManager {
 
     pub fn stats(&self) -> StatsServiceProxy {
         StatsServiceProxy::new(self.context.clone())
+    }
+
+    pub fn notifications(&self) -> NotificationServiceProxy {
+        NotificationServiceProxy::new(self.context.clone())
     }
 }
 
@@ -373,5 +412,50 @@ pub struct ProjectStats {
     pub total_markers: usize,
     pub translated_markers: usize,
     pub untranslated_markers: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum NotificationLevel {
+    Info,
+    Success,
+    Warning,
+    Error,
+}
+
+impl Default for NotificationLevel {
+    fn default() -> Self {
+        NotificationLevel::Info
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationAction {
+    pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub href: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NotificationPayload {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub message: String,
+    #[serde(default)]
+    pub level: NotificationLevel,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub toast: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sticky: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_close: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Vec<NotificationAction>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<Value>,
 }
 

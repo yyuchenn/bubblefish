@@ -88,12 +88,42 @@ class PluginStorageService {
         });
     }
 
-    // Desktop: Upload plugin via Tauri
+    // Desktop: Upload plugin via Tauri using file dialog
+    async savePluginDesktopWithDialog(): Promise<any> {
+        const { open } = await import('@tauri-apps/plugin-dialog');
+
+        // Determine expected file extension based on platform
+        const platform = platformService.getPlatform();
+        let filters: Array<{ name: string; extensions: string[] }> = [];
+
+        if (platform === 'macos') {
+            filters = [{ name: 'Plugin', extensions: ['dylib'] }];
+        } else if (platform === 'linux') {
+            filters = [{ name: 'Plugin', extensions: ['so'] }];
+        } else if (platform === 'windows') {
+            filters = [{ name: 'Plugin', extensions: ['dll'] }];
+        }
+
+        const filePath = await open({
+            filters,
+            multiple: false,
+        });
+
+        if (!filePath) {
+            throw new Error('No file selected');
+        }
+
+        return invoke('upload_plugin_from_path', {
+            filePath: filePath
+        });
+    }
+
+    // Desktop: Upload plugin via Tauri (legacy method using file data)
     async savePluginDesktop(file: File): Promise<any> {
         const buffer = await file.arrayBuffer();
         const bytes = new Uint8Array(buffer);
         const byteArray = Array.from(bytes);
-        
+
         return invoke('upload_plugin', {
             fileData: byteArray,
             filename: file.name

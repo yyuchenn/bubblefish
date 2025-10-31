@@ -490,8 +490,7 @@ async fn download_and_install_update(app: tauri::AppHandle, source: String) -> R
 async fn load_builtin_plugins_on_startup(_app_handle: tauri::AppHandle) {
     // List of builtin plugins to load
     let builtin_plugins = vec![
-        "libmarker_logger_plugin",
-        "libmd5_calculator_plugin",
+        "libdoubao_translation_plugin"
     ];
     
     // Get the appropriate file extension for this platform
@@ -594,10 +593,48 @@ async fn upload_plugin(app_handle: tauri::AppHandle, file_data: Vec<u8>, filenam
     // Save the plugin to storage
     let storage = PluginStorage::new(&app_handle)?;
     let plugin_path = storage.save_plugin(file_data, filename)?;
-    
+
     // Load the plugin
     if let Some(loader) = get_plugin_loader() {
         if let Some(path_str) = plugin_path.to_str() {
+            loader.load_plugin(path_str)
+        } else {
+            Err("Invalid plugin path".to_string())
+        }
+    } else {
+        Err("Plugin loader not initialized".to_string())
+    }
+}
+
+#[tauri::command]
+async fn upload_plugin_from_path(app_handle: tauri::AppHandle, file_path: String) -> Result<PluginMetadata, String> {
+    use std::fs;
+    use std::path::Path;
+
+    let source_path = Path::new(&file_path);
+    if !source_path.exists() {
+        return Err("File does not exist".to_string());
+    }
+
+    let filename = source_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or("Invalid filename".to_string())?
+        .to_string();
+
+    // Read file in chunks if large, but for now copy directly to storage
+    let storage = PluginStorage::new(&app_handle)?;
+    let target_path = storage.get_plugin_storage_path(&filename)?;
+
+    fs::copy(source_path, &target_path)
+        .map_err(|e| format!("Failed to copy plugin file: {}", e))?;
+
+    // Save metadata for plugin persistence
+    storage.save_plugin_metadata(&filename)?;
+
+    // Load the plugin
+    if let Some(loader) = get_plugin_loader() {
+        if let Some(path_str) = target_path.to_str() {
             loader.load_plugin(path_str)
         } else {
             Err("Invalid plugin path".to_string())
@@ -629,6 +666,57 @@ async fn get_stored_plugins(app_handle: tauri::AppHandle) -> Result<Vec<StoredPl
 async fn get_plugin_path(app_handle: tauri::AppHandle, plugin_id: String) -> Result<Option<String>, String> {
     let storage = PluginStorage::new(&app_handle)?;
     Ok(storage.get_plugin_path(&plugin_id).and_then(|p| p.to_str().map(|s| s.to_string())))
+}
+
+// Plugin configuration commands
+#[tauri::command]
+async fn get_plugin_config(app_handle: tauri::AppHandle, plugin_id: String) -> Result<serde_json::Value, String> {
+    use std::fs;
+
+    let config_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?
+        .join("plugin_configs");
+
+    let config_file = config_dir.join(format!("{}.json", plugin_id));
+
+    if config_file.exists() {
+        let config_str = fs::read_to_string(&config_file)
+            .map_err(|e| format!("Failed to read config file: {}", e))?;
+
+        serde_json::from_str(&config_str)
+            .map_err(|e| format!("Failed to parse config: {}", e))
+    } else {
+        Ok(serde_json::json!({}))
+    }
+}
+
+#[tauri::command]
+async fn set_plugin_config(app_handle: tauri::AppHandle, plugin_id: String, config: serde_json::Value) -> Result<(), String> {
+    use std::fs;
+
+    let config_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?
+        .join("plugin_configs");
+
+    // Ensure config directory exists
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create config dir: {}", e))?;
+    }
+
+    let config_file = config_dir.join(format!("{}.json", plugin_id));
+
+    let config_str = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+
+    fs::write(&config_file, config_str)
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+    Ok(())
 }
 
 use std::sync::Mutex;
@@ -696,7 +784,7 @@ pub fn run() {
       
       // 初始化插件加载器
       init_plugin_loader(app.handle().clone());
-      
+
       // 自动加载内置插件
       let app_handle_builtin = app.handle().clone();
       tauri::async_runtime::spawn(async move {
@@ -804,9 +892,12 @@ pub fn run() {
         list_native_plugins,
         send_message_to_plugin,
         upload_plugin,
+        upload_plugin_from_path,
         delete_uploaded_plugin,
         get_stored_plugins,
-        get_plugin_path
+        get_plugin_path,
+        get_plugin_config,
+        set_plugin_config
     ])
     .build(tauri::generate_context!())
     .expect("error while building tauri application")
@@ -903,6 +994,7 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
         .build()?;
 
     // 创建编辑菜单
+    use tauri::menu::PredefinedMenuItem;
     let edit_menu = SubmenuBuilder::new(app, "编辑")
         .item(&MenuItemBuilder::new("撤销")
             .id("undo")
@@ -912,6 +1004,11 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
             .id("redo")
             .accelerator("CmdOrCtrl+Shift+Z")
             .build(app)?)
+        .separator()
+        .item(&PredefinedMenuItem::cut(app, None)?)
+        .item(&PredefinedMenuItem::copy(app, None)?)
+        .item(&PredefinedMenuItem::paste(app, None)?)
+        .item(&PredefinedMenuItem::select_all(app, None)?)
         .separator()
         .item(&MenuItemBuilder::new("上一个标记")
             .id("prev-marker")
@@ -1037,7 +1134,7 @@ fn create_native_menu(app: &mut tauri::App) -> Result<(), tauri::Error> {
                 if cfg!(debug_assertions) {
                     println!("Unknown menu event: {}", event.id().0);
                 }
-                return; // 忽略未知的菜单项
+                return;
             }
         };
 

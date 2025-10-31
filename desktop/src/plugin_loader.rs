@@ -7,6 +7,9 @@ use libloading::{Library, Symbol};
 use serde_json::Value;
 use tauri::Manager;
 
+use bubblefish_core::plugin::service_registry::adapters::NotificationServiceAdapter;
+use bubblefish_core::plugin::ServiceInterface;
+
 /// Callbacks provided to plugins
 #[repr(C)]
 pub struct HostCallbacks {
@@ -32,6 +35,12 @@ struct LoadedPlugin {
     enabled: bool,
 }
 
+#[derive(Clone, serde::Serialize)]
+struct PluginSummary {
+    metadata: PluginMetadata,
+    enabled: bool,
+}
+
 #[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct PluginMetadata {
     pub id: String,
@@ -40,6 +49,8 @@ pub struct PluginMetadata {
     pub description: String,
     pub author: String,
     pub subscribed_events: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_schema: Option<serde_json::Value>,
 }
 
 /// Plugin loader manages all native plugins
@@ -53,6 +64,96 @@ impl PluginLoader {
         Self {
             plugins: Arc::new(Mutex::new(HashMap::new())),
             _app_handle: app_handle,
+        }
+    }
+
+    /// Get the path to the plugin states configuration file
+    fn get_plugin_states_path(&self) -> Result<PathBuf, String> {
+        let app_data_dir = self._app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+        Ok(app_data_dir.join("plugin_states.json"))
+    }
+
+    /// Load plugin states from disk
+    fn load_plugin_states(&self) -> HashMap<String, bool> {
+        match self.get_plugin_states_path() {
+            Ok(path) => {
+                if path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        if let Ok(states) = serde_json::from_str::<HashMap<String, bool>>(&content) {
+                            return states;
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to get plugin states path: {}", e);
+            }
+        }
+        HashMap::new()
+    }
+
+    /// Save plugin states to disk
+    fn save_plugin_states(&self) {
+        let plugins = self.plugins.lock().unwrap();
+        let mut states = HashMap::new();
+
+        for (id, plugin) in plugins.iter() {
+            states.insert(id.clone(), plugin.enabled);
+        }
+
+        drop(plugins);
+
+        match self.get_plugin_states_path() {
+            Ok(path) => {
+                // Ensure parent directory exists
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+
+                if let Ok(content) = serde_json::to_string_pretty(&states) {
+                    if let Err(e) = std::fs::write(&path, content) {
+                        log::error!("Failed to save plugin states: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Failed to get plugin states path: {}", e);
+            }
+        }
+    }
+
+    fn collect_plugin_summaries(&self) -> Vec<PluginSummary> {
+        let plugins = self.plugins.lock().unwrap();
+        plugins
+            .values()
+            .map(|plugin| PluginSummary {
+                metadata: plugin.metadata.clone(),
+                enabled: plugin.enabled,
+            })
+            .collect()
+    }
+
+    fn emit_plugin_event(
+        &self,
+        kind: &str,
+        plugin_id: Option<String>,
+        plugin_metadata: Option<PluginMetadata>,
+    ) {
+        let payload = serde_json::json!({
+            "kind": kind,
+            "plugin_id": plugin_id,
+            "plugin": plugin_metadata,
+            "plugins": self.collect_plugin_summaries(),
+        });
+
+        if let Err(err) = bubblefish_core::common::EVENT_SYSTEM
+            .emit_business_event("plugins:changed".to_string(), payload)
+        {
+            log::warn!("Failed to emit plugin change event: {:?}", err);
         }
     }
     
@@ -245,10 +346,10 @@ impl PluginLoader {
                 .and_then(|s| s.to_str())
                 .unwrap_or("unknown");
             
+            // Extract plugin ID from filename
+            // e.g. "libdummy_ocr_plugin.dylib" -> "dummy-ocr-plugin"
             let plugin_id = file_stem
                 .strip_prefix("lib")
-                .unwrap_or(file_stem)
-                .strip_suffix("_plugin")
                 .unwrap_or(file_stem)
                 .replace('_', "-");
 
@@ -292,9 +393,9 @@ impl PluginLoader {
             }
 
             // Store the loaded plugin with the metadata's ID (not the generated one)
-            let mut plugins = self.plugins.lock().unwrap();
+            let plugins = self.plugins.lock().unwrap();
             let stored_id = metadata.id.clone(); // Use the ID from metadata
-            
+
             // Check if there's already a plugin with this ID
             if let Some(existing_plugin) = plugins.get(&stored_id) {
                 // If there's an existing plugin, we need to deactivate it first
@@ -306,15 +407,29 @@ impl PluginLoader {
                 }
                 log::info!("Replaced existing plugin with ID: {}", stored_id);
             }
-            
+
+            let event_metadata = metadata.clone();
+            let event_plugin_id = event_metadata.id.clone();
+
+            // Load saved plugin states to determine if this plugin should be enabled
+            drop(plugins); // Drop the lock before calling load_plugin_states
+            let saved_states = self.load_plugin_states();
+            let enabled = saved_states.get(&stored_id).copied().unwrap_or(true); // Default to enabled if no saved state
+
+            #[allow(unused_mut)] // We need mut to insert into HashMap
+            let mut plugins = self.plugins.lock().unwrap();
             plugins.insert(
                 stored_id,
                 LoadedPlugin {
                     library,
                     metadata: metadata.clone(),
-                    enabled: true,
+                    enabled,
                 },
             );
+
+            drop(plugins);
+
+            self.emit_plugin_event("loaded", Some(event_plugin_id), Some(event_metadata));
 
             Ok(metadata)
         }
@@ -323,7 +438,8 @@ impl PluginLoader {
     /// Unload a plugin
     pub fn unload_plugin(&self, plugin_id: &str) -> Result<(), String> {
         let mut plugins = self.plugins.lock().unwrap();
-        
+        let metadata_snapshot = plugins.get(plugin_id).map(|p| p.metadata.clone());
+
         if let Some(plugin) = plugins.get(plugin_id) {
             unsafe {
                 // Call destroy before unloading
@@ -333,7 +449,18 @@ impl PluginLoader {
             }
         }
 
-        plugins.remove(plugin_id);
+        let removed = plugins.remove(plugin_id);
+
+        drop(plugins);
+
+        if removed.is_some() {
+            self.emit_plugin_event(
+                "unloaded",
+                Some(plugin_id.to_string()),
+                metadata_snapshot,
+            );
+        }
+
         Ok(())
     }
 
@@ -370,7 +497,7 @@ impl PluginLoader {
     /// Send message to plugin
     pub fn send_message(&self, to: &str, from: &str, message: &Value) -> Result<(), String> {
         let plugins = self.plugins.lock().unwrap();
-        
+
         if let Some(plugin) = plugins.get(to) {
             if !plugin.enabled {
                 return Ok(());
@@ -402,6 +529,8 @@ impl PluginLoader {
     /// Enable/disable plugin
     pub fn set_plugin_enabled(&self, plugin_id: &str, enabled: bool) -> Result<(), String> {
         let mut plugins = self.plugins.lock().unwrap();
+        let mut metadata_snapshot = None;
+        let mut changed = false;
         
         if let Some(plugin) = plugins.get_mut(plugin_id) {
             if enabled && !plugin.enabled {
@@ -414,6 +543,8 @@ impl PluginLoader {
                         }
                     }
                 }
+                plugin.enabled = true;
+                changed = true;
             } else if !enabled && plugin.enabled {
                 // Deactivate plugin
                 unsafe {
@@ -424,9 +555,23 @@ impl PluginLoader {
                         }
                     }
                 }
+                plugin.enabled = false;
+                changed = true;
             }
-            
-            plugin.enabled = enabled;
+
+            if changed {
+                metadata_snapshot = Some(plugin.metadata.clone());
+            }
+        }
+
+        drop(plugins);
+
+        if changed {
+            // Save plugin states to disk
+            self.save_plugin_states();
+
+            let kind = if enabled { "enabled" } else { "disabled" };
+            self.emit_plugin_event(kind, Some(plugin_id.to_string()), metadata_snapshot);
         }
 
         Ok(())
@@ -453,8 +598,17 @@ impl PluginLoader {
             "images" => self.handle_image_service(method, params),
             "project" => self.handle_project_service(method, params),
             "files" => self.handle_file_service(method, params),
+            "bunny" => self.handle_bunny_service(method, params),
+            "notifications" => self.handle_notifications_service(method, params),
+            "events" => self.handle_events_service(method, params),
+            "config" => self.handle_config_service(method, params),
             _ => Err(format!("Unknown service: {}", service)),
         }
+    }
+
+    fn handle_notifications_service(&self, method: &str, params: &Value) -> Result<Value, String> {
+        let adapter = NotificationServiceAdapter::new();
+        adapter.call(method, params.clone())
     }
 
     fn handle_marker_service(&self, method: &str, params: &Value) -> Result<Value, String> {
@@ -617,6 +771,242 @@ impl PluginLoader {
             _ => Err(format!("Unknown file method: {}", method)),
         }
     }
+
+    fn handle_bunny_service(&self, method: &str, params: &Value) -> Result<Value, String> {
+        use bubblefish_core::api::bunny;
+        use bubblefish_core::service::bunny::{OCRServiceInfo, TranslationServiceInfo, BUNNY_SERVICE_REGISTRY};
+
+        match method {
+            "register_ocr_service" => {
+                // Parse plugin_id and service info from params
+                let plugin_id = params["plugin_id"].as_str()
+                    .ok_or("Missing plugin_id")?;
+                let service_info: OCRServiceInfo = serde_json::from_value(
+                    params["service_info"].clone()
+                ).map_err(|e| format!("Invalid service info: {}", e))?;
+
+                BUNNY_SERVICE_REGISTRY
+                    .write()
+                    .map_err(|e| format!("Failed to acquire write lock: {}", e))?
+                    .register_ocr_service(plugin_id.to_string(), service_info)?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "register_translation_service" => {
+                // Parse plugin_id and service info from params
+                let plugin_id = params["plugin_id"].as_str()
+                    .ok_or("Missing plugin_id")?;
+                let service_info: TranslationServiceInfo = serde_json::from_value(
+                    params["service_info"].clone()
+                ).map_err(|e| format!("Invalid service info: {}", e))?;
+
+                BUNNY_SERVICE_REGISTRY
+                    .write()
+                    .map_err(|e| format!("Failed to acquire write lock: {}", e))?
+                    .register_translation_service(plugin_id.to_string(), service_info)?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "unregister_service" => {
+                let service_id = params["service_id"].as_str()
+                    .ok_or("Missing service_id")?;
+
+                BUNNY_SERVICE_REGISTRY
+                    .write()
+                    .map_err(|e| format!("Failed to acquire write lock: {}", e))?
+                    .unregister_service(service_id)?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "get_ocr_services" => {
+                let services = bunny::get_available_ocr_services();
+                Ok(serde_json::to_value(services).unwrap_or(serde_json::json!([])))
+            }
+            "get_translation_services" => {
+                let services = bunny::get_available_translation_services();
+                Ok(serde_json::to_value(services).unwrap_or(serde_json::json!([])))
+            }
+            _ => Err(format!("Unknown bunny method: {}", method)),
+        }
+    }
+
+    fn handle_events_service(&self, method: &str, params: &Value) -> Result<Value, String> {
+        use bubblefish_core::common::EVENT_SYSTEM;
+
+        match method {
+            "emit_business_event" => {
+                let event_name = params["event_name"].as_str()
+                    .ok_or("Missing event_name")?;
+                let data = params["data"].clone();
+
+                // Handle plugin result events directly in desktop mode
+                if event_name == "plugin:ocr_result" {
+                    if let (Some(task_id), Some(text), Some(model)) = (
+                        data.get("task_id").and_then(|v| v.as_str()),
+                        data.get("text").and_then(|v| v.as_str()),
+                        data.get("model").and_then(|v| v.as_str())
+                    ) {
+                        // Get marker_id from task
+                        if let Ok(Some(task)) = bubblefish_core::service::bunny::TASK_MANAGER.get_task(task_id) {
+                            // Handle OCR completion
+                            bubblefish_core::api::bunny::handle_ocr_completed(
+                                task_id.to_string(),
+                                task.marker_id,
+                                text.to_string(),
+                                model.to_string()
+                            ).map_err(|e| format!("Failed to handle OCR completion: {}", e))?;
+                            log::debug!("OCR result handled for task {}", task_id);
+                        } else {
+                            log::warn!("Task {} not found when handling OCR result", task_id);
+                        }
+                    }
+                } else if event_name == "plugin:translation_result" {
+                    if let (Some(task_id), Some(translated_text), Some(service)) = (
+                        data.get("task_id").and_then(|v| v.as_str()),
+                        data.get("translated_text").and_then(|v| v.as_str()),
+                        data.get("service").and_then(|v| v.as_str())
+                    ) {
+                        // Get marker_id from task
+                        if let Ok(Some(task)) = bubblefish_core::service::bunny::TASK_MANAGER.get_task(task_id) {
+                            // Handle translation completion
+                            bubblefish_core::api::bunny::handle_translation_completed(
+                                task_id.to_string(),
+                                task.marker_id,
+                                translated_text.to_string(),
+                                service.to_string()
+                            ).map_err(|e| format!("Failed to handle translation completion: {}", e))?;
+                            log::debug!("Translation result handled for task {}", task_id);
+                        } else {
+                            log::warn!("Task {} not found when handling translation result", task_id);
+                        }
+                    }
+                }
+
+                // Emit the event to frontend as well
+                EVENT_SYSTEM.emit_business_event(event_name.to_string(), data)
+                    .map_err(|e| format!("Failed to emit event: {:?}", e))?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "emit_log_event" => {
+                let level = params["level"].as_str().unwrap_or("info");
+                let message = params["message"].as_str()
+                    .ok_or("Missing message")?;
+                let data = params["data"].clone();
+
+                // Convert level to LogLevel enum
+                use bubblefish_core::common::LogLevel;
+                let log_level = match level {
+                    "debug" => LogLevel::Debug,
+                    "info" => LogLevel::Info,
+                    "warn" => LogLevel::Warn,
+                    "error" => LogLevel::Error,
+                    _ => LogLevel::Info,
+                };
+
+                EVENT_SYSTEM.emit_log(log_level, message.to_string(), Some(data))
+                    .map_err(|e| format!("Failed to emit log: {}", e))?;
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            _ => Err(format!("Unknown events method: {}", method)),
+        }
+    }
+
+    fn handle_config_service(&self, method: &str, params: &Value) -> Result<Value, String> {
+        // Bridge to frontend config service through Tauri state
+        // We use a file-based config storage for native plugins
+        use std::fs;
+
+        let plugin_id = params["plugin_id"].as_str()
+            .or_else(|| params["pluginId"].as_str())
+            .ok_or("Missing plugin_id")?;
+
+        // Get app data directory for config storage
+        let config_dir = self._app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|e| format!("Failed to get app data dir: {}", e))?
+            .join("plugin_configs");
+
+        // Ensure config directory exists
+        if !config_dir.exists() {
+            fs::create_dir_all(&config_dir)
+                .map_err(|e| format!("Failed to create config dir: {}", e))?;
+        }
+
+        let config_file = config_dir.join(format!("{}.json", plugin_id));
+
+        match method {
+            "get" => {
+                let key = params["key"].as_str();
+
+                // Read config from file
+                if config_file.exists() {
+                    let config_str = fs::read_to_string(&config_file)
+                        .map_err(|e| format!("Failed to read config file: {}", e))?;
+
+                    let config: Value = serde_json::from_str(&config_str)
+                        .map_err(|e| format!("Failed to parse config: {}", e))?;
+
+                    if let Some(key) = key {
+                        Ok(config.get(key).unwrap_or(&Value::Null).clone())
+                    } else {
+                        Ok(config)
+                    }
+                } else {
+                    // No config file yet, return empty or null
+                    if key.is_some() {
+                        Ok(Value::Null)
+                    } else {
+                        Ok(serde_json::json!({}))
+                    }
+                }
+            }
+            "set" => {
+                let config = params.get("config");
+                let key = params.get("key").and_then(|v| v.as_str());
+                let value = params.get("value");
+
+                if let Some(config) = config {
+                    // Set entire config
+                    let config_str = serde_json::to_string_pretty(config)
+                        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+                    fs::write(&config_file, config_str)
+                        .map_err(|e| format!("Failed to write config file: {}", e))?;
+                } else if let (Some(key), Some(value)) = (key, value) {
+                    // Update single key
+                    let mut config = if config_file.exists() {
+                        let config_str = fs::read_to_string(&config_file)
+                            .map_err(|e| format!("Failed to read config file: {}", e))?;
+                        serde_json::from_str(&config_str)
+                            .unwrap_or_else(|_| serde_json::json!({}))
+                    } else {
+                        serde_json::json!({})
+                    };
+
+                    config[key] = value.clone();
+
+                    let config_str = serde_json::to_string_pretty(&config)
+                        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+                    fs::write(&config_file, config_str)
+                        .map_err(|e| format!("Failed to write config file: {}", e))?;
+                } else {
+                    return Err("Either config or key-value pair required".to_string());
+                }
+
+                Ok(serde_json::json!({"success": true}))
+            }
+            "delete" => {
+                if config_file.exists() {
+                    fs::remove_file(&config_file)
+                        .map_err(|e| format!("Failed to delete config file: {}", e))?;
+                }
+                Ok(serde_json::json!({"success": true}))
+            }
+            _ => Err(format!("Unknown config method: {}", method)),
+        }
+    }
 }
 
 // Global plugin loader instance
@@ -656,9 +1046,13 @@ extern "C" fn host_call_service(
                         .map(|s| s.into_raw())
                         .unwrap_or(std::ptr::null_mut())
                 }
-                Err(_) => std::ptr::null_mut(),
+                Err(e) => {
+                    eprintln!("[PluginLoader] Service call error: service={}, method={}, error={}", service, method, e);
+                    std::ptr::null_mut()
+                }
             }
         } else {
+            eprintln!("[PluginLoader] Plugin loader not initialized");
             std::ptr::null_mut()
         }
     }

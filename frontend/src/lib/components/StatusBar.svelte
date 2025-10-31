@@ -12,6 +12,7 @@
 	import { derived } from 'svelte/store';
 	import { onDestroy } from 'svelte';
 	import { browser } from '$app/environment';
+	import NotificationCenter from './notifications/NotificationCenter.svelte';
 
 	const status = $state('Bubblefish');
 	const mode = $state('翻译模式');
@@ -473,6 +474,7 @@
 
 	<!-- 右侧配置信息 -->
 	<div class="flex items-center gap-4">
+		<NotificationCenter />
 		<button
 			class="hover-theme rounded px-1 transition-colors"
 			onclick={() => {}}

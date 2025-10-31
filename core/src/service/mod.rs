@@ -8,6 +8,7 @@ pub mod marker;
 pub mod stats;
 pub mod undo_redo;
 pub mod io;
+pub mod bunny;
 
 // 导出主要接口
 pub use coordinator::ServiceCoordinator;

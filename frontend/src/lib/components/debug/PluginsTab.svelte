@@ -1,23 +1,25 @@
 <script lang="ts">
 	import { pluginService, type PluginInfo } from '../../services/pluginService';
 	import { platformService } from '../../services/platformService';
-	
+
 	let uploadInput: HTMLInputElement;
 	let uploading = $state(false);
 	let dragOver = $state(false);
-	
+
+	const isTauri = platformService.isTauri();
+
 	// Get expected file extension for current platform
 	const getExpectedExtension = () => {
-		if (!platformService.isTauri()) return '.zip';
+		if (!isTauri) return '.zip';
 		const platform = platformService.getPlatform();
 		if (platform === 'linux') return '.so';
 		if (platform === 'windows') return '.dll';
 		return '.dylib';
 	};
-	
+
 	const expectedExtension = getExpectedExtension();
 	const acceptedFileTypes = expectedExtension === '.zip' ? '.zip' : `${expectedExtension}`;
-	
+
 	const pluginsStore = pluginService.getPlugins();
 	const plugins = $derived($pluginsStore);
 	
@@ -50,17 +52,32 @@
 		const input = event.target as HTMLInputElement;
 		const file = input.files?.[0];
 		if (file) {
-			await uploadPlugin(file);
+			await uploadPluginFromFile(file);
 			input.value = ''; // Reset input
 		}
 	}
-	
-	async function uploadPlugin(file: File) {
+
+	async function uploadPluginViaDialog() {
+		uploading = true;
+		try {
+			await pluginService.uploadPluginWithDialog();
+			console.log(`Plugin uploaded via dialog`);
+		} catch (error) {
+			console.error('Failed to upload plugin:', error);
+			if ((error as Error).message !== 'No file selected') {
+				alert(`上传插件失败: ${error}`);
+			}
+		} finally {
+			uploading = false;
+		}
+	}
+
+	async function uploadPluginFromFile(file: File) {
 		if (!file.name.endsWith(expectedExtension)) {
 			alert(`请选择 ${expectedExtension} 文件`);
 			return;
 		}
-		
+
 		uploading = true;
 		try {
 			await pluginService.uploadPlugin(file);
@@ -86,10 +103,10 @@
 	async function handleDrop(event: DragEvent) {
 		event.preventDefault();
 		dragOver = false;
-		
+
 		const file = event.dataTransfer?.files[0];
 		if (file) {
-			await uploadPlugin(file);
+			await uploadPluginFromFile(file);
 		}
 	}
 	
@@ -128,12 +145,21 @@
 				{#if uploading}
 					<p class="text-theme-on-surface-variant text-sm">上传中...</p>
 				{:else}
-					<button
-						class="text-theme-primary hover:text-theme-primary/80 text-sm font-medium transition-colors"
-						onclick={() => uploadInput.click()}
-					>
-						点击选择或拖拽 {expectedExtension} 文件到此处
-					</button>
+					{#if isTauri}
+						<button
+							class="text-theme-primary hover:text-theme-primary/80 text-sm font-medium transition-colors"
+							onclick={uploadPluginViaDialog}
+						>
+							点击选择 {expectedExtension} 文件
+						</button>
+					{:else}
+						<button
+							class="text-theme-primary hover:text-theme-primary/80 text-sm font-medium transition-colors"
+							onclick={() => uploadInput.click()}
+						>
+							点击选择或拖拽 {expectedExtension} 文件到此处
+						</button>
+					{/if}
 					<p class="text-theme-on-surface-variant text-xs mt-1">
 						{platformService.isTauri() ? '上传原生插件库文件' : '上传包含完整 pkg 目录内容的 ZIP 压缩包（包括 snippets 文件夹）'}
 					</p>

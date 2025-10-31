@@ -31,19 +31,27 @@ impl PluginStorage {
         Ok(Self { storage_dir })
     }
     
+    pub fn get_plugin_storage_path(&self, filename: &str) -> Result<PathBuf, String> {
+        let expected_ext = get_platform_extension();
+        if !filename.ends_with(expected_ext) {
+            return Err(format!("Invalid plugin file extension. Expected {}", expected_ext));
+        }
+        Ok(self.storage_dir.join(filename))
+    }
+
     pub fn save_plugin(&self, file_data: Vec<u8>, filename: String) -> Result<PathBuf, String> {
         // Validate filename has correct extension for the platform
         let expected_ext = get_platform_extension();
         if !filename.ends_with(expected_ext) {
             return Err(format!("Invalid plugin file extension. Expected {}", expected_ext));
         }
-        
+
         let file_path = self.storage_dir.join(&filename);
-        
+
         // Save the file
         fs::write(&file_path, file_data)
             .map_err(|e| format!("Failed to save plugin file: {}", e))?;
-        
+
         // Make the file executable on Unix platforms
         #[cfg(unix)]
         {
@@ -55,24 +63,39 @@ impl PluginStorage {
             fs::set_permissions(&file_path, perms)
                 .map_err(|e| format!("Failed to set file permissions: {}", e))?;
         }
-        
+
+        // Save metadata
+        self.save_plugin_metadata(&filename)?;
+
+        Ok(file_path)
+    }
+
+    pub fn save_plugin_metadata(&self, filename: &str) -> Result<(), String> {
+        // Validate filename has correct extension for the platform
+        let expected_ext = get_platform_extension();
+        if !filename.ends_with(expected_ext) {
+            return Err(format!("Invalid plugin file extension. Expected {}", expected_ext));
+        }
+
+        let file_path = self.storage_dir.join(filename);
+
         // Save metadata
         let info = StoredPluginInfo {
-            id: extract_plugin_id(&filename),
-            filename: filename.clone(),
+            id: extract_plugin_id(filename),
+            filename: filename.to_string(),
             upload_time: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
                 .as_secs(),
         };
-        
+
         let metadata_path = file_path.with_extension("json");
         let metadata = serde_json::to_string_pretty(&info)
             .map_err(|e| format!("Failed to serialize metadata: {}", e))?;
         fs::write(metadata_path, metadata)
             .map_err(|e| format!("Failed to save metadata: {}", e))?;
-        
-        Ok(file_path)
+
+        Ok(())
     }
     
     pub fn delete_plugin(&self, plugin_id: &str) -> Result<(), String> {

@@ -186,6 +186,7 @@ export interface MarkerAPI {
 	
 	// 通用接口
 	getMarkerInfo(markerId: number): Promise<Marker | null>;
+	getMarkersForImage(imageId: number): Promise<Marker[]>;
 	updateMarkerTranslation(markerId: number, translation: string): Promise<boolean>;
 	updateMarkerStyle(
 		markerId: number,
@@ -232,8 +233,55 @@ export interface LabelplusFileAPI {
 	updateProjectFilePath(projectId: number, filePath: string | null): Promise<boolean>;
 }
 
+// Bunny (海兔) API 接口
+export interface BunnyAPI {
+	requestOCR(markerId: number, imageId: number, projectId: number, serviceId: string): Promise<string>;
+	requestTranslation(markerId: number, imageId: number, projectId: number, serviceId: string, text: string): Promise<string>;
+	handleOCRCompleted(taskId: string, markerId: number, text: string, model: string): Promise<void>;
+	handleTranslationCompleted(taskId: string, markerId: number, translatedText: string, service: string): Promise<void>;
+	handleTaskFailed(taskId: string, error: string): Promise<void>;
+	cancelBunnyTask(taskId: string): Promise<boolean>;
+	clearAllBunnyTasks(): Promise<boolean>;
+	getBunnyTaskStatus(taskId: string): Promise<unknown | null>;
+	getBunnyQueuedTasks(projectId?: number): Promise<unknown[]>;
+	getOCRResult(markerId: number): Promise<string | null>;
+	getTranslationResult(markerId: number): Promise<string | null>;
+	getAvailableOCRServices(): Promise<OCRServiceInfo[]>;
+	getAvailableTranslationServices(): Promise<TranslationServiceInfo[]>;
+	getBunnyCache(markerId: number): Promise<BunnyCacheData | null>;
+	updateOriginalText(markerId: number, text: string, model: string): Promise<void>;
+	updateMachineTranslation(markerId: number, text: string, service: string): Promise<void>;
+	clearBunnyCache(markerId: number): Promise<void>;
+}
+
+// Service info types for plugin-provided services
+export interface OCRServiceInfo {
+	id: string;
+	name: string;
+	plugin_id: string;
+	supported_languages: string[];
+	supported_image_formats: string[];
+}
+
+export interface TranslationServiceInfo {
+	id: string;
+	name: string;
+	plugin_id: string;
+	source_languages: string[];
+	target_languages: string[];
+	supports_auto_detect: boolean;
+}
+
+export interface BunnyCacheData {
+	marker_id: number;
+	original_text?: string;
+	machine_translation?: string;
+	last_ocr_model?: string;
+	last_translation_service?: string;
+}
+
 // 综合API接口
-export interface CoreAPI extends ProjectAPI, ImageAPI, MarkerAPI, UtilityAPI, UndoRedoAPI, LabelplusFileAPI {}
+export interface CoreAPI extends ProjectAPI, ImageAPI, MarkerAPI, UtilityAPI, UndoRedoAPI, LabelplusFileAPI, BunnyAPI {}
 
 // 定义后端调用的参数类型
 interface BackendCallParams {
@@ -472,6 +520,10 @@ abstract class BaseCoreAPI implements CoreAPI {
 		return this.callBackend<Marker | null>('get_marker_info', { markerId });
 	}
 
+	async getMarkersForImage(imageId: number): Promise<Marker[]> {
+		return this.callBackend<Marker[]>('get_markers_for_image', { imageId });
+	}
+
 	async updatePointMarkerPosition(markerId: number, x: number, y: number): Promise<boolean> {
 		return this.callBackend<boolean>('update_point_marker_position', { markerId, x, y });
 	}
@@ -645,6 +697,99 @@ abstract class BaseCoreAPI implements CoreAPI {
 
 	async updateProjectFilePath(projectId: number, filePath: string | null): Promise<boolean> {
 		return this.callBackend<boolean>('update_project_file_path', { projectId, filePath });
+	}
+
+	// Bunny (海兔) API implementation
+	async requestOCR(markerId: number, imageId: number, projectId: number, serviceId: string): Promise<string> {
+		return this.callBackend<string>('request_ocr', { markerId, imageId, projectId, serviceId });
+	}
+
+	async requestTranslation(markerId: number, imageId: number, projectId: number, serviceId: string, text: string): Promise<string> {
+		return this.callBackend<string>('request_translation', { markerId, imageId, projectId, serviceId, text });
+	}
+
+	async handleOCRCompleted(taskId: string, markerId: number, text: string, model: string): Promise<void> {
+		await this.callBackend<void>('handle_ocr_completed', { taskId, markerId, text, model });
+	}
+
+	async handleTranslationCompleted(taskId: string, markerId: number, translatedText: string, service: string): Promise<void> {
+		await this.callBackend<void>('handle_translation_completed', { taskId, markerId, translatedText, service });
+	}
+
+	async handleTaskFailed(taskId: string, error: string): Promise<void> {
+		await this.callBackend<void>('handle_task_failed', { taskId, error });
+	}
+
+	async cancelBunnyTask(taskId: string): Promise<boolean> {
+		return this.callBackend<boolean>('cancel_bunny_task', { taskId });
+	}
+
+	async clearAllBunnyTasks(): Promise<boolean> {
+		return this.callBackend<boolean>('clear_all_bunny_tasks', {});
+	}
+
+	async getBunnyTaskStatus(taskId: string): Promise<unknown | null> {
+		return this.callBackend<unknown | null>('get_bunny_task_status', { taskId });
+	}
+
+	async getBunnyQueuedTasks(projectId?: number): Promise<unknown[]> {
+		return this.callBackend<unknown[]>('get_bunny_queued_tasks', { projectId });
+	}
+
+	async getOCRResult(markerId: number): Promise<string | null> {
+		return this.callBackend<string | null>('get_ocr_result', { markerId });
+	}
+
+	async getTranslationResult(markerId: number): Promise<string | null> {
+		return this.callBackend<string | null>('get_translation_result', { markerId });
+	}
+
+	async getAvailableOCRServices(): Promise<OCRServiceInfo[]> {
+		// For WASM, get services from pluginBridge; for Tauri, get from backend
+		if (isTauri()) {
+			return this.callBackend<OCRServiceInfo[]>('get_available_ocr_services', {});
+		} else {
+			// Call pluginBridge to get locally registered services
+			const { pluginBridge } = await import('../services/pluginBridge');
+			return pluginBridge.handleServiceCall({
+				pluginId: 'core',
+				service: 'bunny',
+				method: 'get_ocr_services',
+				params: {}
+			});
+		}
+	}
+
+	async getAvailableTranslationServices(): Promise<TranslationServiceInfo[]> {
+		// For WASM, get services from pluginBridge; for Tauri, get from backend
+		if (isTauri()) {
+			return this.callBackend<TranslationServiceInfo[]>('get_available_translation_services', {});
+		} else {
+			// Call pluginBridge to get locally registered services
+			const { pluginBridge } = await import('../services/pluginBridge');
+			return pluginBridge.handleServiceCall({
+				pluginId: 'core',
+				service: 'bunny',
+				method: 'get_translation_services',
+				params: {}
+			});
+		}
+	}
+
+	async getBunnyCache(markerId: number): Promise<BunnyCacheData | null> {
+		return await this.callBackend<BunnyCacheData | null>('get_bunny_cache', { markerId });
+	}
+
+	async updateOriginalText(markerId: number, text: string, model: string): Promise<void> {
+		await this.callBackend<void>('update_original_text', { markerId, text, model });
+	}
+
+	async updateMachineTranslation(markerId: number, text: string, service: string): Promise<void> {
+		await this.callBackend<void>('update_machine_translation', { markerId, text, service });
+	}
+
+	async clearBunnyCache(markerId: number): Promise<void> {
+		await this.callBackend<void>('clear_bunny_cache', { markerId });
 	}
 }
 

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// 跨平台的时间戳获取函数
-fn get_timestamp_millis() -> u64 {
+pub fn get_timestamp_millis() -> u64 {
     #[cfg(feature = "wasm")]
     {
         // 在 WASM 环境中使用 JavaScript 的 Date.now()

@@ -11,3 +11,4 @@ export { default as DictionaryPanel } from './DictionaryPanel.svelte';
 export { default as ProjectSettingsPanel } from './ProjectSettingsPanel.svelte';
 export { default as WelcomePage } from './WelcomePage.svelte';
 export { default as BunnyPanel } from './BunnyPanel.svelte';
+export { default as NotificationToasts } from './notifications/NotificationToasts.svelte';
