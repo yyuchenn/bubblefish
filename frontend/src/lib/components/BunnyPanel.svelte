@@ -28,7 +28,7 @@
 	<div class="bg-theme-surface-variant border-theme-outline flex h-8 items-center border-b px-3">
 		<span class="text-theme-on-surface text-sm font-medium select-none flex items-center gap-2">
 			<img src="/slug.png" alt="海兔" class="w-5 h-5" />
-			海兔 - 智能翻译辅助
+			海兔
 		</span>
 		<div class="flex-1"></div>
 		<button

@@ -44,7 +44,7 @@
 		<div class="flex gap-1 h-[28px] items-center">
 			{#if selectedMarker && machineTranslation}
 				<button
-					class="px-2 py-1 text-xs rounded hover:bg-theme-surface-variant transition-colors flex items-center justify-center"
+					class="px-2 py-1 text-xs rounded bg-theme-surface text-theme-on-surface border border-theme-outline hover:bg-theme-surface-variant transition-colors flex items-center justify-center focus:outline-none focus:ring-1 focus:ring-theme-primary/60"
 					on:click={copyToClipboard}
 					title="复制到剪贴板"
 				>

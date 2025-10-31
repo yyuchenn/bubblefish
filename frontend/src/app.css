@@ -75,6 +75,26 @@
 	outline: none;
 }
 
+/* Base themed form controls */
+@layer base {
+	select {
+		color: var(--color-on-surface);
+		background-color: var(--color-surface);
+		border-color: var(--color-outline);
+	}
+
+	select:disabled {
+		color: var(--color-disabled);
+		background-color: var(--color-surface-variant);
+	}
+
+	select option,
+	select optgroup {
+		color: var(--color-on-surface);
+		background-color: var(--color-surface);
+	}
+}
+
 /* Themed Tailwind Utilities */
 @layer utilities {
 	/* Background utilities */

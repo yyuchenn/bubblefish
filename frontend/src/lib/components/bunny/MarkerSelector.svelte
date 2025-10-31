@@ -142,19 +142,21 @@
 	<div class="flex items-center justify-between px-3 py-2 border-b border-theme-outline min-h-[36px]">
 		<span class="text-xs font-medium text-theme-on-surface">矩形标记</span>
 		<div class="flex gap-1 h-[28px] items-center">
+			{#if $selectedMarkerIds.size > 0}
+				<button
+					class="px-2 py-1 text-xs rounded bg-theme-surface text-theme-on-surface border border-theme-outline hover:bg-theme-surface-variant focus:outline-none focus:ring-1 focus:ring-theme-primary/60"
+					on:click={clearSelection}
+					title="取消选择"
+				>
+					取消选择
+				</button>
+			{/if}
 			<button
-				class="px-2 py-1 text-xs rounded hover:bg-theme-surface-variant"
+				class="px-2 py-1 text-xs rounded bg-theme-surface text-theme-on-surface border border-theme-outline hover:bg-theme-surface-variant focus:outline-none focus:ring-1 focus:ring-theme-primary/60"
 				on:click={selectAll}
 				title="全选"
 			>
 				全选
-			</button>
-			<button
-				class="px-2 py-1 text-xs rounded hover:bg-theme-surface-variant"
-				on:click={clearSelection}
-				title="清除"
-			>
-				清除
 			</button>
 		</div>
 	</div>
@@ -168,9 +170,9 @@
 			<div class="p-2 space-y-1">
 				{#each rectangleMarkers as marker (marker.id)}
 					<button
-						class="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left hover:bg-theme-surface-variant transition-colors
-							{$selectedMarkerIds.has(marker.id) ? 'bg-theme-primary/10 border border-theme-primary' : 'border border-transparent'}
-							{!isMultiSelectMode && marker.id === $selectedMarkerId ? 'ring-2 ring-theme-primary' : ''}"
+						class={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-left transition-colors bg-theme-surface text-theme-on-surface border border-theme-outline hover:bg-theme-surface-variant focus:outline-none focus:ring-1 focus:ring-theme-primary/40
+							${$selectedMarkerIds.has(marker.id) ? ' bg-theme-primary/10 border-theme-primary text-theme-on-surface' : ''}
+							${!isMultiSelectMode && marker.id === $selectedMarkerId ? ' ring-2 ring-theme-primary' : ''}`}
 						on:click={(e) => handleMarkerClick(marker.id, e)}
 						data-marker-id={marker.id}
 					>

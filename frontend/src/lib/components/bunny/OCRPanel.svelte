@@ -55,14 +55,14 @@
 						保存
 					</button>
 					<button
-						class="px-2 py-1 text-xs rounded hover:bg-theme-surface-variant"
+						class="px-2 py-1 text-xs rounded bg-theme-surface text-theme-on-surface border border-theme-outline hover:bg-theme-surface-variant focus:outline-none focus:ring-1 focus:ring-theme-primary/60"
 						on:click={cancelEdit}
 					>
 						取消
 					</button>
 				{:else}
 					<button
-						class="px-2 py-1 text-xs rounded hover:bg-theme-surface-variant"
+						class="px-2 py-1 text-xs rounded bg-theme-surface text-theme-on-surface border border-theme-outline hover:bg-theme-surface-variant focus:outline-none focus:ring-1 focus:ring-theme-primary/60"
 						on:click={() => isEditing = true}
 					>
 						编辑
@@ -80,7 +80,7 @@
 		{:else if isEditing}
 			<textarea
 				bind:value={originalText}
-				class="w-full h-full p-2 text-sm bg-theme-surface border border-theme-outline rounded resize-none focus:outline-none focus:border-theme-primary"
+				class="w-full h-full p-2 text-sm bg-theme-surface text-theme-on-surface border border-theme-outline rounded resize-none focus:outline-none focus:border-theme-primary"
 				placeholder="输入原文..."
 			></textarea>
 		{:else if originalText}

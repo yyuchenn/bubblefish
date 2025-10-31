@@ -126,20 +126,22 @@
 
 <div class="plugin-settings">
 	<div class="plugin-list">
-		<h3 class="text-lg font-semibold mb-4">已安装插件</h3>
+		<h3 class="text-lg font-semibold mb-4 text-theme-on-surface">已安装插件</h3>
 		<div class="space-y-2">
 			{#each plugins as plugin (plugin.metadata.id)}
 				{@const hasConfig = !!plugin.metadata?.config_schema}
+				{@const isSelected = selectedPluginId === plugin.metadata.id}
 				<button
-					class="w-full text-left p-3 rounded-lg transition-colors {selectedPluginId === plugin.metadata.id ? 'bg-theme-primary text-theme-on-primary' : 'bg-theme-surface hover:bg-theme-surface-variant'}"
+					class={`w-full text-left p-3 rounded-lg transition-colors border border-theme-outline focus:outline-none focus:ring-2 focus:ring-theme-primary/40 disabled:opacity-60 disabled:cursor-not-allowed
+						${isSelected ? ' bg-theme-primary text-theme-on-primary border-theme-primary' : ' bg-theme-surface text-theme-on-surface hover:bg-theme-surface-variant'}`}
 					onclick={() => selectPlugin(plugin.metadata.id)}
 					disabled={!hasConfig}
 				>
-					<div class="font-medium">{plugin.metadata.name}</div>
-					<div class="text-sm opacity-75">
+					<div class={`font-medium ${isSelected ? 'text-theme-on-primary' : 'text-theme-on-surface'}`}>{plugin.metadata.name}</div>
+					<div class={`text-sm opacity-75 ${isSelected ? 'text-theme-on-primary' : 'text-theme-on-surface-variant'}`}>
 						v{plugin.metadata.version}
 						{#if !hasConfig}
-							<span class="ml-2">(无配置项)</span>
+							<span class={`ml-2 ${isSelected ? 'text-theme-on-primary' : 'text-theme-on-surface-variant'}`}>(无配置项)</span>
 						{/if}
 					</div>
 				</button>
@@ -156,7 +158,7 @@
 	<div class="plugin-config">
 		{#if selectedPlugin && configSchema}
 			<div class="mb-6">
-				<h3 class="text-xl font-semibold">{selectedPlugin.metadata.name} 配置</h3>
+				<h3 class="text-xl font-semibold text-theme-on-surface">{selectedPlugin.metadata.name} 配置</h3>
 				<p class="text-sm text-theme-on-surface-variant mt-1">
 					{selectedPlugin.metadata.description}
 				</p>
@@ -177,7 +179,7 @@
 				{#each configSchema.sections as section, sectionIndex (sectionIndex)}
 					<div class="config-section">
 						{#if section.title !== '配置' || configSchema.sections.length > 1}
-							<h4 class="text-lg font-medium mb-3">{section.title}</h4>
+							<h4 class="text-lg font-medium mb-3 text-theme-on-surface">{section.title}</h4>
 						{/if}
 
 						{#if section.description}
@@ -190,8 +192,8 @@
 							{#each section.fields as field (field.key)}
 								{@const fieldId = `${selectedPluginId}-${field.key}`}
 								<div class="form-field">
-									<label for={fieldId} class="block mb-2">
-										<span class="font-medium">
+									<label for={fieldId} class="block mb-2 text-theme-on-surface">
+										<span class="font-medium text-theme-on-surface">
 											{field.label}
 											{#if field.required}
 												<span class="text-theme-error">*</span>
@@ -203,7 +205,7 @@
 										<input
 											id={fieldId}
 											type={field.field_type}
-											class="w-full px-3 py-2 bg-theme-surface border border-theme-outline rounded-md focus:outline-none focus:ring-2 focus:ring-theme-primary"
+											class="w-full px-3 py-2 bg-theme-surface text-theme-on-surface border border-theme-outline rounded-md focus:outline-none focus:ring-2 focus:ring-theme-primary"
 											placeholder={field.placeholder || ''}
 											value={getFieldValue(field)}
 											disabled={field.disabled}
@@ -213,7 +215,7 @@
 										<input
 											id={fieldId}
 											type="number"
-											class="w-full px-3 py-2 bg-theme-surface border border-theme-outline rounded-md focus:outline-none focus:ring-2 focus:ring-theme-primary"
+											class="w-full px-3 py-2 bg-theme-surface text-theme-on-surface border border-theme-outline rounded-md focus:outline-none focus:ring-2 focus:ring-theme-primary"
 											placeholder={field.placeholder || ''}
 											value={getFieldValue(field)}
 											disabled={field.disabled}
@@ -222,7 +224,7 @@
 									{:else if field.field_type === 'textarea'}
 										<textarea
 											id={fieldId}
-											class="w-full px-3 py-2 bg-theme-surface border border-theme-outline rounded-md focus:outline-none focus:ring-2 focus:ring-theme-primary"
+											class="w-full px-3 py-2 bg-theme-surface text-theme-on-surface border border-theme-outline rounded-md focus:outline-none focus:ring-2 focus:ring-theme-primary"
 											placeholder={field.placeholder || ''}
 											rows="4"
 											disabled={field.disabled}
@@ -231,7 +233,7 @@
 									{:else if field.field_type === 'select' && field.options}
 										<select
 											id={fieldId}
-											class="w-full px-3 py-2 bg-theme-surface border border-theme-outline rounded-md focus:outline-none focus:ring-2 focus:ring-theme-primary"
+											class="w-full px-3 py-2 bg-theme-surface text-theme-on-surface border border-theme-outline rounded-md focus:outline-none focus:ring-2 focus:ring-theme-primary"
 											disabled={field.disabled}
 											onchange={e => handleInputChange(field.key, e)}
 										>
@@ -253,7 +255,7 @@
 											<div class="relative w-11 h-6 bg-theme-surface-variant rounded-full peer peer-focus:ring-2 peer-focus:ring-theme-primary peer-checked:bg-theme-primary">
 												<div class="absolute top-[2px] left-[2px] bg-white w-5 h-5 rounded-full transition-transform peer-checked:translate-x-5"></div>
 											</div>
-											<span class="ml-3 text-sm">
+											<span class="ml-3 text-sm text-theme-on-surface">
 												{getFieldValue(field) === 'true' ? '已启用' : '已禁用'}
 											</span>
 										</label>
@@ -321,5 +323,6 @@
 		padding: 1.5rem;
 		border-radius: 0.5rem;
 		border: 1px solid var(--color-outline-variant);
+		color: var(--color-on-surface);
 	}
 </style>

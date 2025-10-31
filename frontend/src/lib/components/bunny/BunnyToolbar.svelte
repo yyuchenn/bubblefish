@@ -152,7 +152,7 @@
 		<label for="ocr-model-select" class="text-xs text-theme-on-surface">OCR模型:</label>
 		<select
 			id="ocr-model-select"
-			class="px-2 py-1 text-xs bg-theme-surface border border-theme-outline rounded focus:outline-none focus:border-theme-primary"
+			class="px-2 py-1 text-xs bg-theme-surface text-theme-on-surface border border-theme-outline rounded focus:outline-none focus:border-theme-primary disabled:text-theme-on-surface-variant"
 			value={$bunnySettings.ocrModel}
 			on:change={updateOCRModel}
 			disabled={ocrServices.length === 0}
@@ -171,7 +171,7 @@
 		<label for="translation-service-select" class="text-xs text-theme-on-surface">翻译服务:</label>
 		<select
 			id="translation-service-select"
-			class="px-2 py-1 text-xs bg-theme-surface border border-theme-outline rounded focus:outline-none focus:border-theme-primary"
+			class="px-2 py-1 text-xs bg-theme-surface text-theme-on-surface border border-theme-outline rounded focus:outline-none focus:border-theme-primary disabled:text-theme-on-surface-variant"
 			value={$bunnySettings.translationService}
 			on:change={updateTranslationService}
 			disabled={translationServices.length === 0}
