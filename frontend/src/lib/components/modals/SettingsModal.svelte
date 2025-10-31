@@ -71,7 +71,10 @@
 </script>
 
 <Modal {visible} onClose={handleClose}>
-	<div class="h-[80vh] w-[80vw] flex flex-col">
+	<div
+		class="w-[80vw] flex flex-col max-h-[calc(85vh-3rem)]"
+		style="height: min(80vh, calc(85vh - 3rem));"
+	>
 		<div class="border-b border-theme-outline pb-4 mb-6">
 			<h2 class="text-2xl font-bold text-theme-on-background">设置</h2>
 			<div class="flex gap-2 mt-4">
@@ -104,7 +107,7 @@
 			</div>
 		</div>
 		
-		<div class="flex-1 overflow-y-auto">
+		<div class="flex-1 min-h-0 overflow-y-auto">
 			{#if activeTab === 'appearance'}
 				<div class="space-y-6">
 					<div>
