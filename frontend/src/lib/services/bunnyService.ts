@@ -7,6 +7,7 @@ import { coreAPI } from '../core/adapter';
 import { currentImageId } from './imageService';
 import { pluginService } from './pluginService';
 import { projectStore } from '../stores/projectStore';
+import { notificationStore } from '../stores/notificationStore';
 
 class BunnyService {
 	private initialized = false;
@@ -96,6 +97,48 @@ class BunnyService {
 						}
 					} catch (error) {
 						eventService.error(`Failed to relay translation result to backend`, error);
+					}
+				}
+				break;
+
+			case 'plugin:translation_error':
+				if (data.task_id) {
+					const errorMessage =
+						typeof data.error === 'string'
+							? data.error
+							: data.error !== undefined
+								? JSON.stringify(data.error)
+								: 'Unknown plugin error';
+					const serviceId = typeof data.service === 'string' ? data.service : 'unknown';
+
+					bunnyStore.updateTask(data.task_id, {
+						status: 'failed',
+						error: errorMessage,
+						completedAt: Date.now()
+					});
+
+					try {
+						await coreAPI.handleTaskFailed(data.task_id, errorMessage);
+						eventService.error(`Translation task ${data.task_id} failed`, errorMessage);
+					} catch (error) {
+						eventService.error(`Failed to relay translation error for task ${data.task_id}`, error);
+					}
+
+					const notificationId = `plugin:${serviceId}:translation-error:${data.task_id}`;
+					const existingNotification = notificationStore
+						.getSnapshot()
+						.find((notification) => notification.id === notificationId);
+
+					if (!existingNotification) {
+						notificationStore.notify({
+							id: notificationId,
+							title: '翻译失败',
+							message: errorMessage,
+							level: 'error',
+							toast: true,
+							sticky: false,
+							source: serviceId,
+						});
 					}
 				}
 				break;

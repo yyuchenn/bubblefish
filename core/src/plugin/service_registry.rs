@@ -86,6 +86,8 @@ pub mod adapters {
     use super::*;
     use crate::service::{marker, project, image};
     use crate::storage::traits::Storage;
+    use crate::common::events::EVENT_SYSTEM;
+    use uuid::Uuid;
     
     /// Marker Service适配器
     pub struct MarkerServiceAdapter {
@@ -695,6 +697,156 @@ pub mod adapters {
 
         fn name(&self) -> &'static str {
             "bunny"
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct NotificationActionPayload {
+        label: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        href: Option<String>,
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct NotificationPayload {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        title: Option<String>,
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        toast: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sticky: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        auto_close: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        actions: Option<Vec<NotificationActionPayload>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        extra: Option<Value>,
+    }
+
+    pub struct NotificationServiceAdapter;
+
+    impl NotificationServiceAdapter {
+        pub fn new() -> Self {
+            Self
+        }
+
+        fn emit_notification(&self, payload: NotificationPayload) -> Result<Value, String> {
+            if payload.message.trim().is_empty() {
+                return Err("Notification message is required".to_string());
+            }
+
+            let id = payload
+                .id
+                .clone()
+                .unwrap_or_else(|| Uuid::new_v4().to_string());
+
+            let level = payload
+                .level
+                .clone()
+                .unwrap_or_else(|| "info".to_string())
+                .to_lowercase();
+
+            let normalized_level = match level.as_str() {
+                "success" | "warning" | "error" => level,
+                _ => "info".to_string(),
+            };
+
+            let event_payload = serde_json::json!({
+                "id": id,
+                "title": payload.title,
+                "message": payload.message,
+                "level": normalized_level,
+                "toast": payload.toast.unwrap_or(true),
+                "sticky": payload.sticky.unwrap_or(false),
+                "auto_close": payload.auto_close,
+                "source": payload.source,
+                "actions": payload.actions,
+                "extra": payload.extra,
+                "from": "plugin"
+            });
+
+            EVENT_SYSTEM
+                .emit_business_event("ui:notification".to_string(), event_payload)
+                .map_err(|e| format!("Failed to emit notification event: {}", e))?;
+
+            Ok(serde_json::json!({ "id": id }))
+        }
+    }
+
+    impl ServiceInterface for NotificationServiceAdapter {
+        fn call(&self, method: &str, params: Value) -> Result<Value, String> {
+            match method {
+                "push" => {
+                    let payload: NotificationPayload = serde_json::from_value(params)
+                        .map_err(|e| format!("Invalid notification payload: {}", e))?;
+                    self.emit_notification(payload)
+                }
+                "clear" => {
+                    EVENT_SYSTEM
+                        .emit_business_event("ui:notification:clear".to_string(), serde_json::json!({}))
+                        .map_err(|e| format!("Failed to emit clear notification event: {}", e))?;
+                    Ok(serde_json::json!({ "success": true }))
+                }
+                "dismiss" => {
+                    let id = params
+                        .get("id")
+                        .and_then(|value| value.as_str())
+                        .ok_or_else(|| "Notification id is required".to_string())?;
+
+                    EVENT_SYSTEM
+                        .emit_business_event(
+                            "ui:notification:dismiss".to_string(),
+                            serde_json::json!({ "id": id })
+                        )
+                        .map_err(|e| format!("Failed to emit dismiss notification event: {}", e))?;
+                    Ok(serde_json::json!({ "success": true }))
+                }
+                _ => Err(format!("Unknown method: {}", method))
+            }
+        }
+
+        fn list_methods(&self) -> Vec<MethodInfo> {
+            vec![
+                MethodInfo {
+                    name: "push".to_string(),
+                    description: "Push a notification to the UI".to_string(),
+                    params: vec![ParamInfo {
+                        name: "payload".to_string(),
+                        param_type: "object".to_string(),
+                        required: true,
+                        description: "Notification payload".to_string(),
+                    }],
+                    returns: "object".to_string(),
+                },
+                MethodInfo {
+                    name: "clear".to_string(),
+                    description: "Clear all notifications".to_string(),
+                    params: vec![],
+                    returns: "object".to_string(),
+                },
+                MethodInfo {
+                    name: "dismiss".to_string(),
+                    description: "Dismiss a notification by id".to_string(),
+                    params: vec![ParamInfo {
+                        name: "id".to_string(),
+                        param_type: "string".to_string(),
+                        required: true,
+                        description: "Notification id".to_string(),
+                    }],
+                    returns: "object".to_string(),
+                },
+            ]
+        }
+
+        fn name(&self) -> &'static str {
+            "notifications"
         }
     }
 }

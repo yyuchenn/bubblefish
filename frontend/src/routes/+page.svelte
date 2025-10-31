@@ -10,7 +10,8 @@
 		ProjectSettingsPanel,
 		ToolbarControls,
 		WelcomePage,
-		BunnyPanel
+		BunnyPanel,
+		NotificationToasts
 	} from '$lib/components';
 	import { projectService } from '$lib/services/projectService';
 	import { currentImage } from '$lib/stores/imageStore';
@@ -200,3 +201,5 @@
 	<!-- 状态栏 - 横跨全屏宽度 -->
 	<StatusBar />
 </div>
+
+<NotificationToasts />

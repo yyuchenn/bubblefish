@@ -1,7 +1,8 @@
 use bubblefish_plugin_sdk::{
     Plugin, PluginContext, ServiceProxyManager, CoreEvent, PluginMetadata,
     plugin_metadata_with_config, export_plugin,
-    ConfigSchema, ConfigField, SelectOption, ConfigValidation
+    ConfigSchema, ConfigField, SelectOption, ConfigValidation,
+    NotificationLevel, NotificationPayload, NotificationAction
 };
 use serde_json::Value;
 use serde::{Deserialize, Serialize};
@@ -77,6 +78,35 @@ impl DoubaoTranslationPlugin {
         println!("[DoubaoTranslation] {}", message);
     }
 
+    fn push_notification(
+        &self,
+        id: Option<&str>,
+        level: NotificationLevel,
+        title: &str,
+        message: &str,
+        sticky: bool,
+        actions: Option<Vec<NotificationAction>>,
+    ) {
+        if let Some(services) = &self.services {
+            let payload = NotificationPayload {
+                id: id.map(|value| value.to_string()),
+                title: Some(title.to_string()),
+                message: message.to_string(),
+                level,
+                toast: Some(true),
+                sticky: Some(sticky),
+                auto_close: if sticky { None } else { Some(8000) },
+                source: Some("doubao-translation-plugin".to_string()),
+                actions,
+                extra: None,
+            };
+
+            if let Err(err) = services.notifications().push(payload) {
+                self.log(&format!("Failed to push notification: {}", err));
+            }
+        }
+    }
+
     fn get_api_key(&self) -> Result<String, String> {
         if let Some(ctx) = &self.context {
             // Get API key from config service
@@ -90,10 +120,26 @@ impl DoubaoTranslationPlugin {
                             return Ok(api_key.to_string());
                         }
                     }
+                    self.push_notification(
+                        Some("plugin:doubao:missing-api-key"),
+                        NotificationLevel::Error,
+                        "Doubao 插件未配置 API Key",
+                        "请在插件设置中填写有效的 API Key。",
+                        true,
+                        None,
+                    );
                     Err("API Key not configured. Please configure it in Settings > Plugins.".to_string())
                 }
                 Err(e) => {
                     self.log(&format!("Failed to get API key from config: {}", e));
+                    self.push_notification(
+                        Some("plugin:doubao:config-error"),
+                        NotificationLevel::Error,
+                        "无法读取 Doubao 插件配置",
+                        "请检查插件配置文件是否可用。",
+                        false,
+                        None,
+                    );
                     Err("Failed to retrieve API key from configuration".to_string())
                 }
             }
@@ -320,6 +366,15 @@ impl DoubaoTranslationPlugin {
                     Err(e) => {
                         self_clone.log(&format!("Translation failed: {}", e));
 
+                        let _ = ctx_clone.call_service("notifications", "push", serde_json::json!({
+                            "level": "error",
+                            "title": "Doubao 翻译失败",
+                            "message": format!("翻译请求失败: {}", e),
+                            "toast": true,
+                            "sticky": false,
+                            "source": "doubao-translation-plugin",
+                        }));
+
                         let event = serde_json::json!({
                             "task_id": task_id_clone,
                             "error": e,
@@ -354,6 +409,15 @@ impl DoubaoTranslationPlugin {
                 }
                 Err(e) => {
                     self.log(&format!("Translation failed: {}", e));
+
+                    self.push_notification(
+                        None,
+                        NotificationLevel::Error,
+                        "Doubao 翻译失败",
+                        &format!("翻译请求失败: {}", e),
+                        false,
+                        None,
+                    );
 
                     let event = serde_json::json!({
                         "task_id": task_id,

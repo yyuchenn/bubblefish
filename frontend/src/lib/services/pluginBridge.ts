@@ -6,6 +6,7 @@ import { imageStore } from '../stores/imageStore';
 import { isTauri } from '../core/tauri';
 import { eventService } from './eventService';
 import { pluginConfigService } from './pluginConfigService';
+import { notificationStore } from '../stores/notificationStore';
 
 export interface ServiceCallRequest {
     pluginId: string;
@@ -342,6 +343,71 @@ class PluginBridge {
 
                 default:
                     throw new Error(`Unknown events method: ${method}`);
+            }
+        });
+
+        // Notifications 服务 - 插件通知前端
+        this.serviceHandlers.set('notifications', async (method: string, params: any) => {
+            switch (method) {
+                case 'push': {
+                    if (!params || typeof params !== 'object') {
+                        throw new Error('Notification payload is required');
+                    }
+
+                    const notificationParams = params ?? {};
+                    if (typeof notificationParams.message !== 'string' || notificationParams.message.trim().length === 0) {
+                        throw new Error('Notification message is required');
+                    }
+                    const level = typeof notificationParams.level === 'string'
+                        ? notificationParams.level.toLowerCase()
+                        : 'info';
+
+                    const actions = Array.isArray(notificationParams.actions)
+                        ? notificationParams.actions
+                            .filter((action: any) => action && typeof action === 'object' && typeof action.label === 'string')
+                            .map((action: any) => ({
+                                label: action.label as string,
+                                href: typeof action.href === 'string' ? action.href : undefined
+                            }))
+                        : undefined;
+
+                    const id = notificationStore.notify({
+                        id: typeof notificationParams.id === 'string' ? notificationParams.id : undefined,
+                        title: typeof notificationParams.title === 'string' ? notificationParams.title : undefined,
+                        message: notificationParams.message,
+                        level: ['success', 'warning', 'error'].includes(level)
+                            ? level
+                            : 'info',
+                        toast: notificationParams.toast !== undefined ? Boolean(notificationParams.toast) : true,
+                        sticky: notificationParams.sticky === true,
+                        autoClose: typeof notificationParams.auto_close === 'number'
+                            ? notificationParams.auto_close
+                            : typeof notificationParams.autoClose === 'number'
+                                ? notificationParams.autoClose
+                                : undefined,
+                        source: typeof notificationParams.source === 'string' ? notificationParams.source : undefined,
+                        actions,
+                        extra: typeof notificationParams.extra === 'object' && notificationParams.extra !== null
+                            ? notificationParams.extra
+                            : undefined
+                    });
+
+                    return { id };
+                }
+
+                case 'clear':
+                    notificationStore.clear();
+                    return { success: true };
+
+                case 'dismiss':
+                    if (!params || typeof params.id !== 'string') {
+                        throw new Error('Notification id is required');
+                    }
+                    notificationStore.dismiss(params.id);
+                    return { success: true };
+
+                default:
+                    throw new Error(`Unknown notifications method: ${method}`);
             }
         });
 

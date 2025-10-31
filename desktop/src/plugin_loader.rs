@@ -7,6 +7,9 @@ use libloading::{Library, Symbol};
 use serde_json::Value;
 use tauri::Manager;
 
+use bubblefish_core::plugin::service_registry::adapters::NotificationServiceAdapter;
+use bubblefish_core::plugin::ServiceInterface;
+
 /// Callbacks provided to plugins
 #[repr(C)]
 pub struct HostCallbacks {
@@ -596,10 +599,16 @@ impl PluginLoader {
             "project" => self.handle_project_service(method, params),
             "files" => self.handle_file_service(method, params),
             "bunny" => self.handle_bunny_service(method, params),
+            "notifications" => self.handle_notifications_service(method, params),
             "events" => self.handle_events_service(method, params),
             "config" => self.handle_config_service(method, params),
             _ => Err(format!("Unknown service: {}", service)),
         }
+    }
+
+    fn handle_notifications_service(&self, method: &str, params: &Value) -> Result<Value, String> {
+        let adapter = NotificationServiceAdapter::new();
+        adapter.call(method, params.clone())
     }
 
     fn handle_marker_service(&self, method: &str, params: &Value) -> Result<Value, String> {
