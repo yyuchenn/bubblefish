@@ -1,12 +1,16 @@
 [package]
 name = "doubao-translation-plugin"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["Bubblefish Team"]
 description = "Doubao AI translation plugin for Bubblefish using Volcano Engine API"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+# Match the WebAssembly instructions emitted by current Rust toolchains.
+wasm-opt = ["-Os", "--enable-bulk-memory", "--enable-nontrapping-float-to-int"]
 
 [dependencies]
 bubblefish-plugin-sdk = { path = "../plugin-sdk", default-features = false }
@@ -22,7 +26,7 @@ native = ["bubblefish-plugin-sdk/native", "reqwest"]
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2", optional = true }
 wasm-bindgen-futures = { version = "0.4", optional = true }
-web-sys = { version = "0.3", features = ["console", "Request", "RequestInit", "RequestMode", "Response", "Headers", "Window"], optional = true }
+web-sys = { version = "0.3", features = ["console", "Request", "RequestInit", "RequestMode", "Response", "Headers", "WorkerGlobalScope"], optional = true }
 js-sys = { version = "0.3", optional = true }
 getrandom = { version = "0.2", features = ["js"], optional = true }
 serde-wasm-bindgen = { version = "0.6", optional = true }

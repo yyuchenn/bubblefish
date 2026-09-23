@@ -51,7 +51,7 @@ const PLUGIN_STATE_KEY = 'bubblefish_plugin_state';
 
 // Builtin plugins list with versions - keep in sync with plugins/plugins.conf.json
 const BUILTIN_PLUGINS = [
-    { id: 'doubao-translation-plugin', version: '0.1.0' }
+    { id: 'doubao-translation-plugin', version: '0.2.0' }
 ];
 
 interface PluginState {

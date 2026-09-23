@@ -1,6 +1,7 @@
 import { writable, derived, get } from 'svelte/store';
 import { platformService } from './platformService';
 import { invoke } from '@tauri-apps/api/core';
+import { normalizeDoubaoConfig } from './doubaoConfigMigration.js';
 
 export interface ConfigField {
     key: string;
@@ -63,7 +64,14 @@ class PluginConfigService {
                 try {
                     const configData = localStorage.getItem(key);
                     if (configData) {
-                        configs[pluginId] = JSON.parse(configData);
+                        const savedConfig = JSON.parse(configData);
+                        const config = normalizeDoubaoConfig(pluginId, savedConfig);
+                        configs[pluginId] = config;
+                        if (config !== savedConfig) {
+                            // Native plugins migrate their own model key. Do not
+                            // overwrite backend credentials with the local copy.
+                            localStorage.setItem(key, JSON.stringify(config));
+                        }
                     }
                 } catch (error) {
                     console.error(`Failed to load config for plugin ${pluginId}:`, error);
@@ -94,6 +102,8 @@ class PluginConfigService {
      * Set configuration for a plugin
      */
     async setConfig(pluginId: string, config: PluginConfig) {
+        config = normalizeDoubaoConfig(pluginId, config);
+
         // Always save to localStorage for frontend access
         const storageKey = `${STORAGE_KEY_PREFIX}${pluginId}`;
         localStorage.setItem(storageKey, JSON.stringify(config));

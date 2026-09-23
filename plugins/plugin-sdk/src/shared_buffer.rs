@@ -129,16 +129,22 @@ impl SharedBufferChannel {
         // Notify main thread
         self.atomics_notify(OFFSET_STATUS);
         
-        // Wait for response
-        self.wait_for_response(request_id)?;
-        
-        // Read response using ring buffer
-        let response = self.read_data_streaming()?;
+        if let Err(error) = self.wait_for_response(request_id) {
+            // Only a completed host error releases ownership. On timeout the
+            // host may still be writing; reusing the buffer would race its reply.
+            if self.atomics_load(OFFSET_STATUS) == STATUS_ERROR {
+                self.set_status(STATUS_IDLE);
+            }
+            return Err(error);
+        }
+
+        // Release a fully received response even when its JSON is malformed.
+        let response = self.read_data_streaming();
         
         // Reset status to idle
         self.set_status(STATUS_IDLE);
         
-        Ok(response)
+        response
     }
     
     /// Write data using ring buffer streaming

@@ -1,14 +1,15 @@
 use bubblefish_plugin_sdk::{
-    Plugin, PluginContext, ServiceProxyManager, CoreEvent, PluginMetadata,
-    plugin_metadata_with_config, export_plugin,
-    ConfigSchema, ConfigField, SelectOption, ConfigValidation,
-    NotificationLevel, NotificationPayload, NotificationAction
+    export_plugin, plugin_metadata_with_config, ConfigField, ConfigSchema, ConfigValidation,
+    CoreEvent, NotificationAction, NotificationLevel, NotificationPayload, Plugin, PluginContext,
+    PluginMetadata, SelectOption, ServiceProxyManager,
 };
 use serde_json::Value;
-use serde::{Deserialize, Serialize};
 
-const API_ENDPOINT: &str = "https://ark.cn-beijing.volces.com/api/v3/chat/completions";
-const DEFAULT_MODEL: &str = "doubao-seed-1-6-250615";
+mod api;
+mod models;
+
+use api::{build_request, API_ENDPOINT};
+use models::{migrate_legacy_model, resolve_model, DEFAULT_MODEL, MODELS};
 
 const DEFAULT_SYSTEM_PROMPT: &str = "你是一个专业的{source_lang}到{target_lang}的漫画翻译。请只输出翻译后的文本，不要任何解释或额外信息。";
 
@@ -19,44 +20,11 @@ fn normalize_language_name(lang: &str) -> &str {
         "traditionalChinese" => "繁体中文",
         "japanese" => "日本語",
         "auto" => "自动检测",
-        _ => lang
+        _ => lang,
     }
 }
 
-#[derive(Debug, Serialize)]
-struct ChatMessage {
-    role: String,
-    content: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ThinkingConfig {
-    #[serde(rename = "type")]
-    thinking_type: String,
-}
-
-#[derive(Debug, Serialize)]
-struct ChatRequest {
-    model: String,
-    messages: Vec<ChatMessage>,
-    thinking: ThinkingConfig,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatChoice {
-    message: ChatResponseMessage,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatResponseMessage {
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct ChatResponse {
-    choices: Vec<ChatChoice>,
-}
-
+#[derive(Clone)]
 pub struct DoubaoTranslationPlugin {
     context: Option<PluginContext>,
     services: Option<ServiceProxyManager>,
@@ -110,14 +78,18 @@ impl DoubaoTranslationPlugin {
     fn get_api_key(&self) -> Result<String, String> {
         if let Some(ctx) = &self.context {
             // Get API key from config service
-            match ctx.call_service("config", "get", serde_json::json!({
-                "plugin_id": ctx.plugin_id.clone(),
-                "key": "api_key"
-            })) {
+            match ctx.call_service(
+                "config",
+                "get",
+                serde_json::json!({
+                    "plugin_id": ctx.plugin_id.clone(),
+                    "key": "api_key"
+                }),
+            ) {
                 Ok(value) => {
                     if let Some(api_key) = value.as_str() {
-                        if !api_key.is_empty() {
-                            return Ok(api_key.to_string());
+                        if !api_key.trim().is_empty() {
+                            return Ok(api_key.trim().to_string());
                         }
                     }
                     self.push_notification(
@@ -128,7 +100,10 @@ impl DoubaoTranslationPlugin {
                         true,
                         None,
                     );
-                    Err("API Key not configured. Please configure it in Settings > Plugins.".to_string())
+                    Err(
+                        "API Key not configured. Please configure it in Settings > Plugins."
+                            .to_string(),
+                    )
                 }
                 Err(e) => {
                     self.log(&format!("Failed to get API key from config: {}", e));
@@ -151,19 +126,16 @@ impl DoubaoTranslationPlugin {
     fn get_model(&self) -> String {
         if let Some(ctx) = &self.context {
             // Get model from config service, fallback to default
-            match ctx.call_service("config", "get", serde_json::json!({
-                "plugin_id": ctx.plugin_id.clone(),
-                "key": "model"
-            })) {
-                Ok(value) => {
-                    if let Some(model) = value.as_str() {
-                        if !model.is_empty() {
-                            return model.to_string();
-                        }
-                    }
-                    DEFAULT_MODEL.to_string()
-                }
-                Err(_) => DEFAULT_MODEL.to_string()
+            match ctx.call_service(
+                "config",
+                "get",
+                serde_json::json!({
+                    "plugin_id": ctx.plugin_id.clone(),
+                    "key": "model"
+                }),
+            ) {
+                Ok(value) => resolve_model(value.as_str()).to_string(),
+                Err(_) => DEFAULT_MODEL.to_string(),
             }
         } else {
             DEFAULT_MODEL.to_string()
@@ -173,10 +145,14 @@ impl DoubaoTranslationPlugin {
     fn get_system_prompt_template(&self) -> String {
         if let Some(ctx) = &self.context {
             // Get custom prompt from config service, fallback to default
-            match ctx.call_service("config", "get", serde_json::json!({
-                "plugin_id": ctx.plugin_id.clone(),
-                "key": "system_prompt"
-            })) {
+            match ctx.call_service(
+                "config",
+                "get",
+                serde_json::json!({
+                    "plugin_id": ctx.plugin_id.clone(),
+                    "key": "system_prompt"
+                }),
+            ) {
                 Ok(value) => {
                     if let Some(prompt) = value.as_str() {
                         if !prompt.is_empty() {
@@ -185,7 +161,7 @@ impl DoubaoTranslationPlugin {
                     }
                     DEFAULT_SYSTEM_PROMPT.to_string()
                 }
-                Err(_) => DEFAULT_SYSTEM_PROMPT.to_string()
+                Err(_) => DEFAULT_SYSTEM_PROMPT.to_string(),
             }
         } else {
             DEFAULT_SYSTEM_PROMPT.to_string()
@@ -202,70 +178,61 @@ impl DoubaoTranslationPlugin {
     }
 
     #[cfg(target_arch = "wasm32")]
-    async fn call_doubao_api(&self, system_prompt: &str, user_text: &str) -> Result<String, String> {
-        use wasm_bindgen::JsValue;
+    async fn call_doubao_api(
+        &self,
+        system_prompt: &str,
+        user_text: &str,
+    ) -> Result<String, String> {
+        use wasm_bindgen::{JsCast, JsValue};
         use wasm_bindgen_futures::JsFuture;
-        use web_sys::{Request, RequestInit, RequestMode, Response, Headers};
+        use web_sys::{Request, RequestInit, RequestMode, Response, WorkerGlobalScope};
 
         // Get API key first
         let api_key = self.get_api_key()?;
         let model = self.get_model();
 
-        let request_body = ChatRequest {
-            model,
-            messages: vec![
-                ChatMessage {
-                    role: "system".to_string(),
-                    content: system_prompt.to_string(),
-                },
-                ChatMessage {
-                    role: "user".to_string(),
-                    content: user_text.to_string(),
-                }
-            ],
-            thinking: ThinkingConfig {
-                thinking_type: "disabled".to_string(),
-            },
-        };
+        let request_body = build_request(&model, system_prompt, user_text);
 
         let body_json = serde_json::to_string(&request_body)
             .map_err(|e| format!("Failed to serialize request: {}", e))?;
 
-        let mut opts = RequestInit::new();
-        opts.method("POST");
-        opts.mode(RequestMode::Cors);
-        opts.body(Some(&JsValue::from_str(&body_json)));
+        let opts = RequestInit::new();
+        opts.set_method("POST");
+        opts.set_mode(RequestMode::Cors);
+        opts.set_body(&JsValue::from_str(&body_json));
 
         let request = Request::new_with_str_and_init(API_ENDPOINT, &opts)
             .map_err(|e| format!("Failed to create request: {:?}", e))?;
 
-        let headers = Headers::new()
-            .map_err(|e| format!("Failed to create headers: {:?}", e))?;
-        headers.set("Content-Type", "application/json")
+        let headers = request.headers();
+        headers
+            .set("Content-Type", "application/json")
             .map_err(|e| format!("Failed to set Content-Type: {:?}", e))?;
-        headers.set("Authorization", &format!("Bearer {}", api_key))
+        headers
+            .set("Authorization", &format!("Bearer {}", api_key))
             .map_err(|e| format!("Failed to set Authorization: {:?}", e))?;
 
-        let window = web_sys::window().ok_or("No window object")?;
-        let resp_value = JsFuture::from(window.fetch_with_request(&request))
+        let worker = js_sys::global()
+            .dyn_into::<WorkerGlobalScope>()
+            .map_err(|_| "Doubao plugin requires a Web Worker")?;
+        let resp_value = JsFuture::from(worker.fetch_with_request(&request))
             .await
             .map_err(|e| format!("Fetch failed: {:?}", e))?;
 
-        let resp: Response = resp_value.dyn_into()
+        let resp: Response = resp_value
+            .dyn_into()
             .map_err(|e| format!("Response conversion failed: {:?}", e))?;
 
-        let json = JsFuture::from(resp.json()
-            .map_err(|e| format!("Failed to get JSON: {:?}", e))?)
-            .await
-            .map_err(|e| format!("JSON parsing failed: {:?}", e))?;
-
-        let response: ChatResponse = serde_wasm_bindgen::from_value(json)
-            .map_err(|e| format!("Failed to deserialize response: {:?}", e))?;
-
-        response.choices
-            .first()
-            .map(|choice| choice.message.content.clone())
-            .ok_or_else(|| "No response from API".to_string())
+        let status = resp.status();
+        let body = JsFuture::from(
+            resp.text()
+                .map_err(|e| format!("Failed to read response: {:?}", e))?,
+        )
+        .await
+        .map_err(|e| format!("Failed to read response: {:?}", e))?
+        .as_string()
+        .ok_or("Response body is not text")?;
+        api::parse_response(status, &body)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -274,41 +241,11 @@ impl DoubaoTranslationPlugin {
         let api_key = self.get_api_key()?;
         let model = self.get_model();
 
-        let client = reqwest::blocking::Client::new();
-
-        let request_body = ChatRequest {
-            model,
-            messages: vec![
-                ChatMessage {
-                    role: "system".to_string(),
-                    content: system_prompt.to_string(),
-                },
-                ChatMessage {
-                    role: "user".to_string(),
-                    content: user_text.to_string(),
-                }
-            ],
-            thinking: ThinkingConfig {
-                thinking_type: "disabled".to_string(),
-            },
-        };
-
-        let response = client
-            .post(API_ENDPOINT)
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .json(&request_body)
-            .send()
-            .map_err(|e| format!("Request failed: {}", e))?;
-
-        let response_body: ChatResponse = response
-            .json()
-            .map_err(|e| format!("Failed to parse response: {}", e))?;
-
-        response_body.choices
-            .first()
-            .map(|choice| choice.message.content.clone())
-            .ok_or_else(|| "No response from API".to_string())
+        api::send_request(
+            API_ENDPOINT,
+            &api_key,
+            &build_request(&model, system_prompt, user_text),
+        )
     }
 
     fn handle_translation_request(&self, message: Value) {
@@ -317,14 +254,13 @@ impl DoubaoTranslationPlugin {
             None => return,
         };
 
-        let task_id = message.get("task_id")
+        let task_id = message
+            .get("task_id")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
 
-        let text = message.get("text")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let text = message.get("text").and_then(|v| v.as_str()).unwrap_or("");
 
         let options = message.get("options");
         let target_lang = options
@@ -335,15 +271,19 @@ impl DoubaoTranslationPlugin {
             .and_then(|o| o.get("source_language"))
             .and_then(|v| v.as_str());
 
-        self.log(&format!("Translating text: {} chars, {:?} -> {}",
-            text.len(), source_lang, target_lang));
+        self.log(&format!(
+            "Translating text: {} chars, {:?} -> {}",
+            text.len(),
+            source_lang,
+            target_lang
+        ));
 
         let system_prompt = self.build_system_prompt(source_lang, target_lang);
         let user_text = text.to_string();
 
         #[cfg(target_arch = "wasm32")]
         {
-            let self_clone = Self::new();
+            let self_clone = self.clone();
             let ctx_clone = ctx.clone();
             let task_id_clone = task_id.clone();
 
@@ -358,22 +298,30 @@ impl DoubaoTranslationPlugin {
                             "service": "doubao-translate"
                         });
 
-                        let _ = ctx_clone.call_service("events", "emit_business_event", serde_json::json!({
-                            "event_name": "plugin:translation_result",
-                            "data": event
-                        }));
+                        let _ = ctx_clone.call_service(
+                            "events",
+                            "emit_business_event",
+                            serde_json::json!({
+                                "event_name": "plugin:translation_result",
+                                "data": event
+                            }),
+                        );
                     }
                     Err(e) => {
                         self_clone.log(&format!("Translation failed: {}", e));
 
-                        let _ = ctx_clone.call_service("notifications", "push", serde_json::json!({
-                            "level": "error",
-                            "title": "Doubao 翻译失败",
-                            "message": format!("翻译请求失败: {}", e),
-                            "toast": true,
-                            "sticky": false,
-                            "source": "doubao-translation-plugin",
-                        }));
+                        let _ = ctx_clone.call_service(
+                            "notifications",
+                            "push",
+                            serde_json::json!({
+                                "level": "error",
+                                "title": "Doubao 翻译失败",
+                                "message": format!("翻译请求失败: {}", e),
+                                "toast": true,
+                                "sticky": false,
+                                "source": "doubao-translation-plugin",
+                            }),
+                        );
 
                         let event = serde_json::json!({
                             "task_id": task_id_clone,
@@ -381,10 +329,14 @@ impl DoubaoTranslationPlugin {
                             "service": "doubao-translate"
                         });
 
-                        let _ = ctx_clone.call_service("events", "emit_business_event", serde_json::json!({
-                            "event_name": "plugin:translation_error",
-                            "data": event
-                        }));
+                        let _ = ctx_clone.call_service(
+                            "events",
+                            "emit_business_event",
+                            serde_json::json!({
+                                "event_name": "plugin:translation_error",
+                                "data": event
+                            }),
+                        );
                     }
                 }
             });
@@ -402,10 +354,14 @@ impl DoubaoTranslationPlugin {
                         "service": "doubao-translate"
                     });
 
-                    let _ = ctx.call_service("events", "emit_business_event", serde_json::json!({
-                        "event_name": "plugin:translation_result",
-                        "data": event
-                    }));
+                    let _ = ctx.call_service(
+                        "events",
+                        "emit_business_event",
+                        serde_json::json!({
+                            "event_name": "plugin:translation_result",
+                            "data": event
+                        }),
+                    );
                 }
                 Err(e) => {
                     self.log(&format!("Translation failed: {}", e));
@@ -425,10 +381,14 @@ impl DoubaoTranslationPlugin {
                         "service": "doubao-translate"
                     });
 
-                    let _ = ctx.call_service("events", "emit_business_event", serde_json::json!({
-                        "event_name": "plugin:translation_error",
-                        "data": event
-                    }));
+                    let _ = ctx.call_service(
+                        "events",
+                        "emit_business_event",
+                        serde_json::json!({
+                            "event_name": "plugin:translation_error",
+                            "data": event
+                        }),
+                    );
                 }
             }
         }
@@ -436,13 +396,26 @@ impl DoubaoTranslationPlugin {
 }
 
 impl Plugin for DoubaoTranslationPlugin {
-    fn init(&mut self, context: PluginContext, services: ServiceProxyManager) -> Result<(), String> {
+    fn init(
+        &mut self,
+        context: PluginContext,
+        services: ServiceProxyManager,
+    ) -> Result<(), String> {
         self.context = Some(context.clone());
         self.services = Some(services);
 
         self.log("DoubaoTranslation plugin initialized");
 
         if let Some(ctx) = &self.context {
+            if let Err(error) = migrate_legacy_model(&ctx.plugin_id, |method, params| {
+                ctx.call_service("config", method, params)
+            }) {
+                self.log(&format!(
+                    "Could not persist model migration: {}. Legacy models will still use {}.",
+                    error, DEFAULT_MODEL
+                ));
+            }
+
             let service_info = serde_json::json!({
                 "id": "doubao-translate",
                 "name": "Doubao AI Translation",
@@ -453,10 +426,14 @@ impl Plugin for DoubaoTranslationPlugin {
                 "max_text_length": null
             });
 
-            match ctx.call_service("bunny", "register_translation_service", serde_json::json!({
-                "plugin_id": ctx.plugin_id.clone(),
-                "service_info": service_info
-            })) {
+            match ctx.call_service(
+                "bunny",
+                "register_translation_service",
+                serde_json::json!({
+                    "plugin_id": ctx.plugin_id.clone(),
+                    "service_info": service_info
+                }),
+            ) {
                 Ok(_) => self.log("Translation service registered successfully"),
                 Err(e) => self.log(&format!("Failed to register translation service: {}", e)),
             }
@@ -493,9 +470,13 @@ impl Plugin for DoubaoTranslationPlugin {
         self.log("DoubaoTranslation plugin destroyed");
 
         if let Some(ctx) = &self.context {
-            let _ = ctx.call_service("bunny", "unregister_service", serde_json::json!({
-                "service_id": "doubao-translate"
-            }));
+            let _ = ctx.call_service(
+                "bunny",
+                "unregister_service",
+                serde_json::json!({
+                    "service_id": "doubao-translate"
+                }),
+            );
         }
 
         self.context = None;
@@ -507,32 +488,27 @@ impl Plugin for DoubaoTranslationPlugin {
             ConfigField::password("api_key", "API Key")
                 .required()
                 .with_placeholder("请输入 Doubao API Key")
-                .with_help("从 Volcano Engine 控制台获取的 API Key")
+                .with_help("从火山方舟控制台获取 API Key，并开通所选模型的调用权限")
                 .with_validation(vec![ConfigValidation::MinLength(10)]),
-
             ConfigField::select(
                 "model",
                 "模型选择",
-                vec![
-                    SelectOption {
-                        value: "doubao-seed-1-6-250615".to_string(),
-                        label: "Doubao Seed 1.6".to_string()
-                    },
-                    SelectOption {
-                        value: "doubao-seed-1-6-flash-250828".to_string(),
-                        label: "Doubao Seed 1.6 Flash".to_string()
-                    },
-                    SelectOption {
-                        value: "doubao-1-5-pro-32k-250115".to_string(),
-                        label: "Doubao 1.5 Pro 32K".to_string()
-                    }
-                ]
+                MODELS
+                    .iter()
+                    .map(|(value, label)| SelectOption {
+                        value: (*value).to_string(),
+                        label: (*label).to_string(),
+                    })
+                    .collect(),
             )
-            .with_default("doubao-seed-1-6-250615")
-            .with_help("选择要使用的 Doubao 模型"),
-
+            .with_default(DEFAULT_MODEL)
+            .with_help(
+                "选择 Seed 2.1 模型。旧版模型配置将自动迁移至默认 Pro，翻译时关闭深度思考。",
+            ),
             ConfigField::textarea("system_prompt", "系统提示词")
-                .with_placeholder("自定义翻译提示词，使用 {source_lang} 和 {target_lang} 作为占位符")
+                .with_placeholder(
+                    "自定义翻译提示词，使用 {source_lang} 和 {target_lang} 作为占位符",
+                )
                 .with_help("留空使用默认提示词。可以使用 {source_lang} 和 {target_lang} 占位符")
                 .with_default(DEFAULT_SYSTEM_PROMPT),
         ]);
