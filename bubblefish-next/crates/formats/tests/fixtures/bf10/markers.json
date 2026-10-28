@@ -1,0 +1,18 @@
+[
+  [
+    {
+      "type": "point",
+      "position": [12.5, 50],
+      "style": "0",
+      "text": "第一行\n[第二行](\\加粗\\重点)"
+    },
+    {
+      "type": "rectangle",
+      "position": [25, 25],
+      "size": [50, 25],
+      "style": "overlay-h",
+      "text": "[斜体](\\斜体)[删除](\\划掉)"
+    }
+  ],
+  []
+]

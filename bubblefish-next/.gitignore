@@ -1,0 +1,10 @@
+node_modules/
+.cache/
+target/
+dist/
+playwright-report/
+test-results/
+src/generated/wasm/
+src/wasm/
+src-tauri/gen/
+!Cargo.lock

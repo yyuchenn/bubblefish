@@ -1,0 +1,54 @@
+{
+  "name": "bubblefish-next",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.20.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev:web": "node scripts/run.mjs dev:web",
+    "dev:desktop": "node scripts/run.mjs dev:desktop",
+    "build:web": "node scripts/run.mjs build:web",
+    "build:desktop": "node scripts/run.mjs build:desktop",
+    "types:generate": "node scripts/run.mjs types:generate",
+    "types:check": "node scripts/run.mjs types:check",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test:core": "node scripts/run.mjs test:core",
+    "test:host": "node scripts/run.mjs test:host",
+    "check:wasm": "node scripts/run.mjs check:wasm",
+    "test:ui": "vitest run",
+    "test:e2e": "playwright test",
+    "verify": "npm run types:check && npm run check && npm run test:core && npm run test:ui && npm run build:web && npm run test:e2e",
+    "tauri": "tauri",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "prosemirror-commands": "^1.7.1",
+    "prosemirror-keymap": "^1.2.3",
+    "prosemirror-model": "^1.25.4",
+    "prosemirror-state": "^1.4.4",
+    "prosemirror-transform": "^1.12.4",
+    "prosemirror-view": "^1.41.4"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "@tailwindcss/vite": "4.3.3",
+    "@tauri-apps/cli": "^2.10.1",
+    "@types/node": "^26.0.0",
+    "prettier": "^3.9.10",
+    "prettier-plugin-svelte": "^4.1.1",
+    "svelte": "5.57.3",
+    "svelte-check": "^4.4.5",
+    "tailwindcss": "4.3.3",
+    "typescript": "^6.0.3",
+    "vite": "8.3.5",
+    "vitest": "^4.1.0",
+    "wasm-pack": "0.15.0"
+  }
+}

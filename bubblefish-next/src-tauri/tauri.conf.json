@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bubblefish Next",
+  "version": "0.1.0",
+  "identifier": "com.yyuchenn.bubblefish.next",
+  "build": {
+    "frontendDist": "../dist/desktop",
+    "devUrl": "http://127.0.0.1:5174"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "Bubblefish Next",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 560,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost; worker-src 'self' blob:; font-src 'self' data:",
+      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost http://127.0.0.1:5174 ws://127.0.0.1:5174; worker-src 'self' blob:; font-src 'self' data:",
+      "assetProtocol": { "enable": true, "scope": [] }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "useLocalToolsDir": true,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["bf"],
+        "name": "Bubblefish Next Project",
+        "description": "Bubblefish translation project",
+        "role": "Editor",
+        "mimeType": "application/x-bubblefish"
+      }
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "languages": ["SimpChinese", "English"],
+        "headerImage": "resources/nsis/header.bmp",
+        "sidebarImage": "resources/nsis/sidebar.bmp",
+        "installerIcon": "icons/installer_icon.ico"
+      }
+    }
+  }
+}

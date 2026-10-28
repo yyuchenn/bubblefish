@@ -1,0 +1,25 @@
+[package]
+name = "bubblefish-next-desktop"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Bubblefish Next translation editor"
+
+[lib]
+name = "bubblefish_next_app"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+bubblefish-core = { path = "../crates/core" }
+bubblefish-formats = { path = "../crates/formats" }
+bubblefish-wasm = { path = "../crates/wasm" }
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+percent-encoding = "2"
+
