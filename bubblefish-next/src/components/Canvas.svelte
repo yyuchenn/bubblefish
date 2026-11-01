@@ -3,12 +3,14 @@
   import type { Geometry, ImageDocument, Marker } from '../generated/core';
   import type { AssetStore } from '../runtime/assets';
   import { usePopups } from '../runtime/popups';
+  import MarkerTooltip from './MarkerTooltip.svelte';
   export type ZoomMode = 'fit' | 'width' | 'height' | 'free';
   let {
     image,
     assets,
     selectedId,
     pendingGeometries = {},
+    hoverPreview = true,
     hoveredId,
     onhover,
     onselect,
@@ -22,6 +24,7 @@
     assets: AssetStore;
     selectedId: string | null;
     pendingGeometries?: Record<string, Geometry>;
+    hoverPreview?: boolean;
     hoveredId: string | null;
     onhover: (id: string | null) => void;
     onselect: (id: string) => void;
@@ -39,6 +42,7 @@
     y = $state(0);
   let mode = $state<ZoomMode>('fit');
   let preview = $state<{ id?: string; geometry: Geometry } | null>(null);
+  let directHoveredId = $state<string | null>(null);
   const popups = usePopups();
   const context = $derived($popups?.id === 'canvas-context' ? ($popups.marker ?? null) : null);
   const handles = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w'];
@@ -70,6 +74,42 @@
     x + image.width * scale < 0 || y + image.height * scale < 0 || x > width || y > height,
   );
   const src = $derived(assets.get(image.assetId)?.url ?? '');
+  const tooltipMarker = $derived(
+    hoverPreview && !$popups
+      ? image.markers.find(
+          (marker) =>
+            marker.id === directHoveredId &&
+            marker.translation.runs.some((run) => run.text.trim().length > 0),
+        )
+      : undefined,
+  );
+  const tooltipAnchor = $derived.by(() => {
+    if (!tooltipMarker) return { left: 0, right: 0, top: 0 };
+    const geometry = displayGeometry(tooltipMarker),
+      left = x + geometry.x * image.width * scale,
+      top = y + geometry.y * image.height * scale;
+    return geometry.type === 'point'
+      ? { left: left - 12, right: left + 12, top: top - 32 }
+      : { left, right: left + geometry.width * image.width * scale, top };
+  });
+  function clearDirectHover() {
+    const previous = directHoveredId;
+    directHoveredId = null;
+    if (previous && hoveredId === previous) onhover(null);
+  }
+  function hoverMarker(event: PointerEvent, markerId: string) {
+    if (
+      event.pointerType !== 'mouse' ||
+      event.buttons ||
+      gesture ||
+      pinch ||
+      pointers.size ||
+      $popups
+    )
+      return;
+    directHoveredId = markerId;
+    onhover(markerId);
+  }
   function displayGeometry(marker: Marker): Geometry {
     return preview?.id === marker.id
       ? preview.geometry
@@ -139,6 +179,7 @@
   }
   function down(event: PointerEvent) {
     if (event.button !== 0 && event.pointerType !== 'touch') return;
+    clearDirectHover();
     popups.close('interaction');
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     viewport.setPointerCapture(event.pointerId);
@@ -178,6 +219,7 @@
   function markerDown(event: PointerEvent, marker: Marker, handle?: string) {
     if (event.ctrlKey || event.metaKey) return;
     if (event.button !== 0 && event.pointerType !== 'touch') return;
+    clearDirectHover();
     event.stopPropagation();
     event.preventDefault();
     popups.close('interaction');
@@ -256,6 +298,7 @@
     }
   }
   function up(event: PointerEvent, cancel = false) {
+    if (cancel) clearDirectHover();
     pointers.delete(event.pointerId);
     if (pinch) {
       if (pointers.size < 2) pinch = null;
@@ -285,6 +328,7 @@
   }
   function wheel(event: WheelEvent) {
     event.preventDefault();
+    clearDirectHover();
     popups.close('interaction');
     if (event.ctrlKey || event.metaKey) {
       const r = viewport.getBoundingClientRect();
@@ -304,6 +348,7 @@
   function openMenu(event: MouseEvent, markerId: string) {
     event.preventDefault();
     event.stopPropagation();
+    clearDirectHover();
     onselect(markerId);
     const r = viewport.getBoundingClientRect();
     popups.open({
@@ -325,12 +370,14 @@
     observer.observe(viewport);
     viewport.addEventListener('wheel', wheel, { passive: false });
     return () => {
+      clearDirectHover();
       observer.disconnect();
       viewport.removeEventListener('wheel', wheel);
     };
   });
   $effect(() => {
     if (image.id !== lastImageId) {
+      clearDirectHover();
       lastImageId = image.id;
       gesture = null;
       preview = null;
@@ -342,11 +389,16 @@
   $effect(() => {
     onview({ scale, mode, outside });
   });
+  $effect(() => {
+    if ($popups || !image.markers.some((marker) => marker.id === directHoveredId))
+      clearDirectHover();
+  });
 </script>
 
 <svelte:window
   onkeydown={(event) => {
     if (event.key === 'Escape') {
+      clearDirectHover();
       gesture = null;
       preview = null;
       popups.close('escape');
@@ -355,6 +407,7 @@
     }
   }}
   onblur={() => {
+    clearDirectHover();
     gesture = null;
     preview = null;
     pointers.clear();
@@ -396,8 +449,11 @@
         style:height={geometry.type === 'rectangle' ? `${geometry.height * 100}%` : undefined}
         onpointerdown={(event) => markerDown(event, marker)}
         oncontextmenu={(event) => openMenu(event, marker.id)}
-        onpointerenter={() => onhover(marker.id)}
-        onpointerleave={() => onhover(null)}
+        onpointerenter={(event) => hoverMarker(event, marker.id)}
+        onpointermove={(event) => hoverMarker(event, marker.id)}
+        onpointerleave={() => {
+          if (directHoveredId === marker.id) clearDirectHover();
+        }}
         role="button"
         tabindex="-1"
         aria-label={`标记 ${index + 1}`}
@@ -434,6 +490,15 @@
       ></div>
     {/if}
   </div>
+  {#if tooltipMarker}
+    <MarkerTooltip
+      translation={tooltipMarker.translation}
+      horizontal={tooltipMarker.style.horizontal}
+      anchor={tooltipAnchor}
+      viewportWidth={width}
+      viewportHeight={height}
+    />
+  {/if}
   {#if outside}<button
       class="reset-image"
       onpointerdown={(event) => event.stopPropagation()}

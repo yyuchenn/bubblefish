@@ -6,6 +6,10 @@ export interface LayoutPreferences {
   rightWidth: number;
   editorHeight: number;
 }
+export interface EditorPreferences {
+  hoverPreview: boolean;
+  autoLocateMarker: boolean;
+}
 export function readPreference(key: string): string | null {
   try {
     return localStorage.getItem(`bubblefish-next.${key}`);
@@ -18,6 +22,24 @@ export function writePreference(key: string, value: string) {
     localStorage.setItem(`bubblefish-next.${key}`, value);
   } catch {
     /* Preferences are optional. */
+  }
+}
+export function readEditorPreferences(): EditorPreferences {
+  const defaults: EditorPreferences = { hoverPreview: true, autoLocateMarker: false };
+  try {
+    const value: unknown = JSON.parse(readPreference('editor') ?? '{}');
+    if (!value || typeof value !== 'object') return defaults;
+    const saved = value as Partial<EditorPreferences>;
+    return {
+      hoverPreview:
+        typeof saved.hoverPreview === 'boolean' ? saved.hoverPreview : defaults.hoverPreview,
+      autoLocateMarker:
+        typeof saved.autoLocateMarker === 'boolean'
+          ? saved.autoLocateMarker
+          : defaults.autoLocateMarker,
+    };
+  } catch {
+    return defaults;
   }
 }
 export function readLayout(): LayoutPreferences {

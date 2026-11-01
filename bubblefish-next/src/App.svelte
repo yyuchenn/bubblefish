@@ -57,7 +57,12 @@
   import { naturalCompare, checksumKey, id } from './runtime/assets';
   import { snapshots, type Snapshot } from './runtime/snapshots';
   import type { Geometry, ImageDocument, Marker } from './generated/core';
-  import { readLayout, readPreference, writePreference } from './runtime/preferences';
+  import {
+    readLayout,
+    readEditorPreferences,
+    readPreference,
+    writePreference,
+  } from './runtime/preferences';
   import { providePopups } from './runtime/popups';
 
   let { initialChrome = null }: { initialChrome?: WindowChromeState | null } = $props();
@@ -83,6 +88,7 @@
     leftOpen = $state(layout.leftOpen),
     rightOpen = $state(layout.rightOpen);
   let theme = $state(readPreference('theme') ?? 'ocean');
+  let editorPreferences = $state(readEditorPreferences());
   let leftWidth = $state(layout.leftWidth),
     rightWidth = $state(layout.rightWidth),
     editorHeight = $state(layout.editorHeight);
@@ -97,6 +103,7 @@
     lastMenu = '';
   let resize: { kind: 'left' | 'right' | 'editor'; start: number; size: number } | null = null;
   let closing = false;
+  let locateRequest = 0;
   const externalOpenQueue: string[] = [];
   let openingExternal = false;
   const project = $derived($workbench.projects.find((p) => p.id === $workbench.activeId));
@@ -145,6 +152,38 @@
   const run = (operation: () => Promise<unknown>) => {
     void operation().catch((error) => workbench.notice(message(error)));
   };
+  function interruptAutoLocate<T>(operation: () => Promise<T>): Promise<T> {
+    locateRequest++;
+    return operation();
+  }
+  async function selectAndLocate(operation: () => Promise<unknown>) {
+    const request = ++locateRequest;
+    const before = {
+      projectId: $workbench.activeId,
+      imageId: $workbench.imageId,
+      markerId: $workbench.markerId,
+    };
+    await operation();
+    const selected = {
+      projectId: $workbench.activeId,
+      imageId: $workbench.imageId,
+      markerId: $workbench.markerId,
+    };
+    await tick();
+    if (
+      request !== locateRequest ||
+      !editorPreferences.autoLocateMarker ||
+      modal ||
+      selected.projectId !== before.projectId ||
+      selected.projectId !== $workbench.activeId ||
+      selected.imageId !== $workbench.imageId ||
+      selected.markerId !== $workbench.markerId ||
+      (selected.imageId === before.imageId && selected.markerId === before.markerId)
+    )
+      return;
+    const target = image?.markers.find((item) => item.id === selected.markerId);
+    if (target) canvas?.locate(target);
+  }
   async function busy(operation: () => Promise<void>) {
     working = true;
     try {
@@ -156,6 +195,7 @@
     }
   }
   async function newProject() {
+    locateRequest++;
     popups.close('action');
     await workbench.barrier();
     newName = '未命名项目';
@@ -190,6 +230,7 @@
     if (file) await openFile(file);
   }
   async function openFile(file: PickedFile) {
+    locateRequest++;
     popups.close('action');
     await busy(async () => {
       const draft = await workbench.parseProject(file);
@@ -261,6 +302,7 @@
     }
   }
   async function action(name: string) {
+    if (name !== 'app.previousMarker' && name !== 'app.nextMarker') locateRequest++;
     popups.close('action');
     if (modal && name !== 'app.quit') return;
     if (name.startsWith('app.openRecent:')) {
@@ -308,10 +350,10 @@
         await workbench.navigateImage(1);
         break;
       case 'app.previousMarker':
-        await workbench.navigateMarker(-1);
+        await selectAndLocate(() => workbench.navigateMarker(-1));
         break;
       case 'app.nextMarker':
-        await workbench.navigateMarker(1);
+        await selectAndLocate(() => workbench.navigateMarker(1));
         break;
       case 'view.fit':
         canvas?.setMode('fit');
@@ -412,13 +454,6 @@
     if (window.confirm('删除这张图片及其标记？此操作可以撤销。'))
       await workbench.documentCommand({ type: 'removeImage', imageId }, '删除图片');
   }
-  async function reorderImage(from: string, to: string) {
-    if (!project || from === to) return;
-    const ids = project.images.map((i) => i.id);
-    ids.splice(ids.indexOf(from), 1);
-    ids.splice(ids.indexOf(to), 0, from);
-    await workbench.documentCommand({ type: 'reorderImages', imageIds: ids }, '重排图片');
-  }
   async function sortImages() {
     if (project)
       await workbench.documentCommand(
@@ -478,11 +513,11 @@
           break;
         case 'arrowleft':
           event.preventDefault();
-          run(() => workbench.navigateImage(-1));
+          run(() => interruptAutoLocate(() => workbench.navigateImage(-1)));
           return;
         case 'arrowright':
           event.preventDefault();
-          run(() => workbench.navigateImage(1));
+          run(() => interruptAutoLocate(() => workbench.navigateImage(1)));
           return;
       }
     }
@@ -491,13 +526,13 @@
       run(() => action(command!));
     } else if (event.key === 'Tab' && marker) {
       event.preventDefault();
-      run(() => workbench.navigateMarker(event.shiftKey ? -1 : 1));
+      run(() => selectAndLocate(() => workbench.navigateMarker(event.shiftKey ? -1 : 1)));
     }
   }
   function jumpPage() {
     const value = Number(jumpValue);
     if (project && Number.isInteger(value) && value >= 1 && value <= project.images.length)
-      run(() => workbench.selectImage(project.images[value - 1].id));
+      run(() => interruptAutoLocate(() => workbench.selectImage(project.images[value - 1].id)));
     jump = false;
   }
   async function dropFiles(event: DragEvent) {
@@ -526,6 +561,9 @@
   $effect(() => {
     document.documentElement.dataset.theme = theme;
     writePreference('theme', theme);
+  });
+  $effect(() => {
+    writePreference('editor', JSON.stringify(editorPreferences));
   });
   $effect(() => {
     writePreference(
@@ -624,10 +662,20 @@
       }
     };
     window.addEventListener('beforeunload', beforeUnload);
+    // A later pointer/view interaction must not be recentered by an older navigation.
+    const interruptLocate = () => {
+      locateRequest++;
+    };
+    window.addEventListener('pointerdown', interruptLocate, true);
+    window.addEventListener('wheel', interruptLocate, { capture: true, passive: true });
+    window.addEventListener('blur', interruptLocate);
     return () => {
       disposed = true;
       cleanups.forEach((fn) => fn());
       window.removeEventListener('beforeunload', beforeUnload);
+      window.removeEventListener('pointerdown', interruptLocate, true);
+      window.removeEventListener('wheel', interruptLocate, true);
+      window.removeEventListener('blur', interruptLocate);
       workbench.dispose();
     };
   });
@@ -661,8 +709,9 @@
     onaction={(name) => run(() => action(name))}
     onnew={() => run(newProject)}
     onopen={() => run(chooseOpen)}
-    onproject={(projectId) => run(() => workbench.switchProject(projectId))}
-    onclose={(projectId) => run(() => workbench.close(projectId))}
+    onproject={(projectId) =>
+      run(() => interruptAutoLocate(() => workbench.switchProject(projectId)))}
+    onclose={(projectId) => run(() => interruptAutoLocate(() => workbench.close(projectId)))}
     onlefttoggle={() => (leftOpen = !leftOpen)}
     onrighttoggle={() =>
       run(async () => {
@@ -702,7 +751,7 @@
       <div class="activity-spacer"></div>
       <button title="快照" aria-label="快照" onclick={() => run(() => action('app.snapshots'))}
         ><Icon name="history" size={21} /></button
-      ><button title="外观设置" aria-label="外观设置" onclick={() => (modal = 'settings')}
+      ><button title="设置" aria-label="设置" onclick={() => (modal = 'settings')}
         ><Icon name="sun" size={21} /></button
       >
     </aside>
@@ -713,10 +762,12 @@
         selectedImageId={$workbench.imageId}
         mode={sidebar}
         width={leftWidth}
-        onselect={(imageId) => run(() => workbench.selectImage(imageId))}
+        onselect={(imageId) => run(() => interruptAutoLocate(() => workbench.selectImage(imageId)))}
         onadd={() => run(addImages)}
         onremove={(imageId) => run(() => removeImage(imageId))}
-        onreorder={(from, to) => run(() => reorderImage(from, to))}
+        onreorder={(projectId, imageIds) =>
+          workbench.documentCommand({ type: 'reorderImages', imageIds }, '重排图片', projectId)}
+        onerror={(error) => workbench.notice(message(error))}
         onsort={() => run(sortImages)}
         onprojectchange={(patch, label) =>
           run(() => workbench.documentCommand({ type: 'updateProject', ...patch }, label))}
@@ -759,9 +810,11 @@
           {pendingGeometries}
           assets={workbench.assets}
           selectedId={$workbench.markerId}
+          hoverPreview={editorPreferences.hoverPreview && !modal}
           hoveredId={hovered}
           onhover={(value) => (hovered = value)}
-          onselect={(markerId) => run(() => workbench.selectMarker(markerId))}
+          onselect={(markerId) =>
+            run(() => interruptAutoLocate(() => workbench.selectMarker(markerId)))}
           onadd={(geometry) => run(() => workbench.addMarker(geometry))}
           onchange={(markerId, geometry) =>
             workbench.commitGeometry(project!.id, image!.id, markerId, geometry)}
@@ -813,6 +866,7 @@
         width={rightWidth}
         {editorHeight}
         bind:hovered
+        onselect={(markerId) => selectAndLocate(() => workbench.selectMarker(markerId))}
         onlocate={(item) => canvas?.locate(item)}
         onmarkeraction={markerAction}
         onaction={action}
@@ -1129,7 +1183,7 @@
           >
         </div>
       {:else if modal === 'settings'}
-        <p class="modal-description">选择工作台外观</p>
+        <p class="modal-description">工作台外观</p>
         <div class="theme-options">
           {#each [['ocean', '海洋', '清爽的蓝色工作台'], ['fruit', '果实', '温暖的橙色调'], ['dark', '夜间', '适合低亮度环境']] as [value, label, description]}<button
               class:chosen={theme === value}
@@ -1139,6 +1193,29 @@
               ><small>{description}</small></button
             >{/each}
         </div>
+        <fieldset class="editor-preferences">
+          <legend>编辑器体验</legend>
+          <label>
+            <input
+              type="checkbox"
+              aria-label="悬浮气泡预览"
+              bind:checked={editorPreferences.hoverPreview}
+            />
+            <span>悬浮气泡预览<small>鼠标悬浮图片标记时预览译文，方向跟随“横排”设置。</small></span>
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              aria-label="切换标记时自动定位到标记"
+              bind:checked={editorPreferences.autoLocateMarker}
+            />
+            <span
+              >切换标记时自动定位到标记<small
+                >使用 Tab 或翻译列表切换时居中定位；图片点选保持当前视图。</small
+              ></span
+            >
+          </label>
+        </fieldset>
         <p class="settings-note">
           Bubblefish Next · 本地优先的漫画汉化辅助工具<br />项目格式兼容 BF 1.0 与 LabelPlus。
         </p>

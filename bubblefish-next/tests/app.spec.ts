@@ -204,7 +204,17 @@ test('image ordering, deletion with undo, marker conversion, and adding after th
   await page.getByRole('button', { name: '项目配置', exact: true }).click();
   const first = page.getByRole('button', { name: '图片 1 page-2.png', exact: true }).locator('..');
   const second = page.getByRole('button', { name: '图片 2 page-1.png', exact: true }).locator('..');
-  await second.dragTo(first);
+  await second.hover();
+  const firstBounds = (await first.boundingBox())!,
+    secondBounds = (await second.boundingBox())!;
+  await page.mouse.move(
+    secondBounds.x + secondBounds.width / 2,
+    secondBounds.y + secondBounds.height / 2,
+  );
+  await page.mouse.down();
+  await expect(page.locator('.image-drag-ghost')).toBeVisible({ timeout: 2500 });
+  await page.mouse.move(firstBounds.x + firstBounds.width / 2, firstBounds.y + 2, { steps: 6 });
+  await page.mouse.up();
   await expect(page.getByRole('button', { name: '图片 1 page-1.png', exact: true })).toBeVisible();
   await page.getByRole('button', { name: '图片 1 page-1.png', exact: true }).click();
   await point(page);
