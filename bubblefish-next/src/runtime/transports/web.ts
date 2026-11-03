@@ -58,6 +58,18 @@ export function createTransport(): CoreTransport {
       await ready;
       return call('probeImage', [bytes]);
     },
+    history: async (projectId, query = {}) => {
+      await ready;
+      return call('history', [projectId, query]);
+    },
+    preview: async (projectId, commands, expectedStateId) => {
+      await ready;
+      return call('preview', [projectId, commands, expectedStateId]);
+    },
+    encodeProject: async (document, format) => {
+      await ready;
+      return call('encodeProject', [document, format]);
+    },
     dispose: () => {
       fail(new Error('Core transport is disposed'));
       worker.terminate();

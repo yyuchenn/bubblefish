@@ -6,7 +6,7 @@
 Svelte 界面 + ProseMirror
           │ 文档命令、编辑提交屏障
           ▼
-Workbench + CommandQueue + AssetStore
+Workbench + MutationCoordinator + CommandQueue + AssetStore
           │ CoreTransport
           ├──────── Desktop invoke ── Mutex<Engine>
           └──────── Web Worker ───── WASM Engine
@@ -14,11 +14,15 @@ Workbench + CommandQueue + AssetStore
                           bubblefish-core / bubblefish-formats
 ```
 
-`crates/core` 只依赖 serde、serde_json 和 ts-rs。核心不知道文件路径、浏览器、Tauri、系统时钟和图片二进制。`crates/formats` 只负责旧协议编解码和导出损失校验。`crates/wasm` 提供 WASM 边界及两端共用的图片探测；`src-tauri` 负责文件选择、权限范围、读写、窗口、系统打开事件、最近文件和原生菜单。
+`crates/core` 只依赖 serde、serde_json 和 ts-rs。核心不知道文件路径、浏览器、Tauri、系统时钟和图片二进制。`crates/formats` 只负责旧协议编解码和导出损失校验。`crates/wasm` 提供 WASM 边界及两端共用的图片探测；`src-tauri` 负责文件选择、权限范围、读写、窗口、系统打开事件、最近文件、原生菜单，以及插件安装存储和原生子进程管理。`crates/plugin-protocol` 定义跨平台插件 DTO，`crates/plugin-sdk` 提供独立于文档核心的 Rust 插件 SDK。
 
 前端的 `runtime` 管理工作区、命令排队、保存、资源关联与快照。`App.svelte` 负责组合子系统、模态流程和全局操作；`WorkspaceHeader`、`ImageSidebar`、`TranslationPanel`、`Canvas` 和 `TranslationEditor` 分别管理菜单、图片、译文、画布及编辑器。组件通过 props/callbacks 协作，保留焦点、选择、缩放、拖动等瞬时状态。界面没有可独立修改的第二套文档历史，也不直接读写磁盘。
 
 网页核心常驻 Dedicated Worker 内，使用普通单线程 WASM。桌面核心常驻原生宿主的互斥锁内。两者都使用同一个 Rust Engine 和 DTO，平台差异集中在 transport 与 platform 端口。
+
+`MutationCoordinator` 按项目串行准备持久化编辑和历史操作。提交前钩子在核心队列与锁之外运行，使用独立 hooks 角色并只读已提交基准；改写后通过带状态 guard 的原子批命令提交。输入先本地显示，实际确认后回放等待期间的新差异，拒绝时保留完整恢复草稿。后置领域事件从命令确认边界产生，含事务、来源、状态和实体差异；ACK 丢失时沿用同一命令 ID 重试，不重复执行钩子或发布事件。
+
+图片暂存句柄绑定实例与项目，上传完成前同步建立资源租约；事务、历史和资源包导出分别固定持有所需版本。替换生成新 assetId，旧资源保留至项目关闭。资源包先原子捕获文档与资源版本，再在队列外生成 ZIP，重命名仅作用于导出副本，不改变保存路径或 savedStateId。历史栈只公开稳定条目身份和元数据，不能直接修改快照。
 
 ## 原生窗口与标题栏
 
@@ -32,7 +36,7 @@ Workbench + CommandQueue + AssetStore
 
 ## 核心协议和历史
 
-公开 Rust API 为 `Engine::new()`、`dispatch(Envelope) -> Reply` 和 `document(projectId) -> Result<ProjectDocument, CoreError>`。所有 DTO 使用 camelCase；Rust 定义是事实来源，`tools/typegen` 显式生成 TypeScript。测试和类型检查不会重写生成文件。
+公开 Rust API 为 `Engine::new()`、`dispatch(Envelope) -> Reply` 和 `document(projectId) -> Result<ProjectDocument, CoreError>`。所有 DTO 使用 camelCase；Rust 定义是事实来源，`tools/typegen` 显式生成 `core.ts` 与 `plugins.ts`。测试和类型检查同时检查两份契约，不会重写生成文件。
 
 `ProjectDocument` 包含稳定的项目、图片和标记 ID。图片元数据记录 assetId、文件名、尺寸和可选校验值；`Geometry` 是 0..1 的点或矩形；`RichText` 是文字 run 与四种行内 mark。未知旧富文本保存在 `raw`，未编辑时可原样导出。缺图的宽高可以为零，几何仍按归一化坐标保存。
 
@@ -94,7 +98,43 @@ BF 1.0 保持 gzip/tar + JSON，LabelPlus 保持文本协议；内部稳定 ID �
 
 ## 扩展与验证
 
-新增能力优先新增核心命令/数据类型，复用同一校验、历史、幂等和 patch。需要外部服务或文件访问时扩展平台端口；组件不直接接入 Tauri。将来插件可读取投影和提交命令，不能绕过核心直接修改 store。
+新增能力优先新增核心命令/数据类型，复用同一校验、历史、幂等和 patch。需要外部服务或文件访问时扩展平台端口；组件不直接接入 Tauri。插件通过宿主读取投影、提交公开命令，不能绕过核心直接修改 store。
+
+### 插件宿主与协议
+
+`PluginManager` 统一管理安装记录、启用状态、实例代次、异步调用、provider、命令、面板和任务。插件包是含 `plugin.json` 与资源文件的 ZIP；manifest 声明 API 版本、Web/各 Rust target 的原生入口、OCR/翻译 provider、命令、面板、配置及文档权限。JS 入口打成单个 ESM，WASM 和模型通过资源接口独立读取，避免将大权重编入应用文档核心。旧版动态库 ABI 不属于 Next 插件协议。
+
+用户命令通过独立的 `runUserCommand` 入口产生内存反馈记录，面板的原始 `executeCommand` 返回语义保持不变。所有命令按插件串行，任务 ID、实例身份和停用代次约束进度／摘要与完成回复。取消发送控制消息并停止采纳结果，RPC 继续持有真实响应边界；实际结束前不会释放队列。Rust 原生输入控制线程与 WASM 独立取消句柄使取消绕过普通业务队列，已发出的修改 ACK 继续排空。卡片状态和通知不进入项目文档或持久化配置。
+
+默认只保存启用状态，首次使用插件能力时才创建实例。自动化插件可声明 `activationEvents`，目前接受 `startup`、`event:context.changed`、`event:document.changed` 与 `event:project.closed`，用于没有 provider、命令或面板入口的插件。实例先握手确认 ID/API，再执行 `activate` 和注册声明过的能力；失败、停用与卸载会关闭所属任务、面板和传输，旧实例的迟到消息不能进入新代次。配置变化通过 `config.changed` 通知现有实例。
+
+网页为每个实例建立 Dedicated Worker，使用 transferable `ArrayBuffer` 传送图片和资源，不要求 `SharedArrayBuffer`。TS 插件导出 `activate(context)`；Rust/WASM 插件通过单 ESM 的 `createPlugin(host)` 返回异步 `PluginWrapper`。桌面存在当前 target 的入口时启动独立可执行进程，否则使用 Web 入口；stdout 专用于协议，stderr 收集为插件日志，不在宿主进程内加载插件动态库。
+
+两端使用带请求 ID 与 `apiVersion` 的 request/response/event 消息，JSON 控制数据和二进制附件分开。原生帧为两个 u32 小端长度、JSON 和二进制，分别限制为 8 MiB 与 512 MiB。`crates/plugin-protocol` 统一验证帧长度、请求/响应形状与路径，宿主原地验证大型附件，避免重复复制。SDK 的 host call 允许插件异步注册能力、读配置和资源、提交文档操作及发送进度。
+
+文档接口由宿主校验 `document.read` / `document.write` 声明，并通过 Workbench 的屏障与公开命令执行。HTML 面板在仅允许脚本的 sandbox iframe 中运行，通过 MessageChannel 调用宿主；面板不能注册可执行 provider。模型资源可由包提供，或经资源接口下载并在可用的 CacheStorage 中按插件缓存，可带 SHA-256 校验。包、启用状态和配置使用独立的浏览器 IndexedDB 或桌面应用数据目录；模型缓存、配置和插件程序均不进入 BF、文档历史及项目快照。
+
+插件面板外观由宿主管理。`panel-appearance` 从实际计算后的 CSS 读取配色、字体、字号与明确的 light/dark 模式，生成 Rust DTO 定义的 `PluginPanelAppearance`；网页 `srcdoc` 与桌面 `bf-plugin` HTML 响应注入共享的初始化脚本和基础 CSS，发布稳定的 `--bf-panel-*` 变量。注入不改写安装资源，所以更新宿主即可修复旧面板，无需卸载插件或重新导入模型。iframe 的 `sandbox="allow-scripts"` 与桌面 CSP 保持原隔离边界。
+
+`bubblefish:connect` 携带初始快照和两个端口：`ports[0]` 保持插件 API，`ports[1]` 专用于主题，旧连接代码继续兼容。`PluginPanel` 在当前 revision 确认前隐藏 iframe 并展示同色占位，5 秒无确认时提供重试；连接代次阻止旧确认恢复已关闭的面板。主题变化只经端口原地更新，不重设 `src/srcdoc`，保留表单输入、焦点、滚动和在途模型导入。关闭时清理观察器、端口与计时器；主题不进入项目、配置或历史。变量用法见 [插件面板文档](docs/PLUGINS.md#主题与基础样式)。
+
+同一 OCR 插件的任务串行执行，避免同时创建多份推理资源；任务有 ID、进度与取消信号。取消后宿主立即拒绝该任务结果。Rust SDK 的 native/WASM dispatch 串行交付事件，当前不能在运行中的 Rust handler 内逐步响应取消；停用时等待退出，超时后终止 Worker 或子进程。该行为与支持 AbortSignal 的 TS provider 区分记录，不将丢弃结果描述为已停止模型计算。
+
+### OCR、原文与翻译
+
+生产 Kha White OCR 位于 `plugins/kha-white-ocr`。原生与浏览器共用 Rust 灰度、Triangle 缩放、归一化及文本解码，推理分别接入 native ORT 与 ONNX Runtime Web WASM；模型与运行库不进入应用文档 core。约 440 MiB 的固定 FP32 模型独立打包，通过通用 `resources.local` 分块校验导入：浏览器存于独立 IndexedDB，桌面使用临时版本目录和原子 catalog。资源集绑定插件、临时上传绑定实例／面板连接，失败保留旧版本，关闭连接清理未完成导入，卸载清理本插件资源。
+
+`AssistanceService` 负责选中标记或当前页已有标记的工作流，不承担文本区域检测。图片裁剪在专用 Worker 完成：矩形取相应区域，点取图像宽高各 10%、至少 50px 的局部区域，边界裁剪到图内；PNG 字节作为独立附件发给 provider。机器翻译读取标记原文和项目语言，推理过程在命令队列外执行，允许继续编辑。
+
+运行时固定项目、图片、标记、资源 ID 与输入快照；任务完成后先等待输入/几何屏障，过滤已取消或输入已变更的结果，再用一个 `UpdateAssistance` 命令提交可用结果。核心再次原子比较原图、几何、原文与相关语言前置条件，任一目标无效时整条命令不提交。原文、机器译文及来源写入标记的 `bunnyCache`，保留其他未知字段；字段缺失保持原值，显式 null 清除。一次批量结果对应一个历史操作，失败任务不写入占位文本。
+
+原文输入每次都进入同一个命令队列，相邻输入按组形成撤销记录；保存、导航和关闭无需额外的辅助文本提交路径。机器译文先保存为辅助结果，只有“采用机器译文”通过已有 `UpdateMarker` 写入人工 RichText。两类内容跟随 BF 和快照保存，插件配置、运行状态与模型缓存保持独立。
+
+Rust SDK 的 echo 示例返回图片字节数，并复用同一份 Rust handler 验证 native/WASM 的输入、裁剪、传输、任务及结果写回。实际 OCR 由 Kha White 插件提供，在线翻译由 DeepSeek 插件提供；echo 示例不提供真实推理结论。
+
+### 检查与打包
+
+`npm run test:plugins` 运行 Rust 协议与 SDK 测试；`npm run test:ui` 包含插件管理、RPC、任务与辅助文本工作流测试；`npm run test:host` 检查桌面安装存储和原生宿主。`npm run plugin:pack -- <目录>` 打包单 ESM、面板和资源，原生入口可通过 `--native <target>=<可执行文件>` 加入。Rust 双端示例另用 `node crates/plugin-sdk/examples/build-example.mjs` 编译 WASM、原生 executable 并打包。接口和包格式详见 `docs/PLUGINS.md` 与 SDK README。
 
 修改 DTO 后显式生成并审查 TypeScript 差异。修改格式时保留手写与旧版样例的语义往返测试。`crates/core/tests/fixtures/runtime-trace.json` 是原生/WASM 共用黄金轨迹，普通测试只读；只有明确更新预期行为时通过 `cargo run -p bubblefish-core --example trace_fixture -- crates/core/tests/fixtures/runtime-trace.json` 重新生成。
 

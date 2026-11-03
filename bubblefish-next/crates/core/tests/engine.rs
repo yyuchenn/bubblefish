@@ -1,5 +1,189 @@
 use bubblefish_core::*;
 
+fn assistance(image_id: &str, marker_id: &str) -> AssistanceUpdate {
+    AssistanceUpdate {
+        image_id: image_id.into(),
+        marker_id: marker_id.into(),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn assistance_updates_preserve_unknown_cache_and_form_one_undo_step() {
+    let mut h = Harness::new();
+    let mut first = marker("m1");
+    first.bunny_cache = Some(
+        serde_json::json!({"originalText":"old","futureField":{"keep":true},"lastOcrModel":"old-model"}),
+    );
+    first.translation = text("人工译文");
+    h.call(Command::AddMarker {
+        image_id: "page1".into(),
+        marker: first,
+    });
+    h.call(Command::AddMarker {
+        image_id: "page2".into(),
+        marker: marker("m2"),
+    });
+    let before = h.doc();
+    let mut update1 = assistance("page1", "m1");
+    update1.original_text = Some(Some("new".into()));
+    update1.last_ocr_model = Some(None);
+    let mut update2 = assistance("page2", "m2");
+    update2.machine_translation = Some(Some("机器译文".into()));
+    let patch = h.call(Command::UpdateAssistance {
+        updates: vec![update1, update2],
+    });
+    assert_eq!(patch.history_depth, 3);
+    assert_eq!(patch.upsert_images.len(), 2);
+    let after = h.doc();
+    let first = &after.images[0].markers[0];
+    assert_eq!(first.translation, text("人工译文"));
+    assert_eq!(
+        first.bunny_cache,
+        Some(serde_json::json!({"originalText":"new","futureField":{"keep":true}}))
+    );
+    h.call(Command::Undo);
+    assert_eq!(h.doc(), before);
+    h.call(Command::Redo);
+    assert_eq!(h.doc(), after);
+}
+
+#[test]
+fn assistance_batches_reject_missing_targets_and_duplicate_updates_atomically() {
+    let mut h = Harness::new();
+    h.call(Command::AddMarker {
+        image_id: "page1".into(),
+        marker: marker("m1"),
+    });
+    let before = h.doc();
+    let mut update = assistance("page1", "m1");
+    update.original_text = Some(Some("changed".into()));
+    h.fail(
+        Command::UpdateAssistance {
+            updates: vec![update.clone(), assistance("page1", "missing")],
+        },
+        "markerNotFound",
+    );
+    assert_eq!(h.doc(), before);
+    h.fail(
+        Command::UpdateAssistance {
+            updates: vec![update.clone(), update],
+        },
+        "duplicateAssistanceUpdate",
+    );
+    assert_eq!(h.doc(), before);
+}
+
+#[test]
+fn assistance_preconditions_reject_stale_geometry_asset_text_and_languages() {
+    let mut h = Harness::new();
+    h.call(Command::AddMarker {
+        image_id: "page1".into(),
+        marker: marker("m1"),
+    });
+    let before = h.doc();
+    let stale = [
+        AssistanceExpected {
+            asset_id: Some("wrong".into()),
+            ..Default::default()
+        },
+        AssistanceExpected {
+            geometry: Some(Geometry::Point { x: 0.1, y: 0.2 }),
+            ..Default::default()
+        },
+        AssistanceExpected {
+            original_text: Some(Some("different".into())),
+            ..Default::default()
+        },
+        AssistanceExpected {
+            original_text: Some(None),
+            ..Default::default()
+        },
+        AssistanceExpected {
+            machine_translation: Some(Some("different".into())),
+            ..Default::default()
+        },
+        AssistanceExpected {
+            source_language: Some("different".into()),
+            ..Default::default()
+        },
+        AssistanceExpected {
+            target_language: Some("different".into()),
+            ..Default::default()
+        },
+    ];
+    for expected in stale {
+        let mut update = assistance("page1", "m1");
+        update.machine_translation = Some(Some("must not persist".into()));
+        update.expected = Some(expected);
+        h.fail(
+            Command::UpdateAssistance {
+                updates: vec![update],
+            },
+            "assistanceConflict",
+        );
+        assert_eq!(h.doc(), before);
+    }
+    let mut valid = assistance("page1", "m1");
+    valid.machine_translation = Some(Some("机器译文".into()));
+    valid.expected = Some(AssistanceExpected {
+        asset_id: Some("asset-page1".into()),
+        geometry: Some(Geometry::Point { x: 0.25, y: 0.5 }),
+        original_text: Some(Some("原文".into())),
+        machine_translation: Some(None),
+        source_language: Some("japanese".into()),
+        target_language: Some("simplifiedChinese".into()),
+    });
+    h.call(Command::UpdateAssistance {
+        updates: vec![valid],
+    });
+}
+
+#[test]
+fn assistance_wire_distinguishes_omitted_and_cleared_fields() {
+    let command: Command = serde_json::from_value(serde_json::json!({"type":"updateAssistance","updates":[{"imageId":"page1","markerId":"m1","originalText":null,"expected":{"originalText":null}}]})).unwrap();
+    let Command::UpdateAssistance { updates } = &command else {
+        panic!("unexpected command")
+    };
+    assert_eq!(updates[0].original_text, Some(None));
+    assert_eq!(updates[0].machine_translation, None);
+    assert_eq!(
+        updates[0].expected.as_ref().unwrap().original_text,
+        Some(None)
+    );
+    let encoded = serde_json::to_value(command).unwrap();
+    assert!(encoded["updates"][0].get("machineTranslation").is_none());
+    assert_eq!(
+        encoded["updates"][0]["originalText"],
+        serde_json::Value::Null
+    );
+}
+
+#[test]
+fn assistance_null_preconditions_do_not_match_unknown_nontext_cache_values() {
+    let mut h = Harness::new();
+    let mut value = marker("m1");
+    value.bunny_cache = Some(serde_json::json!({"originalText":{"future":"format"},"unknown":42}));
+    h.call(Command::AddMarker {
+        image_id: "page1".into(),
+        marker: value,
+    });
+    let before = h.doc();
+    let mut update = assistance("page1", "m1");
+    update.original_text = Some(Some("new".into()));
+    update.expected = Some(AssistanceExpected {
+        original_text: Some(None),
+        ..Default::default()
+    });
+    h.fail(
+        Command::UpdateAssistance {
+            updates: vec![update],
+        },
+        "assistanceConflict",
+    );
+    assert_eq!(h.doc(), before);
+}
+
 fn marker(id: &str) -> Marker {
     Marker {
         id: id.into(),
@@ -72,6 +256,7 @@ impl Harness {
             project_id: Some("p".into()),
             command,
             history,
+            expected_state_id: None,
         }
     }
     fn call(&mut self, command: Command) -> ProjectPatch {
@@ -168,6 +353,7 @@ fn group_history_restores_full_editor_bookmarks() {
             Some(HistoryMeta {
                 group_id: Some("composition-1".into()),
                 label: "输入译文".into(),
+                origin: None,
                 before: Some(bookmark(a, a)),
                 after: Some(bookmark(b, 1)),
             }),
@@ -209,6 +395,7 @@ fn canvas_history_roundtrips_navigation_without_requesting_editor_focus() {
         Some(HistoryMeta {
             group_id: None,
             label: "删除图片".into(),
+            origin: None,
             before: Some(before.clone()),
             after: Some(after.clone()),
         }),
@@ -232,6 +419,7 @@ fn group_ends_on_explicit_barrier_and_undo_branch() {
     let history = Some(HistoryMeta {
         group_id: Some("same".into()),
         label: "名称".into(),
+        origin: None,
         before: None,
         after: None,
     });
@@ -474,4 +662,288 @@ fn three_hundred_pages_fifty_markers_support_sparse_edits_and_history() {
             .count(),
         0
     );
+}
+
+#[test]
+fn batch_can_reference_created_entities_and_records_one_atomic_undo() {
+    let mut h = Harness::new();
+    let before = h.doc();
+    let patch = h.call(Command::Batch {
+        expected_state_id: Some("p:0".into()),
+        commands: vec![
+            Command::AddImages {
+                images: vec![image("plugin-page")],
+            },
+            Command::AddMarker {
+                image_id: "plugin-page".into(),
+                marker: marker("plugin-marker"),
+            },
+            Command::UpdateMarker {
+                image_id: "plugin-page".into(),
+                marker_id: "plugin-marker".into(),
+                geometry: None,
+                translation: Some(text("transaction")),
+                style: None,
+            },
+        ],
+    });
+    assert_eq!(patch.history_depth, 1);
+    assert_eq!(patch.history_revision, 1);
+    assert_eq!(patch.state_id, "p:1");
+    let after = h.doc();
+    assert_eq!(after.images[2].markers[0].translation, text("transaction"));
+    h.call(Command::Undo);
+    assert_eq!(h.doc(), before);
+    h.call(Command::Redo);
+    assert_eq!(h.doc(), after);
+}
+
+#[test]
+fn batches_roll_back_intermediate_failures_and_reject_control_commands() {
+    let mut h = Harness::new();
+    h.call(Command::UpdateProject {
+        name: Some("branch".into()),
+        source_language: None,
+        target_language: None,
+    });
+    h.call(Command::Undo);
+    let before = h.doc();
+    let history = h.engine.history("p", HistoryQuery::default()).unwrap();
+    for command in [
+        Command::RemoveImage {
+            image_id: "missing".into(),
+        },
+        Command::Undo,
+        Command::Redo,
+        Command::EndGroup,
+        Command::CloseProject,
+        Command::MarkSaved {
+            state_id: "p:0".into(),
+        },
+        Command::CreateProject {
+            document: document("other"),
+            saved: false,
+        },
+        Command::Batch {
+            commands: vec![],
+            expected_state_id: None,
+        },
+    ] {
+        let expected = if matches!(command, Command::RemoveImage { .. }) {
+            "imageNotFound"
+        } else {
+            "invalidBatchCommand"
+        };
+        h.fail(
+            Command::Batch {
+                expected_state_id: Some("p:0".into()),
+                commands: vec![
+                    Command::AddImages {
+                        images: vec![image("transient")],
+                    },
+                    command,
+                ],
+            },
+            expected,
+        );
+        assert_eq!(h.doc(), before);
+        assert_eq!(
+            h.engine.history("p", HistoryQuery::default()).unwrap(),
+            history
+        );
+    }
+    let patch = h.call(Command::Batch {
+        commands: vec![],
+        expected_state_id: Some("p:0".into()),
+    });
+    assert_eq!(patch.history_revision, history.history_revision);
+    assert!(patch.can_redo);
+    h.fail(
+        Command::Batch {
+            commands: vec![],
+            expected_state_id: Some("stale".into()),
+        },
+        "stateConflict",
+    );
+    let patch = h.call(Command::UpdateProject {
+        name: Some("next".into()),
+        source_language: None,
+        target_language: None,
+    });
+    assert_eq!(patch.state_id, "p:2");
+}
+
+#[test]
+fn image_replacement_history_retains_asset_metadata_and_normalized_markers() {
+    let mut h = Harness::new();
+    h.call(Command::AddMarker {
+        image_id: "page1".into(),
+        marker: marker("m1"),
+    });
+    let before = h.doc();
+    let original_marker = before.images[0].markers[0].clone();
+    h.call(Command::UpdateImage {
+        image_id: "page1".into(),
+        filename: Some("replacement.png".into()),
+        asset_id: Some("new-asset".into()),
+        width: Some(20),
+        height: Some(30),
+        checksum: Some("new-checksum".into()),
+    });
+    let replaced = h.doc();
+    assert_eq!(replaced.images[0].markers[0], original_marker);
+    assert_eq!(replaced.images[0].asset_id, "new-asset");
+    assert_eq!(replaced.images[0].width, 20);
+    h.call(Command::RemoveImage {
+        image_id: "page1".into(),
+    });
+    h.call(Command::Undo);
+    assert_eq!(h.doc(), replaced);
+    h.call(Command::Undo);
+    assert_eq!(h.doc(), before);
+    h.call(Command::Redo);
+    assert_eq!(h.doc(), replaced);
+}
+
+#[test]
+fn history_identity_survives_merge_and_moves_with_guards_and_pagination() {
+    let mut h = Harness::new();
+    let metadata = Some(HistoryMeta {
+        group_id: Some("input".into()),
+        label: "plugin input".into(),
+        before: None,
+        after: None,
+        origin: Some(MutationOrigin {
+            kind: "plugin".into(),
+            plugin_id: Some("example.test".into()),
+            label: None,
+            causation_id: None,
+        }),
+    });
+    h.group(
+        Command::UpdateProject {
+            name: Some("one".into()),
+            source_language: None,
+            target_language: None,
+        },
+        metadata.clone(),
+    );
+    let first = h.engine.history("p", HistoryQuery::default()).unwrap();
+    h.group(
+        Command::UpdateProject {
+            name: Some("two".into()),
+            source_language: None,
+            target_language: None,
+        },
+        metadata,
+    );
+    let merged = h.engine.history("p", HistoryQuery::default()).unwrap();
+    assert_eq!(merged.undo.len(), 1);
+    assert_eq!(merged.undo[0].entry_id, first.undo[0].entry_id);
+    assert_ne!(merged.undo[0].after_state_id, first.undo[0].after_state_id);
+    assert_eq!(merged.history_revision, first.history_revision + 1);
+    h.fail(
+        Command::GuardedUndo {
+            expected_entry_id: Some(first.undo[0].entry_id.clone()),
+            expected_history_revision: Some(first.history_revision),
+        },
+        "historyConflict",
+    );
+    assert_eq!(h.doc().name, "two");
+    h.call(Command::GuardedUndo {
+        expected_entry_id: Some(merged.undo[0].entry_id.clone()),
+        expected_history_revision: Some(merged.history_revision),
+    });
+    let undone = h.engine.history("p", HistoryQuery::default()).unwrap();
+    assert_eq!(undone.redo[0], merged.undo[0]);
+    h.fail(
+        Command::GuardedRedo {
+            expected_entry_id: Some("other-entry".into()),
+            expected_history_revision: None,
+        },
+        "historyConflict",
+    );
+    h.call(Command::GuardedRedo {
+        expected_entry_id: Some(undone.redo[0].entry_id.clone()),
+        expected_history_revision: Some(undone.history_revision),
+    });
+    h.call(Command::UpdateProject {
+        name: Some("three".into()),
+        source_language: None,
+        target_language: None,
+    });
+    let top = h
+        .engine
+        .history(
+            "p",
+            HistoryQuery {
+                offset: Some(0),
+                limit: Some(1),
+            },
+        )
+        .unwrap();
+    let next = h
+        .engine
+        .history(
+            "p",
+            HistoryQuery {
+                offset: Some(1),
+                limit: Some(1),
+            },
+        )
+        .unwrap();
+    assert_eq!(top.undo_total, 2);
+    assert_eq!(top.undo.len(), 1);
+    assert_eq!(next.undo[0], merged.undo[0]);
+    assert_ne!(top.undo[0].entry_id, next.undo[0].entry_id);
+    h.call(Command::Undo);
+    h.call(Command::UpdateProject {
+        name: Some("new branch".into()),
+        source_language: None,
+        target_language: None,
+    });
+    let branch = h.engine.history("p", HistoryQuery::default()).unwrap();
+    assert!(branch.redo.is_empty());
+    assert_ne!(branch.undo[0].entry_id, top.undo[0].entry_id);
+}
+
+#[test]
+fn preview_and_envelope_guards_do_not_change_history_or_consume_state() {
+    let mut h = Harness::new();
+    let command = Command::UpdateProject {
+        name: Some("preview".into()),
+        source_language: None,
+        target_language: None,
+    };
+    let preview = h
+        .engine
+        .preview("p", vec![command.clone()], Some("p:0".into()))
+        .unwrap();
+    assert_eq!(preview.name, "preview");
+    assert_ne!(h.doc(), preview);
+    assert_eq!(
+        h.engine
+            .history("p", HistoryQuery::default())
+            .unwrap()
+            .history_revision,
+        0
+    );
+    assert_eq!(
+        h.engine
+            .preview("p", vec![command.clone()], Some("stale".into()))
+            .unwrap_err()
+            .code,
+        "stateConflict"
+    );
+    assert_eq!(
+        h.engine.preview("missing", vec![], None).unwrap_err().code,
+        "projectNotFound"
+    );
+    let mut envelope = h.envelope(command.clone(), None);
+    envelope.expected_state_id = Some("stale".into());
+    assert_eq!(
+        h.engine.dispatch(envelope).error.unwrap().code,
+        "stateConflict"
+    );
+    assert_eq!(h.call(command).state_id, "p:1");
 }

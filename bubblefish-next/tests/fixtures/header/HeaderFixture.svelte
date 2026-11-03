@@ -35,6 +35,7 @@
       canUndo: true,
       canRedo: false,
       historyDepth: 1,
+      historyRevision: 1,
     };
   }
   // Only the read side used by WorkspaceHeader is present. No fake command,

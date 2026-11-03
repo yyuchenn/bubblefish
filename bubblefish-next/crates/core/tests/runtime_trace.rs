@@ -1,4 +1,4 @@
-use bubblefish_core::{Engine, Envelope, ProjectDocument, Reply};
+use bubblefish_core::{Engine, Envelope, HistoryPage, HistoryQuery, ProjectDocument, Reply};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
@@ -6,6 +6,7 @@ struct Fixture {
     envelopes: Vec<Envelope>,
     replies: Vec<Reply>,
     documents: Vec<ProjectDocument>,
+    histories: Vec<HistoryPage>,
 }
 
 #[test]
@@ -26,7 +27,13 @@ fn native_runtime_matches_shared_golden_trajectory() {
             "trajectory step {index}"
         );
     }
-    for expected in fixture.documents {
+    for (expected, history) in fixture.documents.into_iter().zip(fixture.histories) {
         assert_eq!(engine.document(&expected.id).unwrap(), expected);
+        assert_eq!(
+            engine
+                .history(&expected.id, HistoryQuery::default())
+                .unwrap(),
+            history
+        );
     }
 }

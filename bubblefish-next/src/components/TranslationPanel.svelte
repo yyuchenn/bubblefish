@@ -6,8 +6,13 @@
   import { Workbench, message } from '../runtime/workbench';
   import type { Marker } from '../generated/core';
   import { usePopups } from '../runtime/popups';
+  import AssistancePanel from './AssistancePanel.svelte';
+  import type { PluginManager } from '../runtime/plugins';
+  import type { AssistanceService } from '../runtime/assistance';
   let {
     workbench,
+    plugins,
+    assistance,
     width,
     editorHeight,
     hovered = $bindable(null),
@@ -18,6 +23,8 @@
     onresize,
   }: {
     workbench: Workbench;
+    plugins?: PluginManager;
+    assistance?: AssistanceService;
     width: number;
     editorHeight: number;
     hovered?: string | null;
@@ -28,6 +35,7 @@
     onresize: (event: PointerEvent) => void;
   } = $props();
   let editor = $state<TranslationEditor>(),
+    assistancePanel = $state<AssistancePanel>(),
     listElement = $state<HTMLDivElement>();
   const popups = usePopups();
   const markerContext = $derived(
@@ -93,10 +101,14 @@
   }
   export async function barrier(allowTransition = false) {
     await editor?.barrier(allowTransition);
+    await assistancePanel?.barrier();
   }
-  export async function exclusive(operation: () => Promise<unknown>) {
-    if (editor) return editor.exclusive(operation);
+  export async function exclusive(operation: () => Promise<unknown>, inputProposal = false) {
+    if (editor) return editor.exclusive(operation, inputProposal);
     return operation();
+  }
+  export function selectionBookmark() {
+    return editor?.selectionBookmark();
   }
   function releasePointer() {
     const target = capturedPointer,
@@ -375,6 +387,12 @@
         <small>在图片上点击或拖动<br />创建文字标记</small>
       </div>{/each}
   </div>
+  {#if plugins && assistance}<AssistancePanel
+      bind:this={assistancePanel}
+      {workbench}
+      {plugins}
+      {assistance}
+    />{/if}
   {#if marker && image}
     <div
       class="splitter horizontal"
@@ -396,6 +414,9 @@
       {#key `${project?.id}/${image.id}/${marker.id}`}<TranslationEditor
           bind:this={editor}
           {marker}
+          intercepting={$plugins?.plugins.some(
+            (plugin) => plugin.enabled && plugin.hooksState === 'ready',
+          ) ?? false}
           imageId={image.id}
           restore={$workbench.editorRestore}
           autofocus={$workbench.editorAutoFocus}
@@ -449,12 +470,21 @@
     <div class="draft-recovery" role="status">
       <strong>新输入已保留为恢复草稿</strong>
       <textarea
-        aria-label="恢复输入草稿"
+        aria-label={draft.field === 'originalText' ? '恢复原文草稿' : '恢复输入草稿'}
         readonly
-        value={draft.marker.translation.runs.map((r) => r.text).join('')}
+        value={draft.field === 'originalText'
+          ? String(
+              draft.marker.bunnyCache &&
+                typeof draft.marker.bunnyCache === 'object' &&
+                !Array.isArray(draft.marker.bunnyCache)
+                ? (draft.marker.bunnyCache.originalText ?? '')
+                : '',
+            )
+          : draft.marker.translation.runs.map((r) => r.text).join('')}
         rows="2"></textarea>
       <div>
-        <button onclick={() => run(() => workbench.restoreDraft(draft.id))}>恢复为标记</button
+        <button onclick={() => run(() => workbench.restoreDraft(draft.id))}
+          >{draft.field === 'originalText' ? '恢复原文' : '恢复为标记'}</button
         ><button aria-label="丢弃恢复草稿" onclick={() => workbench.dismissDraft(draft.id)}
           >丢弃</button
         >

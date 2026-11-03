@@ -46,6 +46,13 @@
   import WorkspaceHeader from './components/WorkspaceHeader.svelte';
   import Icon from './components/Icon.svelte';
   import PendingPreview from './components/PendingPreview.svelte';
+  import PluginCenter from './components/PluginCenter.svelte';
+  import PluginPanel from './components/PluginPanel.svelte';
+  import PluginCommandNotice from './components/PluginCommandNotice.svelte';
+  import { commandPending } from './components/CommandFeedback.svelte';
+  import { PluginManager } from './runtime/plugins';
+  import { createPluginHost } from './runtime/plugin-host';
+  import { AssistanceService } from './runtime/assistance';
   import {
     Workbench,
     message,
@@ -69,13 +76,30 @@
   const bootstrapChrome = untrack(() => initialChrome);
   let chrome = $state.raw<WindowChromeState | null>(bootstrapChrome);
   const workbench = new Workbench();
+  const plugins: PluginManager = new PluginManager(
+    createPluginHost(
+      workbench,
+      (pluginId) =>
+        plugins.value.plugins.find((plugin) => plugin.manifest.id === pluginId)?.manifest
+          .permissions ?? [],
+    ),
+  );
+  workbench.mutations.intercept = (proposal) => plugins.intercept(proposal);
+  workbench.onDomainEvent = (event, data) => plugins.emit(event, data);
+  workbench.hasInterceptors = () =>
+    plugins.value.plugins.some((plugin) => plugin.enabled && plugin.hooksState === 'ready');
+  const assistance = new AssistanceService(workbench, plugins);
   const popups = providePopups();
   const layout = readLayout();
   const mac = bootstrapChrome
       ? bootstrapChrome.platform === 'macos'
       : /Mac|iPhone|iPad/.test(navigator.platform),
     mod = mac ? '⌘' : 'Ctrl+';
-  let modal = $state<'new' | 'open' | 'snapshots' | 'settings' | 'export' | null>(null);
+  let modal = $state<'new' | 'open' | 'snapshots' | 'settings' | 'export' | 'plugins' | null>(null);
+  let commandFocus = $state<string | undefined>();
+  const commandNoticeRun = $derived(
+    $plugins.commandRuns.find((entry) => entry.id === $plugins.commandNotice?.runId),
+  );
   let newName = $state('未命名项目'),
     newFiles = $state<PickedFile[]>([]),
     working = $state(false);
@@ -328,20 +352,17 @@
           modal = 'export';
         }
         break;
+      case 'app.exportBundle':
+        await workbench.exportBundle();
+        break;
       case 'app.closeCurrent':
         await workbench.close();
         break;
       case 'app.undo':
-        if (project?.canUndo) {
-          if (translationPanel) await translationPanel.exclusive(() => workbench.history('undo'));
-          else await workbench.history('undo');
-        }
+        if (project) await workbench.history('undo');
         break;
       case 'app.redo':
-        if (project?.canRedo) {
-          if (translationPanel) await translationPanel.exclusive(() => workbench.history('redo'));
-          else await workbench.history('redo');
-        }
+        if (project) await workbench.history('redo');
         break;
       case 'app.previousImage':
         await workbench.navigateImage(-1);
@@ -374,6 +395,11 @@
       case 'app.settings':
         await workbench.barrier();
         modal = 'settings';
+        break;
+      case 'app.plugins':
+        await workbench.barrier();
+        commandFocus = undefined;
+        modal = 'plugins';
         break;
       case 'app.snapshots':
         await workbench.barrier();
@@ -486,13 +512,27 @@
   function keydown(event: KeyboardEvent) {
     if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
     if (event.key === 'Escape') {
+      if ($plugins.activePanel) {
+        plugins.closePanel();
+        return;
+      }
       if (modal && !working) modal = null;
       return;
     }
-    if (modal) return;
+    if (modal || $plugins.activePanel) return;
     const normal = (event.target as HTMLElement)?.closest('input,textarea,select');
-    if (normal) return;
     const modifier = mac ? event.metaKey : event.ctrlKey;
+    if (normal) {
+      if (
+        normal.hasAttribute('data-assistance-editor') &&
+        modifier &&
+        event.key.toLowerCase() === 's'
+      ) {
+        event.preventDefault();
+        run(() => action(event.shiftKey ? 'app.saveAs' : 'app.save'));
+      }
+      return;
+    }
     let command: string | undefined;
     if (modifier) {
       switch (event.key.toLowerCase()) {
@@ -600,6 +640,9 @@
     workbench.editorBarrier = async (allowTransition) => {
       await translationPanel?.barrier(allowTransition);
     };
+    workbench.editorTransition = (operation, inputProposal) =>
+      translationPanel ? translationPanel.exclusive(operation, inputProposal) : operation();
+    workbench.editorBookmark = () => translationPanel?.selectionBookmark();
   });
   $effect(() => {
     popups.setScope($workbench.activeId, $workbench.imageId);
@@ -628,6 +671,7 @@
   onMount(() => {
     tipIndex = Math.floor(Math.random() * tips.length);
     void workbench.initialize();
+    void plugins.initialize().catch((error) => workbench.notice(message(error)));
     let disposed = false;
     const cleanups: (() => void)[] = [popups.mount()];
     if (platform.desktop)
@@ -676,8 +720,25 @@
       window.removeEventListener('pointerdown', interruptLocate, true);
       window.removeEventListener('wheel', interruptLocate, true);
       window.removeEventListener('blur', interruptLocate);
+      assistance.dispose();
+      void plugins.dispose();
       workbench.dispose();
     };
+  });
+  let pluginContextKey = '';
+  $effect(() => {
+    const context = {
+      theme,
+      locale: 'zh-CN',
+      projectId: $workbench.activeId,
+      imageId: $workbench.imageId,
+      markerId: $workbench.markerId,
+    };
+    const key = JSON.stringify(context);
+    if (key !== pluginContextKey) {
+      pluginContextKey = key;
+      plugins.emit('context.changed', context);
+    }
   });
 </script>
 
@@ -696,13 +757,26 @@
   ondrop={(event) => run(() => dropFiles(event))}
 />
 
-<div class="app-shell" inert={!!modal} role="application" aria-label="Bubblefish 工作区">
+<div
+  class="app-shell"
+  inert={!!modal || !!$plugins.activePanel}
+  role="application"
+  aria-label="Bubblefish 工作区"
+>
   <WorkspaceHeader
     {workbench}
     {chrome}
     {recent}
     {leftOpen}
     {rightOpen}
+    pluginCommands={$plugins.commands.map((entry) => ({
+      id: entry.id,
+      title: entry.info.title,
+      disabled: commandPending($plugins.commandRuns.find((run) => run.pluginId === entry.pluginId)),
+    }))}
+    onplugincommand={(commandId) => {
+      void plugins.runUserCommand(commandId, null, 'menu').catch(() => {});
+    }}
     onminimize={() => run(() => platform.minimizeWindow())}
     onmaximize={() => run(() => platform.toggleMaximizeWindow())}
     onquit={() => run(closeWindow)}
@@ -751,7 +825,13 @@
       <div class="activity-spacer"></div>
       <button title="快照" aria-label="快照" onclick={() => run(() => action('app.snapshots'))}
         ><Icon name="history" size={21} /></button
-      ><button title="设置" aria-label="设置" onclick={() => (modal = 'settings')}
+      >
+      <button
+        title="插件管理"
+        aria-label="插件管理"
+        onclick={() => run(() => action('app.plugins'))}><Icon name="plugins" size={22} /></button
+      >
+      <button title="设置" aria-label="设置" onclick={() => (modal = 'settings')}
         ><Icon name="sun" size={21} /></button
       >
     </aside>
@@ -863,6 +943,8 @@
       <TranslationPanel
         bind:this={translationPanel}
         {workbench}
+        {plugins}
+        {assistance}
         width={rightWidth}
         {editorHeight}
         bind:hovered
@@ -970,9 +1052,28 @@
     </div>{/if}
 </div>
 
+{#if commandNoticeRun && !modal && !$plugins.activePanel}
+  <PluginCommandNotice
+    run={commandNoticeRun}
+    pluginName={$plugins.plugins.find((plugin) => plugin.manifest.id === commandNoticeRun.pluginId)
+      ?.manifest.name ?? commandNoticeRun.pluginId}
+    onview={() => {
+      const pluginId = commandNoticeRun?.pluginId;
+      if (!pluginId) return;
+      run(async () => {
+        await action('app.plugins');
+        commandFocus = pluginId;
+        plugins.dismissCommandNotice();
+      });
+    }}
+    ondismiss={() => plugins.dismissCommandNotice()}
+  />
+{/if}
+
 {#if modal}
   <div
     class="modal-backdrop"
+    inert={!!$plugins.activePanel}
     role="presentation"
     onclick={(event) => {
       if (event.target === event.currentTarget && !working) modal = null;
@@ -980,7 +1081,7 @@
   >
     <div
       class="modal"
-      class:wide={modal === 'new' || modal === 'open'}
+      class:wide={modal === 'new' || modal === 'open' || modal === 'plugins'}
       role="dialog"
       aria-modal="true"
       aria-label={modal === 'new'
@@ -989,9 +1090,11 @@
           ? '匹配项目图片'
           : modal === 'snapshots'
             ? '项目快照'
-            : modal === 'export'
-              ? '导出 LabelPlus'
-              : '设置与外观'}
+            : modal === 'plugins'
+              ? '插件管理'
+              : modal === 'export'
+                ? '导出 LabelPlus'
+                : '设置与外观'}
       tabindex="-1"
       use:modalFocus
     >
@@ -1005,9 +1108,11 @@
                 ? '匹配项目图片'
                 : modal === 'snapshots'
                   ? '项目快照'
-                  : modal === 'export'
-                    ? '导出 LabelPlus'
-                    : '设置与外观'}
+                  : modal === 'plugins'
+                    ? '插件管理'
+                    : modal === 'export'
+                      ? '导出 LabelPlus'
+                      : '设置与外观'}
           </h2>
         </div>
         <button
@@ -1182,6 +1287,8 @@
               })}>导出 .txt</button
           >
         </div>
+      {:else if modal === 'plugins'}
+        <PluginCenter {plugins} focusPluginId={commandFocus} onpanel={() => (modal = null)} />
       {:else if modal === 'settings'}
         <p class="modal-description">工作台外观</p>
         <div class="theme-options">
@@ -1222,4 +1329,14 @@
       {/if}
     </div>
   </div>
+{/if}
+
+{#if $plugins.activePanel}
+  {#key `${$plugins.activePanel.pluginId}/${$plugins.activePanel.panelId}`}
+    <PluginPanel
+      {plugins}
+      pluginId={$plugins.activePanel.pluginId}
+      panelId={$plugins.activePanel.panelId}
+    />
+  {/key}
 {/if}

@@ -8,6 +8,9 @@ declare module '*bubblefish_wasm' {
     importProject(bytes: Uint8Array, format: string, projectId: string): unknown;
     exportProject(projectId: string, format: string): Uint8Array;
     probeImage(bytes: Uint8Array): unknown;
+    history(projectId: string, query: unknown): unknown;
+    preview(projectId: string, commands: unknown, expectedStateId?: string): unknown;
+    encodeProject(document: unknown, format: string): Uint8Array;
     free(): void;
   }
 }

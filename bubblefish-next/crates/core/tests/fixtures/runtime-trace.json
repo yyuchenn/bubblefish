@@ -9,13 +9,37 @@
           "filename": "002.png",
           "height": 1800,
           "id": "page-b",
-          "markers": [],
+          "markers": [
+            {
+              "geometry": {
+                "height": 0.4,
+                "type": "rectangle",
+                "width": 0.3,
+                "x": 0.1,
+                "y": 0.2
+              },
+              "id": "marker-b",
+              "style": {
+                "horizontal": true,
+                "overlayText": false
+              },
+              "translation": {
+                "runs": [
+                  {
+                    "marks": [],
+                    "text": "batch"
+                  }
+                ]
+              }
+            }
+          ],
           "width": 1200
         },
         {
-          "assetId": "asset-a",
-          "filename": "001.png",
-          "height": 1800,
+          "assetId": "replacement-asset",
+          "checksum": "replacement-checksum",
+          "filename": "replacement.png",
+          "height": 3600,
           "id": "page-a",
           "markers": [
             {
@@ -44,7 +68,7 @@
               }
             }
           ],
-          "width": 1200
+          "width": 2400
         }
       ],
       "name": "分支",
@@ -305,10 +329,83 @@
     },
     {
       "command": {
+        "commands": [
+          {
+            "assetId": "replacement-asset",
+            "checksum": "replacement-checksum",
+            "filename": "replacement.png",
+            "height": 3600,
+            "imageId": "page-a",
+            "type": "updateImage",
+            "width": 2400
+          },
+          {
+            "imageId": "page-b",
+            "marker": {
+              "geometry": {
+                "height": 0.4,
+                "type": "rectangle",
+                "width": 0.3,
+                "x": 0.1,
+                "y": 0.2
+              },
+              "id": "marker-b",
+              "style": {
+                "horizontal": true,
+                "overlayText": false
+              },
+              "translation": {
+                "runs": [
+                  {
+                    "marks": [],
+                    "text": "batch"
+                  }
+                ]
+              }
+            },
+            "type": "addMarker"
+          }
+        ],
+        "expectedStateId": "project-a:5",
+        "type": "batch"
+      },
+      "commandId": "cmd-12",
+      "history": {
+        "label": "Plugin transaction",
+        "origin": {
+          "kind": "plugin",
+          "pluginId": "fixture.toolbox"
+        }
+      },
+      "projectId": "project-a",
+      "sessionId": "fixture-session"
+    },
+    {
+      "command": {
+        "expectedEntryId": "project-a:history:6",
+        "expectedHistoryRevision": 10,
+        "type": "guardedUndo"
+      },
+      "commandId": "cmd-13",
+      "projectId": "project-a",
+      "sessionId": "fixture-session"
+    },
+    {
+      "command": {
+        "expectedEntryId": "project-a:history:6",
+        "expectedHistoryRevision": 11,
+        "type": "guardedRedo"
+      },
+      "commandId": "cmd-14",
+      "projectId": "project-a",
+      "sessionId": "fixture-session"
+    },
+    {
+      "command": {
         "imageIds": ["page-a", "page-a"],
         "type": "reorderImages"
       },
-      "commandId": "cmd-12",
+      "commandId": "cmd-15",
       "projectId": "project-a",
       "sessionId": "fixture-session"
     },
@@ -317,7 +414,7 @@
         "name": "分支",
         "type": "updateProject"
       },
-      "commandId": "cmd-13",
+      "commandId": "cmd-16",
       "projectId": "project-a",
       "sessionId": "fixture-session"
     },
@@ -325,7 +422,7 @@
       "command": {
         "type": "redo"
       },
-      "commandId": "cmd-14",
+      "commandId": "cmd-17",
       "projectId": "project-a",
       "sessionId": "fixture-session"
     },
@@ -366,6 +463,56 @@
       "sessionId": "fixture-session"
     }
   ],
+  "histories": [
+    {
+      "historyRevision": 13,
+      "redo": [],
+      "redoTotal": 0,
+      "undo": [
+        {
+          "afterStateId": "project-a:8",
+          "beforeStateId": "project-a:7",
+          "entryId": "project-a:history:7",
+          "label": "编辑"
+        },
+        {
+          "afterStateId": "project-a:7",
+          "beforeStateId": "project-a:5",
+          "entryId": "project-a:history:6",
+          "label": "Plugin transaction",
+          "origin": {
+            "kind": "plugin",
+            "pluginId": "fixture.toolbox"
+          }
+        },
+        {
+          "afterStateId": "project-a:5",
+          "beforeStateId": "project-a:4",
+          "entryId": "project-a:history:4",
+          "label": "调整标记"
+        },
+        {
+          "afterStateId": "project-a:4",
+          "beforeStateId": "project-a:3",
+          "entryId": "project-a:history:3",
+          "label": "编辑"
+        },
+        {
+          "afterStateId": "project-a:3",
+          "beforeStateId": "project-a:1",
+          "entryId": "project-a:history:2",
+          "label": "输入译文"
+        },
+        {
+          "afterStateId": "project-a:1",
+          "beforeStateId": "project-a:0",
+          "entryId": "project-a:history:1",
+          "label": "编辑"
+        }
+      ],
+      "undoTotal": 6
+    }
+  ],
   "replies": [
     {
       "commandId": "cmd-0",
@@ -374,6 +521,7 @@
         "canRedo": false,
         "canUndo": false,
         "historyDepth": 0,
+        "historyRevision": 0,
         "id": "project-a",
         "imageOrder": ["page-a", "page-b"],
         "name": "试验😀",
@@ -410,6 +558,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 1,
+        "historyRevision": 1,
         "id": "project-a",
         "imageOrder": ["page-a", "page-b"],
         "name": "试验😀",
@@ -458,6 +607,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 2,
+        "historyRevision": 2,
         "id": "project-a",
         "imageOrder": ["page-a", "page-b"],
         "name": "试验😀",
@@ -511,6 +661,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 2,
+        "historyRevision": 3,
         "id": "project-a",
         "imageOrder": ["page-a", "page-b"],
         "name": "试验😀",
@@ -564,6 +715,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 2,
+        "historyRevision": 3,
         "id": "project-a",
         "imageOrder": ["page-a", "page-b"],
         "name": "试验😀",
@@ -584,6 +736,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 3,
+        "historyRevision": 4,
         "id": "project-a",
         "imageOrder": ["page-b", "page-a"],
         "name": "试验😀",
@@ -604,6 +757,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 4,
+        "historyRevision": 5,
         "id": "project-a",
         "imageOrder": ["page-b", "page-a"],
         "name": "试验😀",
@@ -659,6 +813,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 4,
+        "historyRevision": 5,
         "id": "project-a",
         "imageOrder": ["page-b", "page-a"],
         "name": "试验😀",
@@ -679,6 +834,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 5,
+        "historyRevision": 6,
         "id": "project-a",
         "imageOrder": ["page-b"],
         "name": "试验😀",
@@ -707,6 +863,7 @@
           "storedMarks": []
         },
         "historyDepth": 4,
+        "historyRevision": 7,
         "id": "project-a",
         "imageOrder": ["page-b", "page-a"],
         "name": "试验😀",
@@ -771,6 +928,7 @@
           "storedMarks": []
         },
         "historyDepth": 3,
+        "historyRevision": 8,
         "id": "project-a",
         "imageOrder": ["page-b", "page-a"],
         "name": "试验😀",
@@ -833,6 +991,7 @@
           "storedMarks": []
         },
         "historyDepth": 4,
+        "historyRevision": 9,
         "id": "project-a",
         "imageOrder": ["page-b", "page-a"],
         "name": "试验😀",
@@ -884,30 +1043,154 @@
     },
     {
       "commandId": "cmd-12",
-      "error": {
-        "code": "invalidOrder",
-        "message": "A reorder must contain every existing ID exactly once"
-      },
       "eventRevision": 13,
+      "patch": {
+        "canRedo": false,
+        "canUndo": true,
+        "historyDepth": 5,
+        "historyRevision": 10,
+        "id": "project-a",
+        "imageOrder": ["page-b", "page-a"],
+        "name": "试验😀",
+        "removedImageIds": [],
+        "savedStateId": "project-a:4",
+        "sourceLanguage": "japanese",
+        "stateId": "project-a:7",
+        "targetLanguage": "simplifiedChinese",
+        "undoLabel": "Plugin transaction",
+        "upsertImages": [
+          {
+            "assetId": "asset-b",
+            "filename": "002.png",
+            "height": 1800,
+            "id": "page-b",
+            "markers": [
+              {
+                "geometry": {
+                  "height": 0.4,
+                  "type": "rectangle",
+                  "width": 0.3,
+                  "x": 0.1,
+                  "y": 0.2
+                },
+                "id": "marker-b",
+                "style": {
+                  "horizontal": true,
+                  "overlayText": false
+                },
+                "translation": {
+                  "runs": [
+                    {
+                      "marks": [],
+                      "text": "batch"
+                    }
+                  ]
+                }
+              }
+            ],
+            "width": 1200
+          },
+          {
+            "assetId": "replacement-asset",
+            "checksum": "replacement-checksum",
+            "filename": "replacement.png",
+            "height": 3600,
+            "id": "page-a",
+            "markers": [
+              {
+                "bunnyCache": {
+                  "text": "原文"
+                },
+                "geometry": {
+                  "height": 0.4,
+                  "type": "rectangle",
+                  "width": 0.25,
+                  "x": 0.2,
+                  "y": 0.3
+                },
+                "id": "marker-a",
+                "style": {
+                  "horizontal": true,
+                  "overlayText": true
+                },
+                "translation": {
+                  "runs": [
+                    {
+                      "marks": ["bold", "emphasis"],
+                      "text": "中文😀\nnext"
+                    }
+                  ]
+                }
+              }
+            ],
+            "width": 2400
+          }
+        ]
+      },
       "projectId": "project-a"
     },
     {
       "commandId": "cmd-13",
       "eventRevision": 14,
       "patch": {
-        "canRedo": false,
+        "canRedo": true,
         "canUndo": true,
-        "historyDepth": 5,
+        "historyDepth": 4,
+        "historyRevision": 11,
         "id": "project-a",
         "imageOrder": ["page-b", "page-a"],
-        "name": "分支",
+        "name": "试验😀",
+        "redoLabel": "Plugin transaction",
         "removedImageIds": [],
         "savedStateId": "project-a:4",
         "sourceLanguage": "japanese",
-        "stateId": "project-a:7",
+        "stateId": "project-a:5",
         "targetLanguage": "simplifiedChinese",
-        "undoLabel": "编辑",
-        "upsertImages": []
+        "undoLabel": "调整标记",
+        "upsertImages": [
+          {
+            "assetId": "asset-b",
+            "filename": "002.png",
+            "height": 1800,
+            "id": "page-b",
+            "markers": [],
+            "width": 1200
+          },
+          {
+            "assetId": "asset-a",
+            "filename": "001.png",
+            "height": 1800,
+            "id": "page-a",
+            "markers": [
+              {
+                "bunnyCache": {
+                  "text": "原文"
+                },
+                "geometry": {
+                  "height": 0.4,
+                  "type": "rectangle",
+                  "width": 0.25,
+                  "x": 0.2,
+                  "y": 0.3
+                },
+                "id": "marker-a",
+                "style": {
+                  "horizontal": true,
+                  "overlayText": true
+                },
+                "translation": {
+                  "runs": [
+                    {
+                      "marks": ["bold", "emphasis"],
+                      "text": "中文😀\nnext"
+                    }
+                  ]
+                }
+              }
+            ],
+            "width": 1200
+          }
+        ]
       },
       "projectId": "project-a"
     },
@@ -918,13 +1201,132 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 5,
+        "historyRevision": 12,
+        "id": "project-a",
+        "imageOrder": ["page-b", "page-a"],
+        "name": "试验😀",
+        "removedImageIds": [],
+        "savedStateId": "project-a:4",
+        "sourceLanguage": "japanese",
+        "stateId": "project-a:7",
+        "targetLanguage": "simplifiedChinese",
+        "undoLabel": "Plugin transaction",
+        "upsertImages": [
+          {
+            "assetId": "asset-b",
+            "filename": "002.png",
+            "height": 1800,
+            "id": "page-b",
+            "markers": [
+              {
+                "geometry": {
+                  "height": 0.4,
+                  "type": "rectangle",
+                  "width": 0.3,
+                  "x": 0.1,
+                  "y": 0.2
+                },
+                "id": "marker-b",
+                "style": {
+                  "horizontal": true,
+                  "overlayText": false
+                },
+                "translation": {
+                  "runs": [
+                    {
+                      "marks": [],
+                      "text": "batch"
+                    }
+                  ]
+                }
+              }
+            ],
+            "width": 1200
+          },
+          {
+            "assetId": "replacement-asset",
+            "checksum": "replacement-checksum",
+            "filename": "replacement.png",
+            "height": 3600,
+            "id": "page-a",
+            "markers": [
+              {
+                "bunnyCache": {
+                  "text": "原文"
+                },
+                "geometry": {
+                  "height": 0.4,
+                  "type": "rectangle",
+                  "width": 0.25,
+                  "x": 0.2,
+                  "y": 0.3
+                },
+                "id": "marker-a",
+                "style": {
+                  "horizontal": true,
+                  "overlayText": true
+                },
+                "translation": {
+                  "runs": [
+                    {
+                      "marks": ["bold", "emphasis"],
+                      "text": "中文😀\nnext"
+                    }
+                  ]
+                }
+              }
+            ],
+            "width": 2400
+          }
+        ]
+      },
+      "projectId": "project-a"
+    },
+    {
+      "commandId": "cmd-15",
+      "error": {
+        "code": "invalidOrder",
+        "message": "A reorder must contain every existing ID exactly once"
+      },
+      "eventRevision": 16,
+      "projectId": "project-a"
+    },
+    {
+      "commandId": "cmd-16",
+      "eventRevision": 17,
+      "patch": {
+        "canRedo": false,
+        "canUndo": true,
+        "historyDepth": 6,
+        "historyRevision": 13,
         "id": "project-a",
         "imageOrder": ["page-b", "page-a"],
         "name": "分支",
         "removedImageIds": [],
         "savedStateId": "project-a:4",
         "sourceLanguage": "japanese",
-        "stateId": "project-a:7",
+        "stateId": "project-a:8",
+        "targetLanguage": "simplifiedChinese",
+        "undoLabel": "编辑",
+        "upsertImages": []
+      },
+      "projectId": "project-a"
+    },
+    {
+      "commandId": "cmd-17",
+      "eventRevision": 18,
+      "patch": {
+        "canRedo": false,
+        "canUndo": true,
+        "historyDepth": 6,
+        "historyRevision": 13,
+        "id": "project-a",
+        "imageOrder": ["page-b", "page-a"],
+        "name": "分支",
+        "removedImageIds": [],
+        "savedStateId": "project-a:4",
+        "sourceLanguage": "japanese",
+        "stateId": "project-a:8",
         "targetLanguage": "simplifiedChinese",
         "undoLabel": "编辑",
         "upsertImages": []
@@ -938,6 +1340,7 @@
         "canRedo": false,
         "canUndo": true,
         "historyDepth": 2,
+        "historyRevision": 3,
         "id": "project-a",
         "imageOrder": ["page-a", "page-b"],
         "name": "试验😀",

@@ -1,5 +1,6 @@
 use bubblefish_core::{
-    protocol::{CoreError, Envelope, Reply},
+    model::ProjectDocument,
+    protocol::{Command, CoreError, Envelope, HistoryPage, HistoryQuery, Reply},
     Engine,
 };
 use bubblefish_formats::{Format, ImportResult};
@@ -19,6 +20,12 @@ use tauri::{
     Emitter, Manager,
 };
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogResult};
+
+mod local_resources;
+pub mod panel_theme;
+mod plugin_commands;
+mod plugin_host;
+use plugin_commands::*;
 
 #[derive(Default)]
 struct HostState {
@@ -237,6 +244,35 @@ fn core_dispatch(state: tauri::State<'_, HostState>, envelope: Envelope) -> Resu
     Ok(lock(&state.engine)?.dispatch(envelope))
 }
 #[tauri::command]
+fn core_history(
+    state: tauri::State<'_, HostState>,
+    project_id: String,
+    offset: Option<u32>,
+    limit: Option<u32>,
+) -> Result<HistoryPage, String> {
+    lock(&state.engine)?
+        .history(&project_id, HistoryQuery { offset, limit })
+        .map_err(core_err)
+}
+#[tauri::command]
+fn core_preview(
+    state: tauri::State<'_, HostState>,
+    project_id: String,
+    commands: Vec<Command>,
+    expected_state_id: Option<String>,
+) -> Result<ProjectDocument, String> {
+    lock(&state.engine)?
+        .preview(&project_id, commands, expected_state_id)
+        .map_err(core_err)
+}
+#[tauri::command]
+fn core_encode_project(document: ProjectDocument, format: String) -> Result<Response, String> {
+    Ok(Response::new(
+        bubblefish_formats::export_project(&document, self::format(&format).map_err(err)?)
+            .map_err(core_err)?,
+    ))
+}
+#[tauri::command]
 fn core_import(request: Request<'_>) -> Result<ImportResult, CoreError> {
     let bytes = raw(&request).map_err(|e| CoreError::new("invalid_request", e))?;
     let kind = header(&request, "x-bf-format").map_err(|e| CoreError::new("invalid_request", e))?;
@@ -368,6 +404,7 @@ async fn platform_save(
         let extension = match options.format.as_str() {
             "bf" => "bf",
             "labelplus" => "txt",
+            "zip" => "zip",
             _ => return Err("Unknown format".into()),
         };
         let dialog = app
@@ -493,6 +530,7 @@ fn platform_sync_menu(app: tauri::AppHandle, menu: NativeMenuState) -> Result<()
                 "app.save",
                 "app.saveAs",
                 "app.exportLabelplus",
+                "app.exportBundle",
                 "app.closeCurrent",
                 "view.fit",
                 "view.width",
@@ -615,6 +653,8 @@ fn platform_close(app: tauri::AppHandle, state: tauri::State<'_, HostState>) -> 
     // closing every project. Exit the app explicitly so macOS application-level
     // quit and window-close requests have the same committed outcome.
     if !state.closing.swap(true, Ordering::SeqCst) {
+        app.state::<std::sync::Arc<plugin_host::PluginManager>>()
+            .shutdown();
         app.exit(0);
     }
     Ok(())
@@ -661,6 +701,7 @@ fn setup_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&item("app.save", "保存", "CmdOrCtrl+S")?)
         .item(&item("app.saveAs", "另存为…", "CmdOrCtrl+Shift+S")?)
         .text("app.exportLabelplus", "导出 LabelPlus…")
+        .text("app.exportBundle", "导出项目资源包…")
         .separator()
         .item(&item("app.closeCurrent", "关闭项目", "CmdOrCtrl+W")?)
         .build()?;
@@ -696,6 +737,29 @@ fn setup_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 pub fn run() {
     let builder = tauri::Builder::default()
         .manage(HostState::default())
+        .register_asynchronous_uri_scheme_protocol("bf-plugin", |context, request, responder| {
+            let manager = context.app_handle().state::<std::sync::Arc<plugin_host::PluginManager>>().inner().clone();
+            let path = request.uri().path().to_owned();
+            let method = request.method().clone();
+            std::thread::spawn(move || {
+                let result = (|| {
+                    if method != tauri::http::Method::GET { return Err("Only GET is supported".to_owned()); }
+                    let path = percent_encoding::percent_decode_str(path.trim_start_matches('/')).decode_utf8().map_err(err)?;
+                    let mut parts = path.split('/');
+                    let plugin_id = parts.next().ok_or("Missing plugin ID")?;
+                    let panel_id = parts.next().ok_or("Missing panel ID")?;
+                    if parts.next().is_some() { return Err("Invalid plugin panel URL".into()); }
+                    manager.store.panel_html(plugin_id, panel_id)
+                })();
+                let response = match result {
+                    Ok(body) => panel_theme::panel_response(&body),
+                    Err(_) => tauri::http::Response::builder().status(404)
+                        .header("Content-Type", "text/plain; charset=utf-8")
+                        .body(b"Plugin panel unavailable".to_vec()).expect("Static panel failure response"),
+                };
+                responder.respond(response);
+            });
+        })
         .plugin(tauri_plugin_single_instance::init(|app, args, cwd| {
             queue_open(
                 app,
@@ -711,6 +775,8 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let plugin_root = app.path().app_data_dir()?.join("plugins");
+            app.manage(std::sync::Arc::new(plugin_host::PluginManager::new(plugin_root)?));
             // Create exactly once from the common config. Platform chrome is
             // applied before build/show, avoiding a native-titlebar flash.
             #[cfg_attr(
@@ -775,6 +841,9 @@ pub fn run() {
                 return;
             }
             match event {
+                tauri::WindowEvent::Destroyed => {
+                    window.state::<std::sync::Arc<plugin_host::PluginManager>>().shutdown();
+                }
                 tauri::WindowEvent::Focused(focused) => {
                     let _ = refresh_window_state(window.app_handle(), Some(*focused));
                 }
@@ -796,6 +865,9 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             core_ready,
             core_dispatch,
+            core_history,
+            core_preview,
+            core_encode_project,
             core_import,
             core_export,
             core_probe_image,
@@ -813,12 +885,38 @@ pub fn run() {
             platform_window_set_title,
             platform_sync_menu,
             platform_confirm_close,
-            platform_close
+            platform_close,
+            plugin_install_begin,
+            plugin_install_file,
+            plugin_install_commit,
+            plugin_install_abort,
+            plugin_list,
+            plugin_read_file,
+            plugin_set_state,
+            plugin_remove,
+            plugin_native_target,
+            plugin_reset_runtime,
+            plugin_panel_url,
+            plugin_native_start,
+            plugin_native_send,
+            plugin_native_stop
+            ,plugin_resource_begin
+            ,plugin_resource_write
+            ,plugin_resource_commit
+            ,plugin_resource_abort
+            ,plugin_resource_list
+            ,plugin_resource_read
+            ,plugin_resource_remove
+            ,plugin_resource_release_owner
         ]);
     let app = builder
         .build(tauri::generate_context!())
         .expect("Failed to initialize Bubblefish Next");
     app.run(|app, event| match event {
+        tauri::RunEvent::Exit => {
+            app.state::<std::sync::Arc<plugin_host::PluginManager>>()
+                .shutdown();
+        }
         tauri::RunEvent::ExitRequested { code, api, .. } => {
             let state = app.state::<HostState>();
             // A system/application quit (for example macOS Dock Quit) may not

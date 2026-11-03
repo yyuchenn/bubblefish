@@ -217,6 +217,16 @@ async function main() {
         '--locked',
         ...extra,
       ]);
+    case 'test:plugins':
+      return run('cargo', [
+        'test',
+        '-p',
+        'bubblefish-plugin-protocol',
+        '-p',
+        'bubblefish-plugin-sdk-next',
+        '--locked',
+        ...extra,
+      ]);
     case 'check:wasm':
       return run('cargo', [
         'check',

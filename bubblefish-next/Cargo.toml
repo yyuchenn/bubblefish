@@ -1,6 +1,6 @@
 [workspace]
-members = ["crates/core", "crates/formats", "crates/wasm", "src-tauri", "tools/typegen"]
-default-members = ["crates/core", "crates/formats"]
+members = ["crates/core", "crates/formats", "crates/wasm", "crates/plugin-protocol", "crates/plugin-sdk", "src-tauri", "tools/typegen", "plugins/kha-white-ocr/rust"]
+default-members = ["crates/core", "crates/formats", "crates/plugin-protocol", "crates/plugin-sdk"]
 resolver = "2"
 
 [workspace.package]
@@ -12,7 +12,9 @@ rust-version = "1.90"
 [workspace.dependencies]
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 serde_json = "1.0.151"
-ts-rs = { version = "12.0.1", features = ["serde-json-impl"] }
+# Custom serde deserializers preserve missing vs. null; their TS types are explicit.
+# Keep serde compatibility while silencing ts-rs's unsupported-attribute notices.
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 
 [profile.release]
 lto = "thin"

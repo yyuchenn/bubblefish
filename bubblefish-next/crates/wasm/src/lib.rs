@@ -54,7 +54,7 @@ pub fn probe_image(bytes: &[u8]) -> Result<ImageProbe, CoreError> {
 #[cfg(target_arch = "wasm32")]
 mod wasm {
     use super::*;
-    use bubblefish_core::{protocol::Envelope, Engine};
+    use bubblefish_core::{protocol::Envelope, Command, Engine, HistoryQuery, ProjectDocument};
     use bubblefish_formats::{export_project, import_project, Format};
     use wasm_bindgen::prelude::*;
 
@@ -105,6 +105,31 @@ mod wasm {
             value(&self.engine.document(project_id).map_err(core_error)?)
         }
 
+        pub fn history(&self, project_id: &str, query: JsValue) -> Result<JsValue, JsValue> {
+            let query: HistoryQuery = if query.is_null() || query.is_undefined() {
+                HistoryQuery::default()
+            } else {
+                serde_wasm_bindgen::from_value(query).map_err(js_error)?
+            };
+            value(&self.engine.history(project_id, query).map_err(core_error)?)
+        }
+
+        pub fn preview(
+            &self,
+            project_id: &str,
+            commands: JsValue,
+            expected_state_id: Option<String>,
+        ) -> Result<JsValue, JsValue> {
+            let commands: Vec<Command> =
+                serde_wasm_bindgen::from_value(commands).map_err(js_error)?;
+            value(
+                &self
+                    .engine
+                    .preview(project_id, commands, expected_state_id)
+                    .map_err(core_error)?,
+            )
+        }
+
         #[wasm_bindgen(js_name = importProject)]
         pub fn import_project(
             &self,
@@ -118,6 +143,14 @@ mod wasm {
         #[wasm_bindgen(js_name = exportProject)]
         pub fn export_project(&self, project_id: &str, kind: &str) -> Result<Vec<u8>, JsValue> {
             let document = self.engine.document(project_id).map_err(core_error)?;
+            export_project(&document, format(kind)?).map_err(core_error)
+        }
+
+        /// Encode a captured export copy without changing the open project.
+        #[wasm_bindgen(js_name = encodeProject)]
+        pub fn encode_project(&self, document: JsValue, kind: &str) -> Result<Vec<u8>, JsValue> {
+            let document: ProjectDocument =
+                serde_wasm_bindgen::from_value(document).map_err(js_error)?;
             export_project(&document, format(kind)?).map_err(core_error)
         }
 

@@ -11,7 +11,7 @@ export interface SaveOptions {
   suggestedName: string;
   path?: string;
   saveAs?: boolean;
-  format: 'bf' | 'labelplus';
+  format: 'bf' | 'labelplus' | 'zip';
 }
 export interface SaveResult {
   path?: string;
@@ -145,7 +145,12 @@ export const platform = {
     }
     const url = URL.createObjectURL(
       new Blob([new Uint8Array(bytes)], {
-        type: options.format === 'bf' ? 'application/x-bubblefish' : 'text/plain;charset=utf-8',
+        type:
+          options.format === 'bf'
+            ? 'application/x-bubblefish'
+            : options.format === 'zip'
+              ? 'application/zip'
+              : 'text/plain;charset=utf-8',
       }),
     );
     const anchor = document.createElement('a');

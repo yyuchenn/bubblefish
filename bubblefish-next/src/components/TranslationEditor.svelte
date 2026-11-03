@@ -29,6 +29,7 @@
     onboundary,
     onaction,
     autofocus = true,
+    intercepting = false,
     onrecover,
   }: {
     marker: Marker;
@@ -38,6 +39,7 @@
     onboundary: () => void;
     onaction: (name: string) => void;
     autofocus?: boolean;
+    intercepting?: boolean;
     onrecover: (draft: { imageId: string; marker: Marker }) => void;
   } = $props();
   let element: HTMLDivElement;
@@ -58,6 +60,9 @@
   let bufferedBatches: { before: PMNode; steps: Step[]; selection: EditorBookmark }[] = [];
   let transitionDone: Promise<void> = Promise.resolve();
   let pendingDraft: RichText | undefined;
+  let compositionBefore: EditorBookmark | undefined,
+    compositionPending = false,
+    compositionFlush = 0;
   const marks: TextMark[] = ['bold', 'italic', 'strike', 'emphasis'];
   const schema = new Schema({
     nodes: {
@@ -194,7 +199,9 @@
           ? `delete-${inputType.includes('Forward') ? 'forward' : 'backward'}`
           : 'replace');
     const boundary = event || kind === 'replace' || !before.selection.empty;
-    if (composition != null || composing || view.composing) {
+    const replayGroup = transaction.getMeta('inputReplay') as string | undefined;
+    if (replayGroup) group = replayGroup;
+    else if (composition != null || composing || view.composing) {
       compositionGroup ??= `ime-${crypto.randomUUID()}`;
       group = compositionGroup;
     } else if (
@@ -206,17 +213,54 @@
       now - previousTime > 1000
     )
       group = crypto.randomUUID();
-    onchange(fromDoc(result.state.doc), {
-      label: '编辑翻译',
-      groupId: group,
-      before: bookmark(before),
-      after: bookmark(result.state),
-    });
+    if (
+      intercepting &&
+      (composition != null || composing || view.composing || compositionPending)
+    ) {
+      compositionBefore ??= bookmark(before);
+      compositionPending = true;
+    } else
+      onchange(fromDoc(result.state.doc), {
+        label: '编辑翻译',
+        groupId: group,
+        before: bookmark(before),
+        after: bookmark(result.state),
+      });
     previousKind = kind;
     previousEnd = result.state.selection.head;
     previousTime = now;
-    if ((event || kind === 'replace') && !composing && composition == null && !view.composing)
+    if (
+      !replayGroup &&
+      (event || kind === 'replace') &&
+      !composing &&
+      composition == null &&
+      !view.composing
+    )
       group = '';
+  }
+  function flushComposition() {
+    if (!compositionPending || !view || disposed || composing || view.composing || transition)
+      return;
+    compositionPending = false;
+    const before = compositionBefore ?? bookmark(view.state);
+    compositionBefore = undefined;
+    const groupId = compositionGroup ?? `ime-${crypto.randomUUID()}`;
+    compositionGroup = undefined;
+    onchange(fromDoc(view.state.doc), {
+      label: '编辑翻译',
+      groupId,
+      before,
+      after: bookmark(view.state),
+    });
+    group = '';
+  }
+  async function settleComposition() {
+    const token = ++compositionFlush;
+    while (!disposed && (composing || view?.composing))
+      await new Promise((resolve) => setTimeout(resolve, 16));
+    await new Promise(requestAnimationFrame);
+    await new Promise(requestAnimationFrame);
+    if (token === compositionFlush) flushComposition();
   }
   function format(mark: TextMark) {
     if (!view || composing) return;
@@ -228,23 +272,31 @@
     view.focus();
   }
   export async function barrier(allowTransition = false) {
-    if (transition && !allowTransition) await transitionDone;
+    while (transition && !allowTransition) await transitionDone;
     if (!view || disposed) return;
     while (!disposed && (composing || view.composing))
       await new Promise((resolve) => setTimeout(resolve, 16));
     // The DOM compositionend event can precede ProseMirror's final transaction.
     await new Promise(requestAnimationFrame);
     await new Promise(requestAnimationFrame);
+    flushComposition();
+    while (transition && !allowTransition) await transitionDone;
     endGroup();
   }
   export function focus() {
     view?.focus();
   }
+  export function selectionBookmark() {
+    return view ? bookmark(view.state) : undefined;
+  }
   /** Keep edits arriving while native/WASM Undo is in flight, then rebase them. */
-  export async function exclusive(operation: () => Promise<unknown>) {
+  export async function exclusive(
+    operation: () => Promise<unknown>,
+    inputProposal = false,
+  ): Promise<unknown> {
     if (transition) {
       await transitionDone;
-      return exclusive(operation);
+      return exclusive(operation, inputProposal);
     }
     if (!view || disposed) return operation();
     transition = true;
@@ -254,28 +306,42 @@
     bufferedSelection = undefined;
     const base = view.state.doc,
       initialSelection = bookmark(view.state);
+    const submittedDraft = inputProposal ? fromDoc(base) : undefined,
+      proposalGroup = group;
     const originalMarker: Marker = JSON.parse(JSON.stringify(marker));
     const recover = onrecover,
       originalImageId = imageId;
-    let draftValue: RichText | undefined;
+    let draftValue: RichText | undefined,
+      replayTransaction: Transaction | undefined,
+      operationError: unknown,
+      operationResult: unknown;
     let finish!: () => void;
     transitionDone = new Promise((resolve) => (finish = resolve));
     try {
-      await operation();
+      operationResult = await operation();
+      await tick();
+    } catch (error) {
+      operationError = error;
       await tick();
     } finally {
       try {
-        draftValue = pendingDraft;
-        if (disposed && bufferedSteps.length) {
+        if (!disposed && (composing || view?.composing)) await settleComposition();
+        draftValue = pendingDraft ?? submittedDraft;
+        if (
+          (disposed && (bufferedSteps.length || inputProposal)) ||
+          (operationError && inputProposal)
+        ) {
           recover({
             imageId: originalImageId,
-            marker: { ...originalMarker, translation: pendingDraft ?? originalMarker.translation },
+            marker: { ...originalMarker, translation: draftValue ?? originalMarker.translation },
           });
         }
-        if (view && !disposed && bufferedSteps.length) {
+        if (view && !disposed) {
           const canonical = toDoc(marker.translation);
           const restored =
-            restore?.bookmark.markerId === marker.id ? restore.bookmark : initialSelection;
+            bufferedSelection ??
+            (restore?.bookmark.markerId === marker.id ? restore.bookmark : initialSelection);
+          if (restore?.bookmark.markerId === marker.id) restoredVersion = restore.version;
           view.updateState(
             EditorState.create({
               schema,
@@ -289,15 +355,27 @@
               storedMarks: restored.storedMarks.map((mark) => schema.mark(mark)),
             }),
           );
+          active = restored.storedMarks;
+          if (!inputProposal) {
+            group = '';
+            previousKind = '';
+            previousEnd = -1;
+          }
           const replay = view.state.tr;
           let failed = false;
           for (const batch of bufferedBatches) {
             const start = batch.before.content.findDiffStart(replay.doc.content),
               end = batch.before.content.findDiffEnd(replay.doc.content);
+            // A hook may replace every character while retaining the exact
+            // UTF-16 positions. Do not map that replacement as deleted input.
             const samePositions =
+              batch.before.childCount === replay.doc.childCount &&
               batch.before.content.size === replay.doc.content.size &&
-              batch.before.textBetween(0, batch.before.content.size, '\n') ===
-                replay.doc.textBetween(0, replay.doc.content.size, '\n');
+              Array.from(
+                { length: batch.before.childCount },
+                (_, index) =>
+                  batch.before.child(index).nodeSize === replay.doc.child(index).nodeSize,
+              ).every(Boolean);
             let mapping = new Mapping(
               samePositions || start === null || !end
                 ? []
@@ -329,10 +407,16 @@
             );
             replay.setStoredMarks(selection.storedMarks.map((mark) => schema.mark(mark)));
           }
-          transition = false;
-          bufferedSteps = [];
-          apply(replay.setMeta('uiEvent', 'bufferedInput'));
-          if (failed && draftValue)
+          if (!failed && bufferedSteps.length) {
+            replayTransaction = replay.setMeta(
+              'inputReplay',
+              compositionGroup ??
+                (inputProposal && proposalGroup ? proposalGroup : crypto.randomUUID()),
+            );
+            compositionGroup = undefined;
+            compositionBefore = undefined;
+          }
+          if (failed && draftValue && !(operationError && inputProposal))
             recover({
               imageId: originalImageId,
               marker: { ...originalMarker, translation: draftValue },
@@ -347,6 +431,12 @@
         finish();
       }
     }
+    // Start the next proposal only after releasing this transition. Otherwise
+    // its synchronous setup would be cleared by this transition's cleanup.
+    if (replayTransaction) apply(replayTransaction);
+    flushComposition();
+    if (operationError) throw operationError;
+    return operationResult;
   }
   const workspaceKey = (name: string) => () => {
     if (composing || view?.composing) return false;
@@ -388,10 +478,12 @@
           composing = true;
           compositionGroup = `ime-${crypto.randomUUID()}`;
           group = compositionGroup;
+          if (intercepting) compositionBefore = bookmark(editor.state);
           return false;
         },
         compositionend: () => {
           composing = false;
+          if (intercepting || compositionPending) void settleComposition();
           return false;
         },
         beforeinput: (editor, event) => {
@@ -427,6 +519,7 @@
     const value = restore;
     if (
       !view ||
+      transition ||
       !value ||
       value.version === restoredVersion ||
       value.bookmark.markerId !== marker.id ||
@@ -450,7 +543,7 @@
         plugins: view.state.plugins,
       }),
     );
-    view.focus();
+    if (value.bookmark.focusEditor !== false) view.focus();
     active = value.bookmark.storedMarks;
     group = '';
   });

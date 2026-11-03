@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Kha White OCR 模型管理</title>
+  <style>
+    :root {
+      font-family: var(--bf-panel-font-family, system-ui);
+      font-size: var(--bf-panel-font-size, 13px);
+    }
+    body {
+      background: var(--bf-panel-background);
+      color: var(--bf-panel-text);
+      margin: 24px;
+      max-width: 820px;
+    }
+    h1 {
+      color: var(--bf-panel-strong);
+      font-size: 21px;
+    }
+    p {
+      line-height: 1.7;
+    }
+    button,
+    input {
+      font: inherit;
+      padding: 8px;
+      margin: 4px 4px 4px 0;
+    }
+    label {
+      display: block;
+      margin: 16px 0 8px;
+    }
+    progress {
+      width: 100%;
+      margin: 12px 0;
+    }
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-height: 360px;
+      overflow: auto;
+      padding: 12px;
+      background: var(--bf-panel-surface);
+    }
+    [data-error='true'] {
+      color: var(--bf-panel-danger);
+    }
+    .muted {
+      color: var(--bf-panel-muted);
+    }
+  </style>
+  <h1>Kha White OCR</h1>
+  <p>
+    日文漫画文字识别。模型约 440
+    MiB，导入并校验后保存在当前应用或站点，识别过程不上传图片、不下载模型。网页使用单线程
+    WASM，桌面优先使用包内原生进程。
+  </p>
+  <p id="model-state" role="status">正在查询模型…</p>
+  <label
+    >离线模型包 <input id="file" type="file" accept=".bfmodel" aria-label="Kha White 离线模型包"
+  /></label>
+  <button id="import">导入模型</button
+  ><button id="cancel" hidden>取消导入</button>
+  <progress id="progress" value="0" max="1" hidden></progress>
+  <p id="import-status" aria-live="polite"></p>
+  <div>
+    <button id="refresh">刷新状态</button><button id="test">运行内置样例自检</button>
+    <button id="reset">释放推理会话</button><button id="remove">清除模型</button>
+  </div>
+  <p class="muted">
+    首次识别需要准备编码器与解码器。自检样例预期为“今日はいい天気ですね。”。导入期间可以取消；清除模型不会修改项目中的原文。
+  </p>
+  <pre id="result" aria-label="Kha White 自检结果" aria-live="polite">尚未运行自检</pre>
+  <!-- plugin:script -->
+</html>

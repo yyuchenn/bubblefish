@@ -29,15 +29,27 @@ export type EditorBookmark = { imageId: string, markerId: string, anchor: number
  */
 focusEditor?: boolean, };
 
-export type HistoryMeta = { groupId?: string, label: string, before?: EditorBookmark, after?: EditorBookmark, };
+export type MutationOrigin = { kind: string, pluginId?: string, label?: string, causationId?: string, };
 
-export type Command = { "type": "createProject", document: ProjectDocument, saved: boolean, } | { "type": "closeProject" } | { "type": "updateProject", name?: string, sourceLanguage?: string, targetLanguage?: string, } | { "type": "addImages", images: Array<ImageDocument>, } | { "type": "removeImage", imageId: string, } | { "type": "reorderImages", imageIds: Array<string>, } | { "type": "addMarker", imageId: string, marker: Marker, } | { "type": "removeMarker", imageId: string, markerId: string, } | { "type": "updateMarker", imageId: string, markerId: string, geometry?: Geometry, translation?: RichText, style?: MarkerStyle, } | { "type": "reorderMarkers", imageId: string, markerIds: Array<string>, } | { "type": "undo" } | { "type": "redo" } | { "type": "endGroup" } | { "type": "markSaved", stateId: string, };
+export type HistoryMeta = { groupId?: string, label: string, origin?: MutationOrigin, before?: EditorBookmark, after?: EditorBookmark, };
 
-export type Envelope = { commandId: string, sessionId: string, projectId?: string, command: Command, history?: HistoryMeta, };
+export type HistoryQuery = { offset?: number, limit?: number, };
+
+export type HistoryEntryInfo = { entryId: string, label: string, origin?: MutationOrigin, beforeStateId: string, afterStateId: string, };
+
+export type HistoryPage = { undo: Array<HistoryEntryInfo>, redo: Array<HistoryEntryInfo>, undoTotal: number, redoTotal: number, historyRevision: number, };
+
+export type AssistanceExpected = { assetId?: string, geometry?: Geometry, originalText?: string | null, machineTranslation?: string | null, sourceLanguage?: string, targetLanguage?: string, };
+
+export type AssistanceUpdate = { imageId: string, markerId: string, originalText?: string | null, machineTranslation?: string | null, lastOcrModel?: string | null, lastTranslationService?: string | null, expected?: AssistanceExpected, };
+
+export type Command = { "type": "batch", commands: Array<Command>, expectedStateId?: string, } | { "type": "createProject", document: ProjectDocument, saved: boolean, } | { "type": "closeProject" } | { "type": "updateProject", name?: string, sourceLanguage?: string, targetLanguage?: string, } | { "type": "addImages", images: Array<ImageDocument>, } | { "type": "updateImage", imageId: string, filename?: string, assetId?: string, width?: number, height?: number, checksum?: string, } | { "type": "removeImage", imageId: string, } | { "type": "reorderImages", imageIds: Array<string>, } | { "type": "addMarker", imageId: string, marker: Marker, } | { "type": "removeMarker", imageId: string, markerId: string, } | { "type": "updateMarker", imageId: string, markerId: string, geometry?: Geometry, translation?: RichText, style?: MarkerStyle, } | { "type": "updateAssistance", updates: Array<AssistanceUpdate>, } | { "type": "reorderMarkers", imageId: string, markerIds: Array<string>, } | { "type": "undo" } | { "type": "redo" } | { "type": "guardedUndo", expectedEntryId?: string, expectedHistoryRevision?: number, } | { "type": "guardedRedo", expectedEntryId?: string, expectedHistoryRevision?: number, } | { "type": "endGroup" } | { "type": "markSaved", stateId: string, };
+
+export type Envelope = { commandId: string, sessionId: string, projectId?: string, command: Command, history?: HistoryMeta, expectedStateId?: string, };
 
 export type CoreError = { code: string, message: string, path?: string, };
 
-export type ProjectPatch = { id: string, name: string, sourceLanguage: string, targetLanguage: string, imageOrder: Array<string>, upsertImages: Array<ImageDocument>, removedImageIds: Array<string>, stateId: string, savedStateId?: string, canUndo: boolean, canRedo: boolean, undoLabel?: string, redoLabel?: string, historyDepth: number, focus?: EditorBookmark, };
+export type ProjectPatch = { id: string, name: string, sourceLanguage: string, targetLanguage: string, imageOrder: Array<string>, upsertImages: Array<ImageDocument>, removedImageIds: Array<string>, stateId: string, savedStateId?: string, canUndo: boolean, canRedo: boolean, undoLabel?: string, redoLabel?: string, historyDepth: number, historyRevision: number, focus?: EditorBookmark, };
 
 export type Reply = { commandId: string, eventRevision: number, projectId?: string, patch?: ProjectPatch, closedProjectId?: string, error?: CoreError, };
 

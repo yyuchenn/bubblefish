@@ -84,6 +84,7 @@ async function setup(projectIds = ['project']) {
     canUndo: remote.undo.length > 0,
     canRedo: remote.redo.length > 0,
     historyDepth: remote.undo.length,
+    historyRevision: remote.undo.length + remote.redo.length,
   });
   const base = (envelope: Envelope): Reply => {
     const command = envelope.command;

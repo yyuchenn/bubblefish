@@ -18,6 +18,8 @@
     rightOpen: boolean;
     onzoom(mode: 'fit' | 'width' | 'height'): void;
     onsettings(): void;
+    pluginCommands?: { id: string; title: string; disabled?: boolean }[];
+    onplugincommand?(id: string): void;
     chrome?: WindowChromeState | null;
     onminimize?(): void;
     onmaximize?(): void;
@@ -38,6 +40,8 @@
     rightOpen,
     onzoom,
     onsettings,
+    pluginCommands = [],
+    onplugincommand = () => {},
     chrome = null,
     onminimize = () => {},
     onmaximize = () => {},
@@ -108,6 +112,9 @@
           <button disabled={!project} onclick={() => choose(() => onaction('app.exportLabelplus'))}
             >导出 LabelPlus…</button
           >
+          <button disabled={!project} onclick={() => choose(() => onaction('app.exportBundle'))}
+            >导出项目资源包…</button
+          >
           <hr />
           <button disabled={!project} onclick={() => choose(() => onaction('app.closeCurrent'))}
             >关闭项目</button
@@ -143,6 +150,13 @@
         <div class="menu-popover">
           <button onclick={() => choose(() => onaction('app.snapshots'))}>快照</button>
           <button onclick={() => choose(onsettings)}>设置与外观</button>
+          <button onclick={() => choose(() => onaction('app.plugins'))}>插件管理</button>
+          {#each pluginCommands as command}
+            <button
+              disabled={command.disabled}
+              onclick={() => choose(() => onplugincommand(command.id))}>{command.title}</button
+            >
+          {/each}
         </div>
       </details>
     </nav>

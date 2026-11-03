@@ -1,0 +1,36 @@
+{
+  "id": "deepseek-translation-plugin",
+  "name": "DeepSeek 翻译",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "通过 DeepSeek 或 HTTPS OpenAI 兼容接口翻译漫画原文，支持自定义系统与用户提示词。请先在设置面板中配置 API Key。",
+  "entrypoints": { "web": "web.js" },
+  "permissions": [],
+  "contributes": {
+    "translation": [{ "id": "deepseek-translation", "name": "DeepSeek 翻译" }],
+    "panels": [{ "id": "settings", "title": "DeepSeek 翻译设置", "entry": "panel.html" }],
+    "configuration": [
+      { "key": "apiKey", "label": "API Key", "type": "secret", "default": "" },
+      {
+        "key": "endpoint",
+        "label": "API 地址",
+        "type": "string",
+        "default": "https://api.deepseek.com/chat/completions"
+      },
+      {
+        "key": "requestMode",
+        "label": "请求模式（deepseek / openai）",
+        "type": "string",
+        "default": "deepseek"
+      },
+      { "key": "model", "label": "模型", "type": "string", "default": "deepseek-flash" },
+      {
+        "key": "systemPrompt",
+        "label": "系统提示词",
+        "type": "string",
+        "default": "你是一个专业的{source_lang}到{target_lang}的漫画翻译。请只输出翻译后的文本，不要任何解释或额外信息。"
+      },
+      { "key": "userPrompt", "label": "用户提示词", "type": "string", "default": "{text}" }
+    ]
+  }
+}

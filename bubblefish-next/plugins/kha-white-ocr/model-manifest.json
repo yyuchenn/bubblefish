@@ -1,0 +1,35 @@
+{
+  "format": "bubblefish-model",
+  "version": 1,
+  "id": "kha-white-manga-ocr-fp32-v1",
+  "name": "Kha White Manga OCR FP32",
+  "source": {
+    "repo": "kha-white/manga-ocr-base",
+    "revision": "aa6573bd10b0d446cbf622e29c3e084914df9741",
+    "license": "Apache-2.0",
+    "precision": "FP32",
+    "opset": 14
+  },
+  "files": [
+    {
+      "path": "encoder.onnx",
+      "byteLength": 343483354,
+      "sha256": "8c2bdeff795d38ccc0b55d4627c75556931709310c32aec57d573c26356dd4dd"
+    },
+    {
+      "path": "decoder.onnx",
+      "byteLength": 117459510,
+      "sha256": "33e1432b9a26c60071adb63bb32987b0414f6af90579de660a94411b4fe1fc7e"
+    },
+    {
+      "path": "config.json",
+      "byteLength": 648,
+      "sha256": "36a390af2be3179685175c6c0151d660260d806e65a1e2269390fead03e30b02"
+    },
+    {
+      "path": "vocab.txt",
+      "byteLength": 24072,
+      "sha256": "344fbb6b8bf18c57839e924e2c9365434697e0227fac00b88bb4899b78aa594d"
+    }
+  ]
+}

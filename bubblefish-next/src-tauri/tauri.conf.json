@@ -21,8 +21,8 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost; worker-src 'self' blob:; font-src 'self' data:",
-      "devCsp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost http://127.0.0.1:5174 ws://127.0.0.1:5174; worker-src 'self' blob:; font-src 'self' data:",
+      "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost https:; worker-src 'self' blob:; frame-src bf-plugin: http://bf-plugin.localhost; font-src 'self' data:",
+      "devCsp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost https: http://127.0.0.1:5174 ws://127.0.0.1:5174; worker-src 'self' blob:; frame-src bf-plugin: http://bf-plugin.localhost; font-src 'self' data:",
       "assetProtocol": { "enable": true, "scope": [] }
     }
   },

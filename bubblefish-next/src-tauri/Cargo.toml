@@ -16,10 +16,12 @@ tauri-build = { version = "2", features = [] }
 bubblefish-core = { path = "../crates/core" }
 bubblefish-formats = { path = "../crates/formats" }
 bubblefish-wasm = { path = "../crates/wasm" }
+bubblefish-plugin-protocol = { path = "../crates/plugin-protocol" }
 serde.workspace = true
 serde_json.workspace = true
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 percent-encoding = "2"
+sha2 = "0.10"
 

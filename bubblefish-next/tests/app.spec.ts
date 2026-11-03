@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
+import type { HistoryPage, ProjectDocument } from '../src/generated/core';
 
 const imagePaths = [1, 2, 3].map((number) => resolve(`tests/fixtures/images/page-${number}.png`));
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -68,24 +69,85 @@ test('WASM matches the native golden command trajectory and final documents', as
   ) as {
     envelopes: unknown[];
     replies: unknown[];
-    documents: { id: string }[];
+    documents: ProjectDocument[];
+    histories: HistoryPage[];
   };
-  const result = await page.evaluate(async (trace) => {
+  const result = (await page.evaluate(async (value: unknown): Promise<unknown> => {
+    // Keep Playwright's recursive Serializable mapping away from JsonValue;
+    // the fixture is parsed and checked by the Rust golden test as well.
+    const trace = value as typeof fixture;
     const url = `${location.origin}/src/wasm/bubblefish_wasm.js`;
     const module = await import(/* @vite-ignore */ url);
     await module.default();
     const core = new module.CoreHost();
     try {
+      const replies = trace.envelopes.map((envelope) => core.dispatch(envelope));
+      const documents: ProjectDocument[] = trace.documents.map((document) =>
+        core.document(document.id),
+      );
+      const histories: HistoryPage[] = trace.documents.map((document) =>
+        core.history(document.id, {}),
+      );
+      const captured = documents[0];
+      const history = histories[0];
+      const stateId =
+        history.undo[0]?.afterStateId ?? history.redo[0]?.beforeStateId ?? `${captured.id}:0`;
+      const preview = core.preview(
+        captured.id,
+        [{ type: 'updateProject', name: 'validated export preview' }],
+        stateId,
+      );
+      let stalePreviewRejected = false;
+      try {
+        core.preview(captured.id, [], 'stale-state');
+      } catch {
+        stalePreviewRejected = true;
+      }
+      const exportedCopy = structuredClone(captured);
+      exportedCopy.images.forEach((image, index) => {
+        image.filename = `${index + 1}-safe-image.png`;
+      });
+      const encoded = core.encodeProject(exportedCopy, 'bf');
+      const reopened: ProjectDocument = core.importProject(encoded, 'bf', 'export-copy').document;
       return {
-        replies: trace.envelopes.map((envelope) => core.dispatch(envelope)),
-        documents: trace.documents.map((document) => core.document(document.id)),
+        replies,
+        documents,
+        histories,
+        previewName: preview.name,
+        stalePreviewRejected,
+        historyPage: core.history(captured.id, { offset: 1, limit: 1 }),
+        afterQueries: core.document(captured.id),
+        afterHistory: core.history(captured.id, {}),
+        exportedAliases: reopened.images.map((image) => image.filename),
+        exportedMarkerCounts: reopened.images.map((image) => image.markers.length),
+        exportedTexts: reopened.images.map((image) =>
+          image.markers.map((marker) => marker.translation.runs.map((run) => run.text).join('')),
+        ),
       };
     } finally {
       core.free();
     }
-  }, fixture);
+  }, fixture as unknown)) as { [key: string]: unknown; historyPage: HistoryPage };
   expect(result.replies).toEqual(fixture.replies);
   expect(result.documents).toEqual(fixture.documents);
+  expect(result.histories).toEqual(fixture.histories);
+  expect(result.previewName).toBe('validated export preview');
+  expect(result.stalePreviewRejected).toBe(true);
+  expect(result.historyPage.undo).toEqual(fixture.histories[0].undo.slice(1, 2));
+  expect(result.historyPage.redo).toEqual(fixture.histories[0].redo.slice(1, 2));
+  expect(result.afterQueries).toEqual(fixture.documents[0]);
+  expect(result.afterHistory).toEqual(fixture.histories[0]);
+  expect(result.exportedAliases).toEqual(
+    fixture.documents[0].images.map((_image, index) => `${index + 1}-safe-image.png`),
+  );
+  expect(result.exportedMarkerCounts).toEqual(
+    fixture.documents[0].images.map((image) => image.markers.length),
+  );
+  expect(result.exportedTexts).toEqual(
+    fixture.documents[0].images.map((image) =>
+      image.markers.map((marker) => marker.translation.runs.map((run) => run.text).join('')),
+    ),
+  );
 });
 
 test('creates point and rectangle markers, preserves middle-edit cursor through undo, and saves a BF download', async ({

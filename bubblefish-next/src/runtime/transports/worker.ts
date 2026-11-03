@@ -25,6 +25,15 @@ self.onmessage = ({ data }: MessageEvent<{ id: number; method: string; args: unk
         case 'probeImage':
           result = core.probeImage(a as Uint8Array);
           break;
+        case 'history':
+          result = core.history(a as string, b);
+          break;
+        case 'preview':
+          result = core.preview(a as string, b, c as string | undefined);
+          break;
+        case 'encodeProject':
+          result = core.encodeProject(a, b as string);
+          break;
         default:
           throw new Error(`Unknown core method: ${data.method}`);
       }

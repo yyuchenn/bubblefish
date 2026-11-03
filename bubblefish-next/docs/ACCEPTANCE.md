@@ -1,5 +1,116 @@
 # 验收场景与平台记录
 
+应用与仓库内插件尚未发布，版本统一保持 `0.1.0`。以下按日期记录开发功能与验证结果，不用版本递增区分开发迭代。
+
+## 2026-11-03 插件面板主题同步
+
+网页与桌面使用同一份主题初始化脚本和基础 CSS。宿主从实际计算样式采集配色、字体、字号与明确的 light/dark 模式，经独立 MessagePort 同步；原插件 API 仍使用第一个端口。面板确认初始主题后才显示，5 秒未确认可重试；后续切换只更新样式。DeepSeek、Kha 和三个示例面板采用公开的 `--bf-panel-*` 变量。更新宿主即可适配已安装的旧面板，**无需卸载插件或重新导入模型**。
+
+- 静态与单元检查：Svelte 0 errors／0 warnings，Kha／DeepSeek 独立 TypeScript、Rust／TS 类型契约通过；198 项前端单元测试通过，包含 13 项新增主题采集、观察器清理、HTML 注入与消息校验测试。
+- Rust：桌面宿主 28 项通过、1 项既有外部 echo 可执行文件测试忽略，WASM 宿主 2 项、协议 9 项、SDK 10 项通过。新增 3 项桌面测试验证共享 HTML 注入、旧 HTML／BOM／片段兼容、响应头与原 CSP。
+- Chromium：主题专项 7 项与相关插件回归 30 项分组全部通过。专项覆盖系统深色＋海洋／果实、系统浅色＋夜间，五个面板的实际正文与控件计算样式，旧包原始 HTML 字节不变，确认前隐藏、超时重试、连续切换、配置保存及 API 通道兼容。未保存文本、焦点、选区、滚动和后台计数均保留，iframe 未重载。
+- 真实 OCR：实际安装 Kha Web 包并导入约 440 MiB 模型，导入超过 4 MiB 后切换主题，实例标记不变、进度不回退，最终成功导入。继续通过自检、取消／再次执行、OCR、保存／撤销、过期结果过滤及刷新断网识别，准确返回 `今日はいい天気ですね。`。
+- macOS 实机 WebView：`src-tauri/examples/panel_theme_probe.rs` 在独立、非持久化的真实 WKWebView 中使用生产 `bf-plugin` HTML 响应、原 CSP 与 `sandbox="allow-scripts"`。窗口强制系统深色环境而不修改 OS 偏好，旧格式面板在果实、夜间、海洋和连续切换时均得到正确文字、背景、字体与控件样式；首次 ACK 在显示前，过期 revision 被忽略，五次采样均保留输入、焦点、选区与滚动，iframe 只加载一次。报告为 `.cache/panel-theme-macos.json`，引擎 UA 为 AppleWebKit 605.1.15。该结果是实际 macOS WebView 夹具验收，不是 Chromium 模拟，也不代表桌面应用全部业务场景均已人工操作。
+- 构建：`npm run build:web`、`npx vite build --mode desktop` 及 `cargo build --locked --offline -p bubblefish-next-desktop` 通过；修改的前端文件、新 Rust 文件格式与差异空白检查通过。
+- 产物：重建三个示例、DeepSeek、Kha Web 和 macOS ARM64 原生包共六个 `.bfplugin`，版本均为 `0.1.0`，包内面板已使用公开主题变量。模型包仍为 460,979,442 bytes，修改时间未变；没有重新生成模型或修改用户安装文件。
+
+Chromium 使用系统 Chrome 与 `.cache/deepseek-playwright.config.ts`。首次整组运行出现浏览器启动、上下文建立及构建钩子等多处超时；未为此修改生产代码或放宽测试断言，后续两个分组均正常完成。未调用真实付费 DeepSeek API。主题为临时界面状态，不进入项目、插件配置、模型资源或文档历史。
+
+复现真实 macOS WebView 检查：`cargo run --locked --offline -p bubblefish-next-desktop --example panel_theme_probe`。需要可启动原生窗口的 macOS 会话，探针使用独立标识和临时 WebView，不读取已安装插件或模型。
+
+## 2026-11-02 插件命令反馈、进度与取消
+
+插件管理页显示命令的排队／激活／执行／取消状态、成功摘要、完整数据详情和失败原因；菜单命令提供“查看结果”并定位插件卡片。关闭管理页保留当前会话最近记录，面板内部命令调用不产生额外通知。记录只存内存，卸载或退出后清除。Kha White OCR 与编辑检查插件已适配命令任务。
+
+- 静态检查：Svelte 0 errors／0 warnings、Kha／DeepSeek 独立 TypeScript 和 Rust／TS 契约检查通过。
+- 前端单元测试：185 项通过，新增 18 项覆盖各类返回值、原始调用静默、摘要失败保护、排队／激活／执行中取消、不合作操作真实排空、不同插件及 provider 并行、停用／崩溃／卸载和旧实例回复过滤。
+- Rust 协议 9 项、SDK 10 项通过；Kha 原生 6 项通过。SDK 实际编译 native／WASM，黄金调用轨迹一致（main 19 次／hooks 2 次），验证任务进度、摘要、执行中取消、排队取消和重试；已发文档修改的 ACK 不因取消而跳过。
+- 浏览器相关回归 30 项一次性全部通过，包含新增 7 项命令反馈体验和 1 项真实 Rust WASM 独立取消控制测试。后者观察到实际 `cancelled` RPC 响应，确认主 Worker 未被终止或重建，随后在同实例再次执行成功。
+- Kha 浏览器实际安装 Web 包，导入真实模型，验证卡片状态／释放摘要、自检进度、加载阶段取消及重试，并继续通过 OCR／保存／撤销／过期结果／刷新断网流程。
+- Kha macOS ARM64 实际 stdio 包在独立临时目录验证：准确返回 `今日はいい天気ですね。`，解码阶段真实取消，同进程重试及 Session 复用通过。解码进度只有实际步数，不把最大生成长度当成已知总量。
+- 网页和桌面前端构建、Rust 格式与修改代码格式检查通过；Windows x64 原生源码交叉检查通过，未进行 Windows 链接或实机推理验收。
+
+协议仍为 v1，通过可选 `taskId` 和 `commands.tasks` feature 扩展。取消立即拒绝采纳本次结果，但在真实执行结束或连接关闭前保留执行占位；不会自动终止同实例其他任务，也不会回滚已提交修改。原生 stdio 独立输入控制线程和 WASM 独立取消句柄绕过普通业务队列，同步计算在检查点停止。SDK／安装包构建未重新转换或生成 OCR 模型。
+
+浏览器使用系统 Chrome 和忽略目录中的临时 `.cache/deepseek-playwright.config.ts`，不代表全部原生 WebView 交互已完成实机验收。替换开发包的步骤和配置／模型保留要求见 [插件开发](PLUGINS.md) 与 [Kha White OCR](../plugins/kha-white-ocr/README.md)。
+
+## 2026-11-02 插件面板入口简化
+
+图片与标记工具箱、历史与事件检查器、编辑检查、DeepSeek 翻译和 Kha White OCR 仅保留面板声明，删除重复的打开命令；Kha 原生实现同步修改。编辑检查的主实例检查命令及 Kha 的状态、自检、释放会话命令继续保留，宿主、SDK 和协议未修改。
+
+- 静态检查：Svelte 0 errors／0 warnings，DeepSeek／Kha 独立 TypeScript 和 Rust／TS 类型契约检查通过。
+- 前端单元测试：167 项通过；DeepSeek 不再注册打开命令，provider 和生命周期清理继续验证。
+- Kha 原生单元测试：6 项通过，包含内嵌 manifest 与安装包命令、面板和版本的一致性。
+- 浏览器：22 项通过，包含新增 5 个插件的实际安装、唯一入口、激活、关闭重开及独立命令调用；同时回归文档／历史操作、输入和 IME、DeepSeek 翻译与取消，以及 Kha 真实模型导入、OCR、保存／撤销和断网重开。
+- Kha 原生 stdio：实际 macOS ARM64 安装包在独立临时目录运行，准确返回 `今日はいい天気ですね。`，仅注册三个保留命令，Session 复用、reset 后重载和正常退出通过。
+- 产物：重建三个示例、DeepSeek、Kha Web 和 macOS ARM64 原生包共六个 `.bfplugin`，核验版本及贡献；现有 `.bfmodel` 的大小与修改时间保持不变，未重新生成模型包。补回构建所需的 ONNX Runtime MIT 许可证源码文件，内容沿用原有安装包。
+
+浏览器沿用临时 `.cache/deepseek-playwright.config.ts`，使用本机 Google Chrome；结果不代表原生 WebView 的全部 UI 交互验收。没有调用真实付费 DeepSeek API。已安装的开发包需要重装，卸载会清除配置和本地模型；替换步骤及保留配置／模型包的要求已写入插件文档。
+
+## 2026-11-02 DeepSeek 翻译插件
+
+新增可安装的 `deepseek-translation-plugin`，网页／桌面共用 TS Worker，提供 DeepSeek 与 HTTPS OpenAI 兼容请求模式、API Key、模型、自定义系统／用户提示词和离线消息预览。交付包为 `dist/plugins/deepseek-translation-plugin.bfplugin`，安装和开发说明见 [DeepSeek 翻译](../plugins/deepseek-translation/README.md)。
+
+| 检查                | 结果                                                                                                                                                                    |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 插件与前端静态检查  | 插件独立 TypeScript 检查、Svelte 检查（0 errors／0 warnings）、Rust／TS 类型契约检查通过                                                                                |
+| 前端单元测试        | 167 项全部通过，包含新增的 55 项配置、提示词、HTTP、完整响应、超时、取消和生命周期测试                                                                                  |
+| DeepSeek 浏览器验收 | 4 项通过：实际安装包、配置与刷新持久化、Key 密码遮罩、逐字符输入后的预览、双提示词与鉴权请求、兼容地址／模型／即时配置、采用／撤销／BF 保存、取消／过期结果、失败后重试 |
+| 现有插件回归        | `tests/plugins.spec.ts` 5 项全部通过，包含 Rust WASM provider 与输入 ACK 保护                                                                                           |
+| 构建与包            | 网页构建、桌面前端构建、插件打包、修改代码格式及 diff 空白检查通过                                                                                                      |
+| 真实 API            | 未提供 `DEEPSEEK_API_KEY`；冒烟脚本明确输出 SKIP，未发起付费请求，真实翻译未验证                                                                                        |
+
+浏览器测试通过拦截 HTTPS 请求返回固定 Chat Completions 响应，不将其视为 DeepSeek 服务的真实推理验收。本机缺少项目指定的 Playwright Chromium，使用忽略目录中的临时 `.cache/deepseek-playwright.config.ts` 调用系统 Google Chrome，未修改项目测试配置。桌面前端构建不代表原生 WebView 实机网络／CORS 验收。
+
+测试发现仅允许脚本的面板 iframe 会阻止原生表单提交，保存已改为按钮直接调用 SDK，保持既有 sandbox。冒烟脚本复用相同客户端与配置校验，另验证其模块加载与 HTTP 地址拒绝；API Key、原文和译文不进入日志或验收报告。
+
+## 2026-11-01 Kha White OCR 真实模型迁移
+
+本轮在 macOS ARM64 开发主机验证，模型复用已经验证的 FP32/opset 14 转换产物，四个文件的 SHA-256 保持不变。Windows x64 本轮提供构建／打包和运行库定位流程，未进行 Windows 实机推理验证。
+
+Windows x64 源码交叉检查也已通过：`cargo check --locked --offline -p bubblefish-kha-white-ocr --target x86_64-pc-windows-msvc --features native --bin kha-white-ocr`。该检查不生成经过 Windows 链接和运行验收的发布包。
+
+| 检查                       | 结果                                                                                                                                                                   |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Kha 共享／native Rust      | 默认共享库 4 项、含 native 5 项通过；WASM helper release 构建通过                                                                                                      |
+| 原版预处理对照             | 从原版 Rust 源码提取未修改 ImageProcessor；原版、新 native、共享 WASM 对相同样本的 602,112 字节 FP32 tensor 逐字节一致                                                 |
+| 数值与 tokens              | Native ORT 与同版本 ORT Web WASM 的 encoder、decoder 长度 1/2/8/32/300 全部满足 `atol=1e-4,rtol=1e-3`；完整文本与 14 项 token 一致                                     |
+| macOS 正式包 stdio         | 实际解压 `.bfplugin` 到临时目录，移除 ORT/DYLD 环境，在无关 cwd 运行；懒加载、缺模型、warm复用、reset重载、OCR、停用和 EOF 正常退出通过                                |
+| 浏览器真实 OCR             | 安装实际插件包，导入完整约 440 MiB 模型，取消导入、损坏 encoder SHA 拒绝且保留旧模型、识别／保存／撤销／取消／过期结果、刷新断网识别、停用启用重载、清除和卸载全部通过 |
+| 全部浏览器回归             | 本机 Chrome 55/55，通过真实 WASM；包含新增 2 项 IndexedDB 流程和 1 项真实 Kha 场景                                                                                     |
+| 前端单元测试               | 112/112，包含 11 项通用本地资源／SDK 测试                                                                                                                              |
+| Rust 核心／格式／协议／SDK | 24 项核心及黄金轨迹、17 项格式、8 项协议、7 项 SDK 全部通过                                                                                                            |
+| 原生宿主／图片探测         | Tauri 25 项通过、1 项已有默认忽略；图片探测 2 项通过；本地资源存储覆盖 10 项                                                                                           |
+| 构建与契约                 | 网页／桌面前端构建、类型契约检查、Kha TS 检查、Svelte 检查通过                                                                                                         |
+
+日文样本输出为 **今日はいい天気ですね。**，tokens 为 `[2,2,1109,2719,897,854,854,1847,3139,889,875,895,829,3]`。本机观测：浏览器模型导入约 8.95 秒，首次自检含会话准备约 2.04 秒；原生冷启动约 3.07 秒，热识别约 308 ms。这些仅是当前样本和主机的观测，不代表所有图片或机器的性能。
+
+数值脚本在 **Node 中执行与插件相同的 ORT Web WASM**，没有将其写成浏览器数值验收。浏览器另通过真实插件／模型／工作流识别验收。encoder 最大绝对误差约 `2.77e-5`，各 decoder 检查无超出容差元素。证据分别位于 `.cache/kha-numerics/web-comparison.json`、`.cache/kha-native-stdio-release.json`、`.cache/kha-browser-verification.json`；脚本和固定断言保存在源码中，证据／模型／生成运行库均保持 Git 忽略。
+
+安装和复验步骤见 [Kha White OCR](../plugins/kha-white-ocr/README.md)。未将上述结果视为所有桌面平台或移动端的实机验收。
+
+## 2026-11-01 插件事务、历史与拦截扩展
+
+本轮在 macOS 开发主机验证。以下记录独立于下方 2026-10-28 的 Windows 结果，不将原生宿主单测或浏览器标题栏夹具视为桌面窗口实机验收。
+
+| 检查                        | 结果                                                                                      |
+| --------------------------- | ----------------------------------------------------------------------------------------- |
+| Rust 核心／格式／协议／WASM | 50 项通过：23 个 Engine 场景、1 个共用黄金轨迹、17 个格式、7 个插件协议、2 个 WASM        |
+| Rust SDK                    | 6 项通过；真实编译 WASM 与 native 的黄金轨迹一致：main 18 次、hooks 2 次宿主调用          |
+| Tauri 宿主                  | 15 项通过；另行执行默认忽略的真实 SDK sidecar 握手／二进制烟测并通过                      |
+| 前端单元测试                | `npm run test:ui`：101 项通过                                                             |
+| 浏览器回归                  | 本机 Chrome：52 项全部通过，包含真实 WASM 与实际安装的 `.bfplugin`                        |
+| 构建与契约                  | 网页 WASM／前端和桌面前端构建通过；Rust／TypeScript 契约一致；Svelte 0 errors、0 warnings |
+| 格式                        | Prettier、`cargo fmt --check`、`git diff --check` 通过                                    |
+
+新增验收覆盖图片替换与删除后的 undo／redo、原图与裁剪读取、批事务单次撤销及未知辅助字段保留、历史条目身份和自事件过滤、资源 ZIP 原始字节与 BF 副本一致并重新关联打开。输入回归覆盖同长度规范化后的继续输入、业务拒绝后的完整恢复草稿、原文差异回放、真实浏览器 IME 候选及保存屏障、钩子超时后暂停与恢复且主翻译 provider 继续工作。
+
+单元测试另覆盖中途失败原子回滚、历史冲突、权限、独立 runtimeRole、激活／停用清理、迟到钩子结果、嵌套写入拒绝、关闭项目或实例后的图片租约清理，以及 ACK 丢失且插件卸载后仍用原命令 ID 确认提交、只发布一次通知。300 页／15,000 标记场景通过：导入约 3.77 秒，第 300 页跳转约 226 ms，关闭后观测到本项目创建的全部 322 个 object URL 均已撤销；不以 JavaScript heap 观测替代浏览器总内存测量。
+
+三个可安装示例产物为 `dist/plugins/example.document-toolbox.bfplugin`、`example.history-inspector.bfplugin`、`example.edit-guard.bfplugin`。安装、打包和手工复验步骤见 [示例说明](../examples/plugins/README.md)，协议和接口见 [插件文档](PLUGINS.md)。真实 OCR 模型兼容性、推理性能以及所有操作系统的原生窗口交互未由这些示例验证。
+
+## 2026-10-28 Windows 记录
+
 记录日期：2026-10-28。以下结果来自当前 Windows 开发环境。自动测试、构建、原生窗口交互和安装后的系统行为分别记录。
 
 ## 自动验证

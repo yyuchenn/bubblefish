@@ -21,6 +21,10 @@ export function createTransport(): CoreTransport {
     importProject: async (bytes, format, id) => (await use()).importProject(bytes, format, id),
     exportProject: async (id, format) => (await use()).exportProject(id, format),
     probeImage: async (bytes) => (await use()).probeImage(bytes),
+    history: async (projectId, query) => (await use()).history!(projectId, query),
+    preview: async (projectId, commands, expectedStateId) =>
+      (await use()).preview!(projectId, commands, expectedStateId),
+    encodeProject: async (document, format) => (await use()).encodeProject!(document, format),
     dispose: () => {
       disposed = true;
       void instance.then((t) => t.dispose()).catch(() => {});

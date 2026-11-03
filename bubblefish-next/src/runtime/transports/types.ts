@@ -1,4 +1,11 @@
-import type { Envelope, Reply, ProjectDocument } from '../../generated/core';
+import type {
+  Envelope,
+  Reply,
+  ProjectDocument,
+  Command,
+  HistoryPage,
+  HistoryQuery,
+} from '../../generated/core';
 
 export type ProjectFormat = 'bf' | 'labelplus';
 export interface ImportResult {
@@ -18,5 +25,12 @@ export interface CoreTransport {
   importProject(bytes: Uint8Array, format: ProjectFormat, projectId: string): Promise<ImportResult>;
   exportProject(projectId: string, format: ProjectFormat): Promise<Uint8Array>;
   probeImage(bytes: Uint8Array): Promise<ImageProbe>;
+  history?(projectId: string, query?: HistoryQuery): Promise<HistoryPage>;
+  preview?(
+    projectId: string,
+    commands: Command[],
+    expectedStateId?: string,
+  ): Promise<ProjectDocument>;
+  encodeProject?(document: ProjectDocument, format: ProjectFormat): Promise<Uint8Array>;
   dispose(): void;
 }

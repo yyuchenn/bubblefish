@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>编辑检查示例</title>
+  <style>
+    :root {
+      font-family: var(--bf-panel-font-family, system-ui);
+      font-size: var(--bf-panel-font-size, 13px);
+    }
+    body {
+      background: var(--bf-panel-background);
+      color: var(--bf-panel-text);
+      margin: 20px;
+      line-height: 1.6;
+    }
+    h1 {
+      color: var(--bf-panel-strong);
+      font-size: 20px;
+    }
+    h2 {
+      color: var(--bf-panel-strong);
+      font-size: 16px;
+    }
+    button,
+    input,
+    textarea {
+      font: inherit;
+      padding: 7px;
+    }
+    button {
+      margin: 3px;
+    }
+    textarea {
+      width: 100%;
+      box-sizing: border-box;
+      min-height: 90px;
+    }
+    label {
+      display: block;
+      margin: 12px 0;
+    }
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-height: 280px;
+      overflow: auto;
+    }
+    [data-error='true'] {
+      color: var(--bf-panel-danger);
+    }
+    .hint {
+      color: var(--bf-panel-muted);
+    }
+  </style>
+  <h1>编辑检查示例</h1>
+  <ol>
+    <li><code>normalize</code>，优先级 -10：将全角数字转换为 ASCII，保留富文本标记。</li>
+    <li>
+      <code>reject-block</code>，优先级 10：拒绝含
+      <code>[BLOCK]</code> 的文字，原因显示前一钩子规范化后的文本。
+    </li>
+  </ol>
+  <p>可在应用的译文或原文编辑器中输入，也可使用下面的插件事务。撤销和重做只发送通知。</p>
+  <label>测试译文 <textarea id="text" aria-label="编辑检查测试译文">测试１２３</textarea></label>
+  <button id="normalize">填入规范化示例</button
+  ><button id="reject">填入拒绝示例</button>
+  <button id="apply">写入当前标记</button
+  ><button id="read">读取实际译文</button>
+  <p id="target">等待连接…</p>
+  <h2>超时与实例隔离</h2>
+  <label>钩子延迟（毫秒） <input id="delay" type="number" min="0" max="5000" value="0" /></label>
+  <button id="config">保存延迟配置</button
+  ><button id="timeout">设置 400ms 超时</button
+  ><button id="reset">恢复为 0ms</button>
+  <p class="hint">
+    设置 400ms 后再提交一次：宿主继续提交并暂停此插件的拦截能力。将延迟改回
+    0ms，再到插件管理点击“恢复拦截”。
+  </p>
+  <button id="probe">检查主实例仍可运行</button>
+  <p class="hint">
+    在应用 OCR／翻译面板中选择“编辑检查：主实例示例翻译”，可验证拦截暂停后翻译 provider 仍可使用。
+  </p>
+  <pre id="result" role="status" aria-live="polite">等待连接…</pre>
+  <!-- plugin:script -->
+</html>

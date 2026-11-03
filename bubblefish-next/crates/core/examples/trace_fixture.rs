@@ -47,6 +47,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         (json!({"type":"undo"}), None),
         (json!({"type":"redo"}), None),
         (
+            json!({"type":"batch","expectedStateId":"project-a:5","commands":[
+                {"type":"updateImage","imageId":"page-a","assetId":"replacement-asset","filename":"replacement.png","width":2400,"height":3600,"checksum":"replacement-checksum"},
+                {"type":"addMarker","imageId":"page-b","marker":{"id":"marker-b","geometry":{"type":"rectangle","x":0.1,"y":0.2,"width":0.3,"height":0.4},"translation":{"runs":[{"text":"batch","marks":[]}]},"style":{"overlayText":false,"horizontal":true}}}
+            ]}),
+            Some(
+                json!({"label":"Plugin transaction","origin":{"kind":"plugin","pluginId":"fixture.toolbox"}}),
+            ),
+        ),
+        (
+            json!({"type":"guardedUndo","expectedEntryId":"project-a:history:6","expectedHistoryRevision":10}),
+            None,
+        ),
+        (
+            json!({"type":"guardedRedo","expectedEntryId":"project-a:history:6","expectedHistoryRevision":11}),
+            None,
+        ),
+        (
             json!({"type":"reorderImages","imageIds":["page-a","page-a"]}),
             None,
         ),
@@ -71,7 +88,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     replies.push(engine.dispatch(envelopes.last().unwrap().clone()));
     let fixture = json!({
         "description":"Identical native and WASM command trajectory; fixture updates are explicit.",
-        "envelopes":envelopes,"replies":replies,"documents":[engine.document("project-a")?]
+        "envelopes":envelopes,"replies":replies,"documents":[engine.document("project-a")?],
+        "histories":[engine.history("project-a", HistoryQuery::default())?]
     });
     let output = format!("{}\n", serde_json::to_string_pretty(&fixture)?);
     if let Some(path) = std::env::args().nth(1) {

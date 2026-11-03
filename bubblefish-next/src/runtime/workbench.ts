@@ -11,12 +11,35 @@ import type {
   ProjectPatch,
   Reply,
   RichText,
+  HistoryPage,
 } from '../generated/core';
+import type { JsonValue, PluginMutationOrigin, PluginOperation } from '../generated/plugins';
 import { createTransport, type CoreTransport } from './transports';
 import { platform, type PickedFile } from './platform';
 import { AssetStore, id } from './assets';
 import { CommandQueue } from './queue';
 import { snapshots } from './snapshots';
+import { MutationCoordinator, MutationRejected } from './mutations';
+import { ImageResources } from './image-resources';
+import {
+  commandsToOperations,
+  operationsToCommands,
+  stagedHandles,
+  isMutation,
+  isHistory,
+} from './document-operations';
+import { documentChanges } from './document-events';
+import { encodeBundle, safeFilename } from './export-bundle';
+
+export interface DispatchOptions {
+  origin?: PluginMutationOrigin;
+  expectedStateId?: string;
+  operations?: PluginOperation[];
+  owner?: string;
+  guard?: () => boolean;
+  inputProposal?: boolean;
+  onDispatch?: () => void;
+}
 
 export type ProjectView = ProjectDocument &
   Omit<
@@ -61,7 +84,13 @@ export interface ViewState {
   progress: { done: number; total: number } | null;
   editorRestore: { version: number; bookmark: NonNullable<ProjectPatch['focus']> } | null;
   editorAutoFocus: boolean;
-  recoveryDrafts: { id: string; projectId: string; imageId: string; marker: Marker }[];
+  recoveryDrafts: {
+    id: string;
+    projectId: string;
+    imageId: string;
+    marker: Marker;
+    field?: 'originalText';
+  }[];
 }
 export interface OpenDraft {
   document: ProjectDocument;
@@ -92,6 +121,10 @@ export class Workbench {
   private readonly state = writable<ViewState>(initial);
   readonly subscribe = this.state.subscribe;
   readonly assets = new AssetStore();
+  readonly mutations: MutationCoordinator;
+  readonly resources: ImageResources;
+  onDomainEvent: (event: string, data: JsonValue) => void = () => {};
+  hasInterceptors: () => boolean = () => false;
   readonly transport: CoreTransport;
   readonly queue: CommandQueue;
   private readonly sessionId = id();
@@ -105,18 +138,32 @@ export class Workbench {
   private geometryTail: Promise<void> = Promise.resolve();
   private geometryToken = 0;
   private disposed = false;
+  private queuePending = 0;
+  private mutationPending = 0;
+  private editorRestoreVersion = 0;
   private timer?: ReturnType<typeof setInterval>;
   editorBarrier: (allowTransition?: boolean) => Promise<void> = async () => {};
+  editorTransition: (
+    operation: () => Promise<unknown>,
+    inputProposal?: boolean,
+  ) => Promise<unknown> = (operation) => operation();
+  editorBookmark: () => NonNullable<HistoryMeta['after']> | undefined = () => undefined;
 
   constructor(transport = createTransport()) {
     this.transport = transport;
-    this.queue = new CommandQueue((pending, error) =>
+    this.resources = new ImageResources(this.assets, transport);
+    this.mutations = new MutationCoordinator((pending) => {
+      this.mutationPending = pending;
+      this.state.update((s) => ({ ...s, pending: Math.max(this.queuePending, pending) }));
+    });
+    this.queue = new CommandQueue((pending, error) => {
+      this.queuePending = pending;
       this.state.update((s) => ({
         ...s,
-        pending,
+        pending: Math.max(pending, this.mutationPending),
         queueError: error ? message(error) : this.queue?.blocked ? s.queueError : null,
-      })),
-    );
+      }));
+    });
   }
   get value() {
     return get(this.state);
@@ -136,6 +183,13 @@ export class Workbench {
   notice(text: string) {
     this.state.update((s) => ({ ...s, notice: text }));
   }
+  private publish(event: string, data: JsonValue) {
+    try {
+      this.onDomainEvent(event, data);
+    } catch (error) {
+      this.notice(`事件订阅处理失败：${message(error)}`);
+    }
+  }
 
   async initialize() {
     try {
@@ -152,26 +206,168 @@ export class Workbench {
     command: Command,
     history?: HistoryMeta,
     projectId = this.value.activeId,
+    externalBookmark?: NonNullable<HistoryMeta['after']>,
+    options: DispatchOptions = {},
   ): Promise<Reply> {
     // Capture immutable wire values now; Svelte's reactive proxies cannot cross a Worker boundary.
+    const origin = options.origin ??
+      history?.origin ?? { kind: isHistory(command) ? 'history' : 'user' };
     const envelope: Envelope = JSON.parse(
       JSON.stringify({
         commandId: id(),
         sessionId: this.sessionId,
         ...(projectId ? { projectId } : {}),
         command,
-        ...(history ? { history } : {}),
+        ...(history ? { history: { ...history, origin } } : {}),
       }),
     );
-    const reply = await this.queue.enqueue(async () => {
-      const result = await this.transport.dispatch(envelope);
-      if (result.patch)
-        this.applyPatch(result.patch, command.type === 'undo' || command.type === 'redo');
-      if (result.closedProjectId) this.removeView(result.closedProjectId);
-      return result;
-    });
+    let reconcile = !!options.operations;
+    let dispatched = false;
+    const send = async (prepared: Envelope): Promise<Reply> =>
+      this.queue.enqueue(async () => {
+        // After an uncertain ACK, the exact command must reach the core again even
+        // if its plugin stopped meanwhile: it may already own committed resources.
+        if (!dispatched && options.guard && !options.guard())
+          return {
+            commandId: prepared.commandId,
+            eventRevision: 0,
+            error: { code: 'pluginUnavailable', message: '操作已取消或插件实例已关闭' },
+          };
+        const before = this.value.projects.find((project) => project.id === projectId);
+        if (!dispatched) options.onDispatch?.();
+        dispatched = true;
+        const result = await this.transport.dispatch(prepared);
+        if (result.patch) this.applyPatch(result.patch, isHistory(command));
+        const after = this.value.projects.find((project) => project.id === projectId);
+        const oldMarker = before?.images
+          .find((image) => image.id === this.value.imageId)
+          ?.markers.find((marker) => marker.id === this.value.markerId);
+        const newMarker = after?.images
+          .find((image) => image.id === this.value.imageId)
+          ?.markers.find((marker) => marker.id === this.value.markerId);
+        const changedText =
+          oldMarker &&
+          newMarker &&
+          JSON.stringify(oldMarker.translation) !== JSON.stringify(newMarker.translation);
+        const restoreBookmark =
+          externalBookmark ?? (reconcile && changedText ? this.editorBookmark() : undefined);
+        if (result.patch && !result.error && restoreBookmark && !isHistory(command))
+          this.state.update((state) =>
+            state.activeId === projectId &&
+            state.imageId === restoreBookmark.imageId &&
+            state.markerId === restoreBookmark.markerId
+              ? {
+                  ...state,
+                  editorRestore: {
+                    version: ++this.editorRestoreVersion,
+                    bookmark: { ...restoreBookmark, focusEditor: false },
+                  },
+                }
+              : state,
+          );
+        if (result.closedProjectId) this.removeView(result.closedProjectId);
+        if (!result.error) {
+          if (command.type === 'createProject')
+            this.publish('project.opened', { projectId: command.document.id });
+          else if (command.type === 'closeProject' && projectId)
+            this.publish('project.closed', { projectId });
+          if (before && after && before.stateId !== after.stateId) {
+            for (const image of after.images)
+              if (this.assets.get(image.assetId))
+                this.ownedAssets.get(after.id)?.add(image.assetId);
+            const changes = documentChanges(before, after);
+            const event = JSON.parse(
+              JSON.stringify({
+                projectId: after.id,
+                transactionId: prepared.commandId,
+                commandId: prepared.commandId,
+                origin,
+                causationId: origin.causationId,
+                revision: result.eventRevision,
+                beforeStateId: before.stateId,
+                afterStateId: after.stateId,
+                changes,
+              }),
+            ) as Record<string, JsonValue>;
+            this.publish('document.changed', event);
+            this.publish('transaction.committed', event);
+            for (const kind of new Set(changes.map((change) => change.kind)))
+              this.publish(kind, {
+                ...event,
+                changes: changes.filter((change) => change.kind === kind) as unknown as JsonValue,
+              });
+            this.publish('history.changed', { ...event, historyRevision: after.historyRevision });
+          }
+        }
+        return result;
+      });
+    let reply: Reply;
+    if (
+      projectId &&
+      (isMutation(command) || isHistory(command) || command.type === 'closeProject')
+    ) {
+      reply = await this.mutations.run(projectId, async () => {
+        const project = this.value.projects.find((entry) => entry.id === projectId);
+        if (!project) throw new Error('项目已关闭');
+        if (options.expectedStateId !== undefined && options.expectedStateId !== project.stateId)
+          throw new MutationRejected('项目内容已变化，请刷新后重试', 'stateConflict');
+        if (!isMutation(command)) return send(envelope);
+        const owner = options.owner ?? `user:${envelope.commandId}`;
+        const temporary: string[] = [];
+        const operations =
+          options.operations ??
+          commandsToOperations([envelope.command], (image) => {
+            const handle = this.resources.retain(image, owner, projectId);
+            temporary.push(handle);
+            return handle;
+          });
+        const handles = stagedHandles(operations);
+        const pinned = this.assets.pin(
+          handles.map((handle) => this.resources.resolve(handle, owner, projectId).assetId),
+        );
+        try {
+          if (this.transport.preview)
+            await this.transport.preview(
+              projectId,
+              envelope.command.type === 'batch' ? envelope.command.commands : [envelope.command],
+              project.stateId,
+            );
+          const proposal = {
+            projectId,
+            transactionId: envelope.commandId,
+            baseStateId: project.stateId,
+            origin,
+            operations,
+            ...(origin.causationId ? { causationId: origin.causationId } : {}),
+          };
+          const prepared = await this.mutations.intercept(structuredClone(proposal));
+          if (options.guard && !options.guard()) throw new MutationRejected('插件实例已关闭');
+          const changed = JSON.stringify(prepared) !== JSON.stringify(operations);
+          reconcile ||= changed;
+          const commands = operationsToCommands(prepared, (handle) =>
+            this.resources.resolve(handle, owner, projectId),
+          );
+          const next = {
+            ...envelope,
+            expectedStateId: project.stateId,
+            command:
+              changed || options.operations
+                ? { type: 'batch' as const, commands, expectedStateId: project.stateId }
+                : envelope.command,
+          };
+          return await send(next);
+        } finally {
+          this.resources.release(temporary);
+          pinned();
+          this.releaseStagedAssets();
+        }
+      });
+    } else reply = await send(envelope);
     if (reply.error)
-      throw new Error(`${reply.error.message}${reply.error.path ? `（${reply.error.path}）` : ''}`);
+      throw new MutationRejected(
+        `${reply.error.message}${reply.error.path ? `（${reply.error.path}）` : ''}`,
+        reply.error.code,
+      );
     return reply;
   }
   private applyPatch(patch: ProjectPatch, restore: boolean) {
@@ -199,7 +395,7 @@ export class Workbench {
         if (!project.images.find((i) => i.id === imageId)?.markers.some((m) => m.id === markerId))
           markerId = null;
       }
-      if (restore && patch.focus) {
+      if (restore && patch.focus && s.activeId === project.id) {
         imageId = project.images.some((i) => i.id === patch.focus!.imageId)
           ? patch.focus.imageId
           : imageId;
@@ -209,9 +405,16 @@ export class Workbench {
           ? patch.focus.markerId
           : null;
         editorAutoFocus = patch.focus.focusEditor !== false;
+        const oldText = previous?.images
+          .find((image) => image.id === imageId)
+          ?.markers.find((marker) => marker.id === markerId)?.translation;
+        const newText = project.images
+          .find((image) => image.id === imageId)
+          ?.markers.find((marker) => marker.id === markerId)?.translation;
+        const textChanged = JSON.stringify(oldText) !== JSON.stringify(newText);
         editorRestore =
-          editorAutoFocus && markerId
-            ? { version: (editorRestore?.version ?? 0) + 1, bookmark: patch.focus }
+          markerId && (editorAutoFocus || textChanged)
+            ? { version: ++this.editorRestoreVersion, bookmark: patch.focus }
             : null;
       }
       return { ...s, projects, imageId, markerId, editorRestore, editorAutoFocus };
@@ -225,6 +428,7 @@ export class Workbench {
   }
   private async flushEditorAndQueue(allowTransition = false, projectId = this.value.activeId) {
     await this.editorBarrier(allowTransition);
+    await this.mutations.drain(projectId);
     await this.queue.drain();
     if (projectId) await this.dispatch({ type: 'endGroup' }, undefined, projectId);
   }
@@ -409,7 +613,12 @@ export class Workbench {
         }
       : undefined;
   }
-  async documentCommand(command: Command, label: string, projectId = this.value.activeId) {
+  async documentCommand(
+    command: Command,
+    label: string,
+    projectId = this.value.activeId,
+    options: DispatchOptions = {},
+  ) {
     const selectedImageId = this.value.imageId;
     const selectedMarkerId = this.value.markerId;
     const captured: Command = JSON.parse(JSON.stringify(command));
@@ -431,7 +640,7 @@ export class Workbench {
         (markers[index + 1] ?? markers[index - 1])?.id ?? null,
       );
     }
-    return this.dispatch(captured, { label, before, after }, projectId);
+    return this.dispatch(captured, { label, before, after }, projectId, undefined, options);
   }
   async addMarker(geometry: Marker['geometry']) {
     await this.barrier();
@@ -449,14 +658,114 @@ export class Workbench {
     );
     this.state.update((s) => ({ ...s, markerId: marker.id, editorAutoFocus: true }));
   }
+  async replaceTranslation(
+    projectId: string,
+    imageId: string,
+    markerId: string,
+    translation: RichText,
+    label: string,
+    focusEditor = true,
+  ) {
+    return this.editorTransition(async () => {
+      await this.barrier(true);
+      const selected = this.editorBookmark();
+      const isSelected = selected?.imageId === imageId && selected.markerId === markerId;
+      const bookmark = {
+        imageId,
+        markerId,
+        anchor: isSelected ? selected.anchor : 1,
+        head: isSelected ? selected.head : 1,
+        storedMarks: isSelected ? selected.storedMarks : [],
+        focusEditor,
+      };
+      return this.dispatch(
+        { type: 'updateMarker', imageId, markerId, translation },
+        { label, before: bookmark, after: bookmark },
+        projectId,
+        bookmark,
+      );
+    });
+  }
   edit(imageId: string, markerId: string, translation: RichText, history: HistoryMeta) {
-    void this.dispatch({ type: 'updateMarker', imageId, markerId, translation }, history).catch(
+    const projectId = this.value.activeId;
+    const operation = () =>
+      this.dispatch(
+        { type: 'updateMarker', imageId, markerId, translation },
+        history,
+        projectId,
+        this.hasInterceptors() ? history.after : undefined,
+        { inputProposal: true },
+      );
+    void (this.hasInterceptors() ? this.editorTransition(operation, true) : operation()).catch(
       (error) => this.notice(message(error)),
     );
   }
-  async history(direction: 'undo' | 'redo') {
-    await this.barrier(true);
-    await this.dispatch({ type: direction });
+  async history(
+    direction: 'undo' | 'redo',
+    projectId = this.value.activeId,
+    guard?: { expectedEntryId?: string; expectedHistoryRevision?: number },
+    origin?: PluginMutationOrigin,
+  ) {
+    return this.editorTransition(async () => {
+      await this.barrier(true);
+      return this.dispatch(
+        guard
+          ? { type: direction === 'undo' ? 'guardedUndo' : 'guardedRedo', ...guard }
+          : { type: direction },
+        undefined,
+        projectId,
+        undefined,
+        { origin: origin ?? { kind: 'history' } },
+      );
+    });
+  }
+  async historyList(
+    projectId: string,
+    query: { offset?: number; limit?: number } = {},
+  ): Promise<HistoryPage> {
+    if (!this.transport.history) throw new Error('当前核心不支持历史查询');
+    return this.transport.history(projectId, query);
+  }
+  async commitOperations(
+    projectId: string,
+    label: string,
+    operations: PluginOperation[],
+    owner: string,
+    origin: PluginMutationOrigin,
+    expectedStateId?: string,
+  ) {
+    const handles = stagedHandles(operations);
+    const commands = operationsToCommands(operations, (handle) =>
+      this.resources.resolve(handle, owner, projectId),
+    );
+    const release = this.assets.pin(
+      handles.map((handle) => this.resources.resolve(handle, owner, projectId).assetId),
+    );
+    try {
+      return await this.editorTransition(async () => {
+        await this.barrier(true);
+        const bookmark = this.editorBookmark();
+        return this.dispatch(
+          { type: 'batch', commands, expectedStateId },
+          {
+            label,
+            ...(bookmark
+              ? {
+                  before: { ...bookmark, focusEditor: false },
+                  after: { ...bookmark, focusEditor: false },
+                }
+              : {}),
+          },
+          projectId,
+          undefined,
+          { operations, owner, origin, expectedStateId, guard: () => this.resources.alive(owner) },
+        );
+      });
+    } finally {
+      this.resources.release(handles);
+      release();
+      this.releaseStagedAssets();
+    }
   }
   async save(saveAs = false, format: 'bf' | 'labelplus' = 'bf') {
     const projectId = this.value.activeId;
@@ -472,8 +781,39 @@ export class Workbench {
       if (this.saves.get(projectId) === operation) this.saves.delete(projectId);
     }
   }
+  async exportBundle() {
+    const projectId = this.value.activeId;
+    if (!projectId) return;
+    await this.barrier();
+    await this.mutations.drain(projectId);
+    const captured = await this.queue.enqueue(async () => {
+      const project = this.value.projects.find((entry) => entry.id === projectId);
+      if (!project) return undefined;
+      const document: ProjectDocument = structuredClone({
+        id: project.id,
+        name: project.name,
+        sourceLanguage: project.sourceLanguage,
+        targetLanguage: project.targetLanguage,
+        images: project.images,
+      });
+      return { document, release: this.assets.pin(document.images.map((image) => image.assetId)) };
+    });
+    if (!captured) throw new Error('项目已关闭');
+    try {
+      const bytes = await encodeBundle(captured.document, this.assets, this.transport);
+      await platform.save(bytes, {
+        format: 'zip',
+        saveAs: true,
+        suggestedName: `${safeFilename(captured.document.name)}.zip`,
+      });
+    } finally {
+      captured.release();
+      this.releaseStagedAssets();
+    }
+  }
   private async saveProject(projectId: string, saveAs: boolean, format: 'bf' | 'labelplus') {
     await this.barrier();
+    await this.mutations.drain(projectId);
     const project = this.value.projects.find((p) => p.id === projectId);
     if (!project) return;
     const { bytes, stateId } = await this.exportSnapshot(project.id, format);
@@ -559,6 +899,7 @@ export class Workbench {
       return { ...s, projects, activeId, imageId, markerId: null, editorRestore: null };
     });
     this.ownedAssets.delete(projectId);
+    this.resources.releaseProject(projectId);
     this.paths.delete(projectId);
     this.selections.delete(projectId);
     this.assets.releaseExcept(new Set([...this.ownedAssets.values()].flatMap((set) => [...set])));
@@ -608,7 +949,30 @@ export class Workbench {
   retainDraft(projectId: string, imageId: string, marker: Marker) {
     const draft = JSON.parse(JSON.stringify({ id: id(), projectId, imageId, marker }));
     this.state.update((s) => ({ ...s, recoveryDrafts: [...s.recoveryDrafts, draft] }));
-    this.notice('历史操作移除了正在编辑的对象，新输入已保留在恢复草稿中');
+    this.notice('未提交的输入已保留在恢复草稿中');
+  }
+  retainOriginalDraft(projectId: string, imageId: string, marker: Marker, text: string) {
+    const draft = JSON.parse(
+      JSON.stringify({
+        id: id(),
+        projectId,
+        imageId,
+        marker: {
+          ...marker,
+          bunnyCache: {
+            ...(marker.bunnyCache &&
+            typeof marker.bunnyCache === 'object' &&
+            !Array.isArray(marker.bunnyCache)
+              ? marker.bunnyCache
+              : {}),
+            originalText: text,
+          },
+        },
+        field: 'originalText',
+      }),
+    );
+    this.state.update((state) => ({ ...state, recoveryDrafts: [...state.recoveryDrafts, draft] }));
+    this.notice('原文修改未提交，完整输入已保留在恢复草稿中');
   }
   dismissDraft(draftId: string) {
     this.state.update((s) => ({
@@ -619,6 +983,25 @@ export class Workbench {
   async restoreDraft(draftId: string) {
     const draft = this.value.recoveryDrafts.find((d) => d.id === draftId);
     if (!draft) return;
+    if (draft.field === 'originalText') {
+      const text =
+        draft.marker.bunnyCache &&
+        typeof draft.marker.bunnyCache === 'object' &&
+        !Array.isArray(draft.marker.bunnyCache)
+          ? draft.marker.bunnyCache.originalText
+          : '';
+      if (typeof text === 'string')
+        await this.documentCommand(
+          {
+            type: 'updateAssistance',
+            updates: [{ imageId: draft.imageId, markerId: draft.marker.id, originalText: text }],
+          },
+          '恢复原文草稿',
+          draft.projectId,
+        );
+      this.dismissDraft(draftId);
+      return;
+    }
     const project = this.value.projects.find((p) => p.id === draft.projectId);
     if (!project?.images.some((i) => i.id === draft.imageId)) {
       this.notice('请先恢复对应项目和图片，草稿文字仍可复制保留');
@@ -640,6 +1023,8 @@ export class Workbench {
     this.disposed = true;
     clearInterval(this.timer);
     this.queue.dispose();
+    this.mutations.dispose();
+    this.resources.dispose();
     this.assets.dispose();
     this.transport.dispose();
   }

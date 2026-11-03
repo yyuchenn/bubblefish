@@ -26,6 +26,11 @@ export function createTransport(): CoreTransport {
     exportProject: async (projectId, format) =>
       new Uint8Array(await run<ArrayBuffer>('core_export', { projectId, format })),
     probeImage: (bytes) => run('core_probe_image', bytes),
+    history: (projectId, query = {}) => run('core_history', { projectId, ...query }),
+    preview: (projectId, commands, expectedStateId) =>
+      run('core_preview', { projectId, commands, expectedStateId }),
+    encodeProject: async (document, format) =>
+      new Uint8Array(await run<ArrayBuffer>('core_encode_project', { document, format })),
     dispose: () => {
       disposed = true;
     },
