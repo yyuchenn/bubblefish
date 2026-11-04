@@ -88,6 +88,8 @@
   .marker-tooltip {
     position: absolute;
     z-index: 8;
+    /* Include vertical text in the intrinsic width in WebKit. */
+    display: flex;
     width: max-content;
     max-width: var(--tooltip-max-width);
     max-height: var(--tooltip-max-height);

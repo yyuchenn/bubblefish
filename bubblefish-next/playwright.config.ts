@@ -26,5 +26,14 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } },
     },
+    {
+      name: 'webkit',
+      testMatch: '**/canvas-hover.spec.ts',
+      use: {
+        ...devices['Desktop Safari'],
+        viewport: { width: 1440, height: 1000 },
+        deviceScaleFactor: 2,
+      },
+    },
   ],
 });

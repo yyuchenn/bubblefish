@@ -971,7 +971,9 @@ small,
 .canvas-marker.point {
   width: 24px;
   height: 32px;
-  transform: translate(-50%, -100%);
+  margin-left: -12px;
+  margin-top: -32px;
+  transition: none;
 }
 .point-pin {
   display: block;

@@ -35,14 +35,16 @@ npm run dev:web
 | `npm run format:check`          | 检查格式，不修改文件                                       |
 | `npm run format`                | 显式格式化项目                                             |
 
-Playwright 使用本项目独立的 `.cache/ms-playwright` 浏览器缓存。首次安装 Chromium 时，在 PowerShell 执行：
+Playwright 使用本项目独立的 `.cache/ms-playwright` 浏览器缓存。首次安装 Chromium 与 WebKit 时，在 PowerShell 执行：
 
 ```powershell
 $env:PLAYWRIGHT_BROWSERS_PATH = Join-Path $PWD '.cache/ms-playwright'
-npx playwright install chromium
+npx playwright install chromium webkit
 ```
 
-在其他 shell 中同样将 `PLAYWRIGHT_BROWSERS_PATH` 指向本目录下的 `.cache/ms-playwright` 后安装。npm 与 Cargo 分别使用本目录的独立锁文件。构建脚本在首个失败处停止；WASM 按源文件内容缓存。网页开发时监听 Rust 源码，重新构建成功后刷新页面；桌面开发直接链接原生核心。
+在其他 shell 中同样将 `PLAYWRIGHT_BROWSERS_PATH` 指向本目录下的 `.cache/ms-playwright` 后安装。Chromium 执行完整浏览器测试；WebKit 执行 `canvas-hover.spec.ts`，覆盖悬浮气泡排版与点标记定位。Safari 与 macOS 桌面版的合成画面抖动仍需实机视觉验收。
+
+npm 与 Cargo 分别使用本目录的独立锁文件。构建脚本在首个失败处停止；WASM 按源文件内容缓存。网页开发时监听 Rust 源码，重新构建成功后刷新页面；桌面开发直接链接原生核心。
 
 网页产物可部署到普通静态站点，使用 ES module 和单线程 WASM，不需要跨源隔离响应头。通过 HTTP(S) 提供 `dist/web/`，不要直接以 `file://` 打开。桌面包需在对应平台构建；macOS/Linux 的实机验收状态见 [验收记录](docs/ACCEPTANCE.md)。本原型没有配置 `.github` CI/CD。
 

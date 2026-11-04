@@ -179,7 +179,7 @@ async function pinAnchor(page: Page, expected: { x: number; y: number }) {
   expect(
     Math.abs(actual.y - (actual.sheet.y + actual.sheet.height * expected.y)),
   ).toBeLessThanOrEqual(1);
-  // Number text stays horizontal; the pin itself carries the anchor transform.
+  // Number text stays horizontal while the pin is anchored at its bottom center.
   expect(actual.transform).toBe('none');
 }
 function bfMarkers(bytes: Buffer): Array<Array<{ position: number[]; size?: number[] }>> {
