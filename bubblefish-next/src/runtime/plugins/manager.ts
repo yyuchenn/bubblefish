@@ -87,6 +87,7 @@ export class PluginManager {
   private readonly factory: BackendFactory;
   private readonly desktop: boolean;
   private readonly resetNativeRuntime: boolean;
+  private readonly onBottomPanelOpen?: (panel: { pluginId: string; panelId: string }) => void;
   private target = '';
   private instances = new Map<string, Instance>();
   private hookInstances = new Map<string, Instance>();
@@ -121,10 +122,12 @@ export class PluginManager {
       desktop?: boolean;
       target?: string;
       localResources?: LocalResourceStorage;
+      onBottomPanelOpen?: (panel: { pluginId: string; panelId: string }) => void;
     } = {},
   ) {
     this.desktop = options.desktop ?? (typeof __DESKTOP__ !== 'undefined' && __DESKTOP__);
     this.resetNativeRuntime = this.desktop && !options.backendFactory;
+    this.onBottomPanelOpen = options.onBottomPanelOpen;
     this.target = options.target ?? '';
     this.storage =
       options.storage ?? (this.desktop ? new NativePluginStorage() : new BrowserPluginStorage());
@@ -985,13 +988,31 @@ export class PluginManager {
     });
     return operation;
   }
-  async openPanel(pluginId: string, panelId: string) {
-    if (
-      !this.value.panels.some((panel) => panel.pluginId === pluginId && panel.info.id === panelId)
-    )
-      throw new Error('Plugin panel is not available');
+  private availablePanel(pluginId: string, panelId: string) {
+    const panel = this.value.panels.find(
+      (panel) => panel.pluginId === pluginId && panel.info.id === panelId,
+    );
+    if (this.disposed || !panel) throw new Error('Plugin panel is not available');
+    return panel;
+  }
+  async preparePanel(pluginId: string, panelId: string) {
+    this.availablePanel(pluginId, panelId);
     await this.ensureActivated(pluginId);
-    this.store.update((state) => ({ ...state, activePanel: { pluginId, panelId } }));
+    this.availablePanel(pluginId, panelId);
+  }
+  private revealPanel(pluginId: string, panelId: string) {
+    const panel = this.availablePanel(pluginId, panelId);
+    if (panel.info.location === 'bottom') this.onBottomPanelOpen?.({ pluginId, panelId });
+    else this.store.update((state) => ({ ...state, activePanel: { pluginId, panelId } }));
+  }
+  async openPanel(pluginId: string, panelId: string) {
+    if (this.availablePanel(pluginId, panelId).info.location === 'bottom') {
+      // Reveal before activation so failures stay visible and activation may open its own tab.
+      this.revealPanel(pluginId, panelId);
+      return;
+    }
+    await this.preparePanel(pluginId, panelId);
+    this.revealPanel(pluginId, panelId);
   }
   closePanel() {
     this.store.update((state) => ({ ...state, activePanel: null }));
@@ -1433,12 +1454,8 @@ export class PluginManager {
     }
     if (method === 'panels.open') {
       const panelId = String(args.panelId);
-      if (
-        !plugin.manifest.contributes.panels?.some((panel) => panel.id === panelId) ||
-        !plugin.enabled
-      )
-        throw new Error('Plugin panel is not available');
-      this.store.update((state) => ({ ...state, activePanel: { pluginId: id, panelId } }));
+      // The calling instance may still be inside activate(); never await its own activation here.
+      this.revealPanel(id, panelId);
       return { result: null };
     }
     if (method === 'log') {

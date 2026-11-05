@@ -2,6 +2,29 @@ use bubblefish_plugin_protocol::*;
 use serde_json::json;
 
 #[test]
+fn panel_locations_extend_version_one_without_changing_legacy_manifests() {
+    let legacy = json!({"id":"settings","title":"Settings","entry":"panel.html"});
+    let panel: PanelInfo = serde_json::from_value(legacy.clone()).unwrap();
+    assert_eq!(panel.location, None);
+    assert_eq!(serde_json::to_value(panel).unwrap(), legacy);
+    for (value, expected) in [
+        ("modal", PanelLocation::Modal),
+        ("bottom", PanelLocation::Bottom),
+    ] {
+        let current = json!({
+            "id":"settings", "title":"Settings", "entry":"panel.html", "location":value
+        });
+        let panel: PanelInfo = serde_json::from_value(current.clone()).unwrap();
+        assert_eq!(panel.location, Some(expected));
+        assert_eq!(serde_json::to_value(panel).unwrap(), current);
+    }
+    assert!(serde_json::from_value::<PanelInfo>(json!({
+        "id":"settings", "title":"Settings", "entry":"panel.html", "location":"sidebar"
+    }))
+    .is_err());
+}
+
+#[test]
 fn command_tasks_are_additive_to_version_one() {
     let legacy: PluginCommandInvocation =
         serde_json::from_value(json!({"commandId":"inspect"})).unwrap();

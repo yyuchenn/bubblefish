@@ -55,13 +55,56 @@ test('web and Linux retain the 49px header without custom native window controls
 }) => {
   for (const platform of ['web', 'linux'] as const) {
     await fixture(page, platform);
+    expect(
+      await header(page)
+        .locator('.pane-controls > button')
+        .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label'))),
+    ).toEqual(['隐藏底部面板', '隐藏左侧面板', '隐藏翻译面板']);
     await approximateHeight(header(page), 49);
     await expect(header(page).getByRole('navigation', { name: '主菜单' })).toBeVisible();
     await expect(header(page).locator('.window-control')).toHaveCount(0);
     await expect(header(page).locator('.native-traffic-spacer')).toHaveCount(0);
-    await expect(header(page).getByRole('button', { name: '保存项目', exact: true })).toBeVisible();
+    await expect(header(page).getByRole('button', { name: '保存项目', exact: true })).toHaveCount(
+      0,
+    );
+    await expect(header(page).getByText(/^(网页版|桌面版)$/)).toHaveCount(0);
     await page.getByLabel('夹具未保存', { exact: true }).check();
     await expect(header(page).locator('.project-switcher > summary')).toContainText('标题栏项目 *');
+    await summary(page, '文件').click();
+    await header(page)
+      .getByRole('button', { name: /^保存\s/ })
+      .click();
+    await expect(callbacks(page)).toHaveText(['app.save']);
+  }
+});
+
+test('every platform exposes the same three panel toggles with synchronized state and callbacks', async ({
+  page,
+}) => {
+  for (const platform of ['web', 'windows', 'macos', 'linux'] as const) {
+    await fixture(page, platform);
+    await expect(
+      header(page).getByRole('button', { name: /^隐藏(?:底部|左侧|翻译)面板$/ }),
+    ).toHaveCount(3);
+    const expected: string[] = [];
+    for (const [label, callback] of [
+      ['底部面板', 'bottom-toggle'],
+      ['左侧面板', 'left-toggle'],
+      ['翻译面板', 'right-toggle'],
+    ]) {
+      const hide = header(page).getByRole('button', { name: `隐藏${label}`, exact: true });
+      await expect(hide).toHaveAttribute('aria-pressed', 'true');
+      await expect(hide.locator('svg rect[fill="currentColor"]')).toHaveCount(1);
+      await hide.click();
+      const show = header(page).getByRole('button', { name: `显示${label}`, exact: true });
+      await expect(show).toHaveAttribute('aria-pressed', 'false');
+      await expect(show.locator('svg rect[fill="currentColor"]')).toHaveCount(0);
+      await show.click();
+      await expect(hide).toHaveAttribute('aria-pressed', 'true');
+      await expect(hide.locator('svg rect[fill="currentColor"]')).toHaveCount(1);
+      expected.push(callback, callback);
+      await expect(callbacks(page)).toHaveText(expected);
+    }
   }
 });
 
@@ -135,12 +178,13 @@ test('macOS leaves a real-traffic-light inset, has no HTML main menu, and follow
   await expect(callbacks(page)).toHaveText(['left-toggle']);
 });
 
-test('800px native windows keep a long dirty title clear of menu, traffic inset and window controls', async ({
+test('800px headers keep a long dirty title clear of menus and panel or window controls', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 800, height: 650 });
   const title = '很长的漫画汉化项目标题😀'.repeat(25);
-  for (const platform of ['windows', 'macos'] as const) {
+  for (const platform of ['web', 'linux', 'windows', 'macos'] as const) {
+    const compact = platform === 'windows' || platform === 'macos';
     await fixture(page, platform);
     await page.getByLabel('夹具项目名称', { exact: true }).fill(title);
     await page.getByLabel('夹具未保存', { exact: true }).check();
@@ -148,14 +192,18 @@ test('800px native windows keep a long dirty title clear of menu, traffic inset 
     await expect(chooser).toContainText(title);
     const titleBounds = await box(chooser);
     const left = await box(
-      header(page).locator(platform === 'windows' ? '.menu-bar' : '.native-traffic-spacer'),
+      header(page).locator(platform === 'macos' ? '.native-traffic-spacer' : '.menu-bar'),
     );
-    const right = await box(header(page).locator('.native-titlebar-actions'));
+    const right = await box(
+      header(page).locator(compact ? '.native-titlebar-actions' : '.titlebar-actions'),
+    );
     expect(titleBounds.x).toBeGreaterThanOrEqual(left.x + left.width - 1);
     expect(titleBounds.x + titleBounds.width).toBeLessThanOrEqual(right.x + 1);
-    const dirty = await box(header(page).getByLabel('未保存', { exact: true }));
-    expect(dirty.x).toBeGreaterThanOrEqual(titleBounds.x);
-    expect(dirty.x + dirty.width).toBeLessThanOrEqual(titleBounds.x + titleBounds.width + 1);
+    if (compact) {
+      const dirty = await box(header(page).getByLabel('未保存', { exact: true }));
+      expect(dirty.x).toBeGreaterThanOrEqual(titleBounds.x);
+      expect(dirty.x + dirty.width).toBeLessThanOrEqual(titleBounds.x + titleBounds.width + 1);
+    }
     expect(
       await header(page)
         .locator('.project-title')

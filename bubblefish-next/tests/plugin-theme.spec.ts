@@ -13,30 +13,35 @@ const plugins = [
     package: 'deepseek-translation-plugin.bfplugin',
     name: 'DeepSeek 翻译',
     panel: 'DeepSeek 翻译设置',
+    location: 'modal' as const,
   },
   {
     source: 'plugins/kha-white-ocr',
     package: 'kha-white-ocr-plugin-web.bfplugin',
     name: 'Kha White OCR',
     panel: 'Kha White OCR 模型管理',
+    location: 'modal' as const,
   },
   {
     source: 'examples/plugins/document-toolbox',
     package: 'example.document-toolbox.bfplugin',
     name: '图片与标记工具箱',
     panel: '图片与标记工具箱',
+    location: 'bottom' as const,
   },
   {
     source: 'examples/plugins/history-inspector',
     package: 'example.history-inspector.bfplugin',
     name: '历史与事件检查器',
     panel: '历史与事件检查器',
+    location: 'modal' as const,
   },
   {
     source: 'examples/plugins/edit-guard',
     package: 'example.edit-guard.bfplugin',
     name: '编辑检查插件',
     panel: '编辑检查示例',
+    location: 'modal' as const,
   },
 ];
 
@@ -72,17 +77,35 @@ async function center(page: Page) {
   return page.getByRole('dialog', { name: '插件管理', exact: true });
 }
 
-async function installAndOpen(page: Page, path: string, name: string, title: string) {
+async function installAndOpen(
+  page: Page,
+  path: string,
+  name: string,
+  title: string,
+  location: 'modal' | 'bottom' = 'modal',
+) {
   const manager = await center(page);
   await manager.getByLabel('安装插件包', { exact: true }).setInputFiles(path);
   const card = manager.getByRole('article', { name, exact: true });
   await card.getByRole('button', { name: '启用', exact: true }).click();
   await card.getByRole('button', { name: title, exact: true }).click();
   const iframe = page.locator(`iframe[title="${title}"]`);
+  const panel = page.getByRole(location === 'bottom' ? 'tabpanel' : 'dialog', {
+    name: title,
+    exact: true,
+  });
   return {
     iframe,
-    panel: page.getByRole('dialog', { name: title, exact: true }),
+    panel,
     frame: page.frameLocator(`iframe[title="${title}"]`),
+    async close() {
+      if (location === 'bottom')
+        await page
+          .locator('header.titlebar')
+          .getByRole('button', { name: '隐藏底部面板', exact: true })
+          .click();
+      else await panel.getByRole('button', { name: '关闭插件面板', exact: true }).click();
+    },
   };
 }
 
@@ -172,17 +195,18 @@ for (const [theme, system] of [
     test.setTimeout(120_000);
     await ready(page, theme, system);
     for (const plugin of plugins) {
-      const { iframe, panel, frame } = await installAndOpen(
+      const { iframe, panel, frame, close } = await installAndOpen(
         page,
         resolve('dist/plugins', plugin.package),
         plugin.name,
         plugin.panel,
+        plugin.location,
       );
       await expect(iframe).toBeVisible();
       await expect(iframe).toHaveAttribute('sandbox', 'allow-scripts');
       await expect(frame.locator('html')).toHaveAttribute('data-bf-theme', theme);
       await verifyAppearance(page, frame);
-      await panel.getByRole('button', { name: '关闭插件面板', exact: true }).click();
+      await close();
       await expect(panel).not.toBeVisible();
     }
   });

@@ -87,6 +87,7 @@ fn plugin_declarations() -> String {
         PluginPanelColorScheme::decl(&cfg),
         PluginPanelThemeTokens::decl(&cfg),
         PluginPanelAppearance::decl(&cfg),
+        PanelLocation::decl(&cfg),
         PanelInfo::decl(&cfg),
         PluginEntrypoints::decl(&cfg),
         PluginContributions::decl(&cfg),

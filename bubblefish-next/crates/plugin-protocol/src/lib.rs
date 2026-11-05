@@ -121,6 +121,16 @@ pub struct PanelInfo {
     pub id: String,
     pub title: String,
     pub entry: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub location: Option<PanelLocation>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub enum PanelLocation {
+    Modal,
+    Bottom,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]

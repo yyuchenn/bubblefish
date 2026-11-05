@@ -86,9 +86,11 @@ Windows 桌面使用 32px 标题栏和 46px 宽的窗口控件；macOS 使用 28
 
 点击侧栏的“插件管理”，或从工作区菜单打开同名入口，选择本地 `.bfplugin` 或 `.zip` 包安装。安装后点击“启用”；普通插件在首次调用其 OCR、翻译、命令或面板时启动。管理界面可编辑插件声明的配置、运行命令、打开面板、查看日志、停用或卸载插件。启用状态与配置会在本机保留；自动化插件还可通过 `activationEvents` 声明启动或公开事件触发。Next 使用新的插件协议，旧版原生动态库需要按新 SDK 迁移。
 
+画布下方提供可调整高度的底部面板，首次默认展开，可从标题栏开关或“视图”菜单收起、展开。开关、高度和选中 Tab 会在本机保留。内置“OCR 与机器翻译”Tab；插件可通过面板的 `location: "bottom"` 声明注册多个自定义 Tab，启用后自动列出、首次选中才加载。切换 Tab 或收起底栏保留页面输入和运行中的任务。省略位置的旧插件面板继续使用弹窗，声明及生命周期见 [底部多 Tab 页面](docs/PLUGINS.md#底部多-tab-页面)。
+
 插件面板在网页和桌面跟随软件的海洋、果实和夜间主题，同步文字、背景、字体及基础控件。宿主更新后，已安装的旧面板也会生效，无需卸载插件或重新导入模型。切换主题不会重载面板，未保存输入和正在导入的模型保持连续；主题初始化超过 5 秒时可点击“重试加载”。主题仅属于界面状态，不写入项目、插件配置或历史。开发用法见 [面板主题变量](docs/PLUGINS.md#主题与基础样式)。
 
-右侧翻译面板的“OCR 与机器翻译”区域提供插件选择。选中标记后选择 OCR 插件并点击“识别原文”；矩形使用对应图像区域，点使用附近的局部区域。勾选“整页标记”会逐项处理当前页已有标记，不会自动检测或创建新标记。
+底部面板的“OCR 与机器翻译”Tab 提供插件选择。选中标记后选择 OCR 插件并点击“识别原文”；矩形使用对应图像区域，点使用附近的局部区域。勾选“整页标记”会逐项处理当前页已有标记，不会自动检测或创建新标记。关闭右侧翻译面板后，底部工具仍可独立使用。
 
 可以直接修改“原文”，每次输入都会进入现有命令队列，保存、切换和撤销沿用同一套提交与历史机制。选择翻译插件并点击“机器翻译”后，结果先保存在“机器译文”；点击“采用机器译文”才替换当前人工译文，这一步可以撤销。批量任务显示进度并支持取消；任务期间变更原图、标记区域、原文或相关语言时，过期结果不会覆盖新输入。
 
@@ -96,7 +98,9 @@ Windows 桌面使用 32px 标题栏和 46px 宽的窗口控件；macOS 使用 28
 
 同一插件可以组合 provider、文档 CRUD、历史控制和事件订阅。SDK 支持完整图片与裁剪读取、暂存上传、图片和标记增删改排、富文本译文和辅助字段，以及一次撤销的原子事务。`history.push/pop/list/undo/redo` 提供带冲突校验的历史控制；独立 hooks 实例可在提交前改写或拒绝编辑，故障时暂停检查并提供恢复入口。文件菜单的“导出项目资源包”将同一提交点的 BF 和当前原图打成 ZIP。
 
-三个可安装的完整示例位于 `examples/plugins/document-toolbox`、`history-inspector` 和 `edit-guard`。打包命令与逐步验收见 [示例说明](examples/plugins/README.md)。
+三个可安装的完整示例位于 `examples/plugins/document-toolbox`、`history-inspector` 和 `edit-guard`。图片与标记工具箱启用后自动显示为一个底部 Tab，首次访问时加载。它跟随画布当前项目、图片和标记；工具箱中的下拉选择可临时切换操作目标，下一次画布选择变化后恢复跟随。
+
+工具箱按目标保留当前面板会话中的未提交草稿，切换 Tab 或收起底栏后仍可继续编辑。“刷新当前项目”会丢弃当前目标的草稿并重新读取已提交内容；切换图片或项目会清空上传文件选择与图片预览。每次操作使用点击时的目标和输入，等待期间切换画布不会将操作转到新目标。打包命令与逐步验收见 [示例说明](examples/plugins/README.md)。
 
 ```sh
 npm run plugin:pack -- examples/plugins/document-toolbox
@@ -104,7 +108,9 @@ npm run plugin:pack -- examples/plugins/history-inspector
 npm run plugin:pack -- examples/plugins/edit-guard
 ```
 
-产物位于 `dist/plugins/`。Rust SDK 的双端示例通过 `node crates/plugin-sdk/examples/build-example.mjs` 构建，输出 `.cache/plugin-sdk-example/example.echo.bfplugin`；其中 OCR 仅返回收到的图片字节数。包格式、开发接口及更多用法见 [插件文档](docs/PLUGINS.md)、[示例说明](examples/plugins/README.md) 和 [Rust SDK](crates/plugin-sdk/README.md)。
+产物位于 `dist/plugins/`。工具箱 ID `example.document-toolbox` 和版本 `0.1.0` 保持不变；已经安装过旧工具箱的用户需要先卸载，再安装重新打包的插件，才能获得底部 Tab 与新的选择、草稿行为。
+
+Rust SDK 的双端示例通过 `node crates/plugin-sdk/examples/build-example.mjs` 构建，输出 `.cache/plugin-sdk-example/example.echo.bfplugin`；其中 OCR 仅返回收到的图片字节数。包格式、开发接口及更多用法见 [插件文档](docs/PLUGINS.md)、[示例说明](examples/plugins/README.md) 和 [Rust SDK](crates/plugin-sdk/README.md)。
 
 Rust SDK 的 echo 示例已在当前开发主机完成原生 stdio 和真实 WASM 的握手、注册、图片二进制、进度及翻译烟测。这些检查不代表真实 ONNX 模型的兼容性、速度或所有操作系统的桌面 UI 已通过验收。
 

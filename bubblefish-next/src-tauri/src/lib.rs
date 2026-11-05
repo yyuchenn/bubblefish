@@ -470,6 +470,8 @@ struct NativeMenuState {
     left_open: bool,
     #[serde(default)]
     right_open: bool,
+    #[serde(default)]
+    bottom_open: bool,
 }
 fn default_menu_enabled() -> bool {
     true
@@ -586,6 +588,7 @@ fn platform_sync_menu(app: tauri::AppHandle, menu: NativeMenuState) -> Result<()
             for (id, checked) in [
                 ("view.toggleLeft", menu.left_open),
                 ("view.toggleRight", menu.right_open),
+                ("view.toggleBottom", menu.bottom_open),
             ] {
                 if let Some(item) = submenu
                     .get(id)
@@ -629,6 +632,7 @@ fn platform_sync_menu(app: tauri::AppHandle, menu: NativeMenuState) -> Result<()
         menu.recent_files,
         menu.left_open,
         menu.right_open,
+        menu.bottom_open,
     );
     Ok(())
 }
@@ -717,6 +721,7 @@ fn setup_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let view = SubmenuBuilder::new(app, "视图")
         .check("view.toggleLeft", "左侧面板")
         .check("view.toggleRight", "翻译面板")
+        .check("view.toggleBottom", "底部面板")
         .separator()
         .text("view.fit", "适合屏幕")
         .text("view.width", "适合宽度")

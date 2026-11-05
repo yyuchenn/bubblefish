@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { zipSync, strToU8 } from 'fflate';
 import { PluginManager } from '../src/runtime/plugins';
-import { readPluginPackage } from '../src/runtime/plugins/package';
+import { readPluginPackage, validateManifest } from '../src/runtime/plugins/package';
 import { RpcPeer, decodeFrame, encodeFrame, type Packet } from '../src/runtime/plugins/rpc';
 import { createPluginContext, type PluginContext } from '../src/plugin-sdk';
 import type { BackendFactory } from '../src/runtime/plugins/backend';
@@ -103,6 +103,19 @@ const host = {
 };
 
 describe('plugin packages', () => {
+  it('accepts legacy, modal and bottom panels and rejects invalid locations', () => {
+    const panel = { id: 'settings', title: 'Settings', entry: 'panel.html' };
+    for (const location of [undefined, 'modal', 'bottom']) {
+      const value = { ...panel, ...(location ? { location } : {}) };
+      expect(validateManifest({ ...manifest(), contributes: { panels: [value] } })).toMatchObject({
+        contributes: { panels: [value] },
+      });
+    }
+    for (const location of ['sidebar', '', null, ['bottom'], 1])
+      expect(() =>
+        validateManifest({ ...manifest(), contributes: { panels: [{ ...panel, location }] } }),
+      ).toThrow('Invalid plugin panel location');
+  });
   it('loads a standalone bundle and rejects incompatible or missing entrypoints', async () => {
     const pack = (value: unknown, files: Record<string, Uint8Array> = {}) =>
       new Blob([
@@ -182,6 +195,108 @@ describe('plugin RPC', () => {
 });
 
 describe('plugin manager and SDK', () => {
+  it('reveals every bottom open request without activating or creating a modal', async () => {
+    const opened = vi.fn();
+    const activated = vi.fn();
+    const manager = new PluginManager(host, {
+      storage: new MemoryStorage(
+        manifest({
+          contributes: {
+            panels: [{ id: 'tools', title: 'Tools', entry: 'panel.html', location: 'bottom' }],
+          },
+        }),
+      ),
+      backendFactory: factory(activated),
+      onBottomPanelOpen: opened,
+    });
+    await manager.initialize();
+    await expect(manager.openPanel('test.plugin', 'tools')).rejects.toThrow('not available');
+    await manager.enable('test.plugin');
+    await manager.openPanel('test.plugin', 'tools');
+    await manager.openPanel('test.plugin', 'tools');
+    expect(opened.mock.calls).toEqual([
+      [{ pluginId: 'test.plugin', panelId: 'tools' }],
+      [{ pluginId: 'test.plugin', panelId: 'tools' }],
+    ]);
+    expect(activated).not.toHaveBeenCalled();
+    expect(manager.value.activePanel).toBeNull();
+    await expect(manager.openPanel('test.plugin', 'missing')).rejects.toThrow('not available');
+    await manager.disable('test.plugin');
+    await expect(manager.preparePanel('test.plugin', 'tools')).rejects.toThrow('not available');
+    await manager.dispose();
+  });
+
+  it('allows activation to open its bottom tab and explicitly retries a failed enabled panel', async () => {
+    let fail = true;
+    const opened = vi.fn();
+    const activated = vi.fn(async (ctx: PluginContext) => {
+      await ctx.panels.open('tools');
+      if (fail) throw new Error('Panel runtime failed');
+    });
+    const manager = new PluginManager(host, {
+      storage: new MemoryStorage(
+        manifest({
+          contributes: {
+            panels: [{ id: 'tools', title: 'Tools', entry: 'panel.html', location: 'bottom' }],
+          },
+        }),
+      ),
+      backendFactory: factory(activated),
+      onBottomPanelOpen: opened,
+    });
+    await manager.initialize();
+    await manager.enable('test.plugin');
+    await expect(manager.preparePanel('test.plugin', 'tools')).rejects.toThrow(
+      'Panel runtime failed',
+    );
+    expect(manager.value.plugins[0]).toMatchObject({ enabled: true, state: 'failed' });
+    expect(manager.value.panels).toHaveLength(1);
+    expect(opened).toHaveBeenCalledTimes(1);
+    await manager.openPanel('test.plugin', 'tools');
+    expect(activated).toHaveBeenCalledTimes(1);
+    expect(opened).toHaveBeenCalledTimes(2);
+    fail = false;
+    await manager.preparePanel('test.plugin', 'tools');
+    expect(manager.value.plugins[0].state).toBe('active');
+    expect(opened).toHaveBeenCalledTimes(3);
+    expect(manager.value.activePanel).toBeNull();
+    await manager.remove('test.plugin');
+    expect(manager.value.panels).toHaveLength(0);
+    await manager.dispose();
+  });
+
+  it('keeps omitted and explicit modal locations on the existing activated dialog path', async () => {
+    const opened = vi.fn();
+    const activated = vi.fn();
+    const manager = new PluginManager(host, {
+      storage: new MemoryStorage(
+        manifest({
+          contributes: {
+            panels: [
+              { id: 'legacy', title: 'Legacy', entry: 'panel.html' },
+              { id: 'settings', title: 'Settings', entry: 'panel.html', location: 'modal' },
+            ],
+          },
+        }),
+      ),
+      backendFactory: factory(activated),
+      onBottomPanelOpen: opened,
+    });
+    await manager.initialize();
+    await manager.enable('test.plugin');
+    for (const panelId of ['legacy', 'settings']) {
+      await manager.openPanel('test.plugin', panelId);
+      expect(manager.value.activePanel).toEqual({ pluginId: 'test.plugin', panelId });
+      manager.closePanel();
+    }
+    expect(activated).toHaveBeenCalledTimes(1);
+    expect(opened).not.toHaveBeenCalled();
+    await manager.disable('test.plugin');
+    expect(manager.value.activePanel).toBeNull();
+    expect(manager.value.panels).toHaveLength(0);
+    await manager.dispose();
+  });
+
   it('keeps deactivating visible until the disabled preference is durably acknowledged', async () => {
     const storage = new MemoryStorage();
     const manager = new PluginManager(host, { storage, backendFactory: factory(() => {}) });

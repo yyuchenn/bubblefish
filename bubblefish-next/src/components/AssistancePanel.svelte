@@ -6,6 +6,7 @@
   import { message } from '../runtime/workbench';
   import type { Marker } from '../generated/core';
   import { rebaseTextChange, textChange, type TextChange } from '../runtime/text-rebase';
+  import './assistance-panel.css';
   let {
     workbench,
     plugins,
@@ -14,6 +15,7 @@
   const project = $derived($workbench.projects.find((p) => p.id === $workbench.activeId));
   const image = $derived(project?.images.find((i) => i.id === $workbench.imageId));
   const marker = $derived(image?.markers.find((m) => m.id === $workbench.markerId));
+  const markerNumber = $derived(marker && image ? image.markers.indexOf(marker) + 1 : null);
   const ocrProviders = $derived($plugins.providers.filter((p) => p.kind === 'ocr'));
   const translators = $derived($plugins.providers.filter((p) => p.kind === 'translation'));
   let ocr = $state(''),
@@ -226,103 +228,110 @@
   }
 </script>
 
-<section class="assistance-section" aria-label="OCR 与机器翻译">
+<section class="assistance-section assistance-workspace" aria-label="OCR 与机器翻译">
   <div class="assistance-heading">
-    <strong>OCR 与机器翻译</strong><label
-      ><input type="checkbox" bind:checked={wholePage} />整页标记</label
-    >
-  </div>
-  <div class="assistance-controls">
-    <select aria-label="OCR 插件" bind:value={ocr} disabled={!ocrProviders.length}>
-      <option value="">{ocrProviders.length ? '选择 OCR 插件' : '尚未安装 OCR 插件'}</option>
-      {#each ocrProviders as provider}<option value={provider.id}>{provider.info.name}</option
-        >{/each}
-    </select>
-    <button
-      disabled={!ocr || busy || !(wholePage ? image?.markers.length : marker)}
-      onclick={() => run(() => assistance.run('ocr', ocr, wholePage))}>识别原文</button
-    >
-  </div>
-  {#if marker}
-    <label class="assistance-label"
-      >原文<textarea
-        aria-label="OCR 原文"
-        data-assistance-editor
-        bind:this={originalElement}
-        rows="2"
-        bind:value={original}
-        oninput={(event) => {
-          original = event.currentTarget.value;
-          originalDirty = true;
-          run(saveOriginal);
-        }}
-        oncompositionstart={() => {
-          if (intercepting) {
-            originalComposing = true;
-            compositionPending = true;
-          }
-        }}
-        oncompositionend={() => {
-          originalComposing = false;
-          if (compositionPending) void settleOriginalComposition();
-        }}></textarea></label
-    >
-    <div class="assistance-controls">
-      <select aria-label="翻译插件" bind:value={translator} disabled={!translators.length}>
-        <option value="">{translators.length ? '选择翻译插件' : '尚未安装翻译插件'}</option>
-        {#each translators as provider}<option value={provider.id}>{provider.info.name}</option
-          >{/each}
-      </select>
-      <button
-        disabled={!translator || busy || (!wholePage && !original.trim())}
-        onclick={() =>
-          run(async () => {
-            await saveOriginal();
-            await barrier();
-            await assistance.run('translation', translator, wholePage);
-          })}>机器翻译</button
-      >
+    <div class="assistance-context">
+      <strong>OCR 与机器翻译</strong>
+      <span aria-label="当前标记">{markerNumber ? `标记 #${markerNumber}` : '未选择标记'}</span>
     </div>
-    <label class="assistance-label"
-      >机器译文<textarea
-        aria-label="机器译文"
-        readonly
-        rows="2"
-        value={assistanceText(marker, 'machineTranslation')}></textarea></label
-    >
-    <button
-      disabled={!assistanceText(marker, 'machineTranslation')}
-      onclick={() => run(() => assistance.adopt(project!.id, image!.id, marker!))}
-      >采用机器译文</button
-    >
-  {:else if wholePage}
-    <div class="assistance-controls">
-      <select aria-label="翻译插件" bind:value={translator}
-        ><option value="">选择翻译插件</option>{#each translators as provider}<option
-            value={provider.id}>{provider.info.name}</option
-          >{/each}</select
-      >
-      <button
-        disabled={!translator || busy || !image?.markers.length}
-        onclick={() => run(() => assistance.run('translation', translator, true))}>机器翻译</button
-      >
+    <label><input type="checkbox" bind:checked={wholePage} />整页标记</label>
+  </div>
+  <div class="assistance-columns">
+    <div class="assistance-column">
+      <div class="assistance-controls">
+        <select aria-label="OCR 插件" bind:value={ocr} disabled={!ocrProviders.length}>
+          <option value="">{ocrProviders.length ? '选择 OCR 插件' : '尚未安装 OCR 插件'}</option>
+          {#each ocrProviders as provider}<option value={provider.id}>{provider.info.name}</option
+            >{/each}
+        </select>
+        <button
+          disabled={!ocr || busy || !(wholePage ? image?.markers.length : marker)}
+          onclick={() => run(() => assistance.run('ocr', ocr, wholePage))}>识别原文</button
+        >
+      </div>
+      {#if marker}
+        <label class="assistance-label"
+          >原文<textarea
+            aria-label="OCR 原文"
+            data-assistance-editor
+            bind:this={originalElement}
+            rows="3"
+            bind:value={original}
+            oninput={(event) => {
+              original = event.currentTarget.value;
+              originalDirty = true;
+              run(saveOriginal);
+            }}
+            oncompositionstart={() => {
+              if (intercepting) {
+                originalComposing = true;
+                compositionPending = true;
+              }
+            }}
+            oncompositionend={() => {
+              originalComposing = false;
+              if (compositionPending) void settleOriginalComposition();
+            }}></textarea></label
+        >
+      {:else}
+        <div class="assistance-empty">选择一个标记，查看和编辑识别原文</div>
+      {/if}
     </div>
-  {/if}
+    <div class="assistance-column">
+      <div class="assistance-controls">
+        <select aria-label="翻译插件" bind:value={translator} disabled={!translators.length}>
+          <option value="">{translators.length ? '选择翻译插件' : '尚未安装翻译插件'}</option>
+          {#each translators as provider}<option value={provider.id}>{provider.info.name}</option
+            >{/each}
+        </select>
+        <button
+          disabled={!translator ||
+            busy ||
+            !(wholePage ? image?.markers.length : marker && original.trim())}
+          onclick={() =>
+            run(async () => {
+              await saveOriginal();
+              await barrier();
+              await assistance.run('translation', translator, wholePage);
+            })}>机器翻译</button
+        >
+      </div>
+      {#if marker}
+        <label class="assistance-label"
+          >机器译文<textarea
+            aria-label="机器译文"
+            readonly
+            rows="3"
+            value={assistanceText(marker, 'machineTranslation')}></textarea></label
+        >
+        <button
+          class="assistance-adopt"
+          disabled={!assistanceText(marker, 'machineTranslation')}
+          onclick={() => run(() => assistance.adopt(project!.id, image!.id, marker!))}
+          >采用机器译文</button
+        >
+      {:else}
+        <div class="assistance-empty">选择一个标记，查看和采用机器译文</div>
+      {/if}
+    </div>
+  </div>
   {#if latest}
     <div class="assistance-progress" role="status">
-      {#if phaseMessage}<small aria-label="推理阶段">{phaseMessage}</small>{/if}
-      <span
-        >{latest.kind === 'ocr' ? '识别' : '翻译'}
-        {latest.done}/{latest.total} · {latest.state === 'running'
-          ? '处理中'
-          : latest.state === 'committing'
-            ? '正在保存结果'
-            : latest.state === 'cancelled'
-              ? '已取消'
-              : latest.state === 'failed'
-                ? '失败'
-                : `已写入 ${latest.applied} 项`}</span
-      >
+      <div class="assistance-progress-text">
+        {#if phaseMessage}<small aria-label="推理阶段">{phaseMessage}</small>{/if}
+        <span
+          >{latest.kind === 'ocr' ? '识别' : '翻译'}
+          {latest.done}/{latest.total} · {latest.state === 'running'
+            ? '处理中'
+            : latest.state === 'committing'
+              ? '正在保存结果'
+              : latest.state === 'cancelled'
+                ? '已取消'
+                : latest.state === 'failed'
+                  ? '失败'
+                  : `已写入 ${latest.applied} 项`}</span
+        >
+      </div>
       {#if (latest.state === 'running' || latest.state === 'committing') && latest.cancellable !== false}<button
           onclick={() => assistance.cancel(latest.id)}>取消任务</button
         >{/if}

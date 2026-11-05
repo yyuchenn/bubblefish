@@ -35,6 +35,7 @@ export interface NativeMenuState {
   recentFiles: string[];
   leftOpen: boolean;
   rightOpen: boolean;
+  bottomOpen: boolean;
 }
 
 async function native() {

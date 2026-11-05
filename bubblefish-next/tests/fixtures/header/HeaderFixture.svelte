@@ -18,7 +18,8 @@
     dirty = $state(false);
   let empty = $state(false);
   let leftOpen = $state(true),
-    rightOpen = $state(true);
+    rightOpen = $state(true),
+    bottomOpen = $state(true);
   let callbacks = $state<string[]>([]);
   const popups = providePopups();
   onMount(() => popups.mount());
@@ -94,8 +95,13 @@
       rightOpen = !rightOpen;
       record('right-toggle');
     }}
+    onbottomtoggle={() => {
+      bottomOpen = !bottomOpen;
+      record('bottom-toggle');
+    }}
     {leftOpen}
     {rightOpen}
+    {bottomOpen}
     onzoom={(mode) => record(`zoom:${mode}`)}
     onsettings={() => record('settings')}
     onminimize={() => record('minimize')}

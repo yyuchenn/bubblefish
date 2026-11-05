@@ -12,6 +12,15 @@ async function ready(page: Page) {
   await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
 }
 
+async function saveFromMenu(page: Page) {
+  const header = page.locator('header.titlebar');
+  await header
+    .locator('.menu-bar summary')
+    .filter({ hasText: /^文件$/ })
+    .click();
+  await header.getByRole('button', { name: /^保存\s/ }).click();
+}
+
 async function createProject(page: Page, name: string, images = imagePaths.slice(0, 2)) {
   await page.keyboard.press(`${mod}+Alt+n`);
   const dialog = page.getByRole('dialog', { name: '新建项目', exact: true });
@@ -180,7 +189,7 @@ test('creates point and rectangle markers, preserves middle-edit cursor through 
   await expect(editor.locator('strong')).toHaveText('框选翻译');
   await page.screenshot({ path: test.info().outputPath('workspace.png'), fullPage: true });
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: '保存项目', exact: true }).click();
+  await saveFromMenu(page);
   const download = await downloadPromise;
   expect(download.suggestedFilename()).toBe('往返项目.bf');
   const output = test.info().outputPath('roundtrip.bf');
@@ -334,7 +343,7 @@ test('a save waits for compositionend and one undo removes the complete syntheti
     downloads++;
   });
   const downloadPromise = page.waitForEvent('download');
-  await page.getByRole('button', { name: '保存项目', exact: true }).click();
+  await saveFromMenu(page);
   // Synchronize to rendered frames, rather than using a timing delay to mask input races.
   await page.evaluate(
     () =>
@@ -553,7 +562,7 @@ test('an unrepresentable formatted bracket reports its location but remains reco
   page.on('download', () => {
     downloads++;
   });
-  await page.getByRole('button', { name: '保存项目', exact: true }).click();
+  await saveFromMenu(page);
   await expect(page.getByRole('status')).toContainText("formatted ']' character");
   await expect(page.getByRole('status')).toContainText('images[0].markers[0].translation');
   expect(downloads).toBe(0);

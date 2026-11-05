@@ -1,5 +1,12 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
-import { readEditorPreferences, writePreference } from '../src/runtime/preferences';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  ASSISTANCE_TAB_ID,
+  bottomPanelBounds,
+  clampBottomHeight,
+  readEditorPreferences,
+  readLayout,
+  writePreference,
+} from '../src/runtime/preferences';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -36,5 +43,113 @@ describe('editor preferences', () => {
     });
     expect(readEditorPreferences()).toEqual({ hoverPreview: true, autoLocateMarker: false });
     expect(() => writePreference('editor', '{}')).not.toThrow();
+  });
+});
+
+describe('bottom-panel layout preferences', () => {
+  beforeEach(() => vi.stubGlobal('window', { innerHeight: 1000 }));
+
+  it.each([null, 'not json', 'null', '[]', '42'])(
+    'opens the built-in tools by default when layout is missing or damaged: %s',
+    (stored) => {
+      vi.stubGlobal('localStorage', { getItem: () => stored });
+      expect(readLayout()).toMatchObject({
+        bottomOpen: true,
+        bottomHeight: 240,
+        selectedBottomTab: ASSISTANCE_TAB_ID,
+      });
+    },
+  );
+
+  it('adds bottom-panel defaults without losing an older saved layout', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () =>
+        JSON.stringify({
+          leftOpen: false,
+          rightOpen: false,
+          sidebar: 'settings',
+          leftWidth: 300,
+          rightWidth: 500,
+          editorHeight: 320,
+        }),
+    });
+    expect(readLayout()).toEqual({
+      leftOpen: false,
+      rightOpen: false,
+      sidebar: 'settings',
+      leftWidth: 300,
+      rightWidth: 500,
+      editorHeight: 320,
+      bottomOpen: true,
+      bottomHeight: 240,
+      selectedBottomTab: ASSISTANCE_TAB_ID,
+    });
+  });
+
+  it('restores the collapsed panel, height and plugin tab independently', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    writePreference(
+      'layout',
+      JSON.stringify({
+        bottomOpen: false,
+        bottomHeight: 320,
+        selectedBottomTab: 'example.tools/history',
+      }),
+    );
+    expect(values.has('bubblefish-next.layout')).toBe(true);
+    expect(readLayout()).toMatchObject({
+      bottomOpen: false,
+      bottomHeight: 320,
+      selectedBottomTab: 'example.tools/history',
+    });
+  });
+
+  it.each([
+    '{"bottomOpen":"false","bottomHeight":"320","selectedBottomTab":null}',
+    '{"bottomOpen":0,"bottomHeight":null,"selectedBottomTab":""}',
+    '{"bottomHeight":1e999,"selectedBottomTab":42}',
+  ])('rejects invalid bottom-panel field types: %s', (stored) => {
+    vi.stubGlobal('localStorage', { getItem: () => stored });
+    expect(readLayout()).toMatchObject({
+      bottomOpen: true,
+      bottomHeight: 240,
+      selectedBottomTab: ASSISTANCE_TAB_ID,
+    });
+  });
+
+  it.each([
+    [-100, 150],
+    [10000, 350],
+  ])('fits stored height %s into the current window', (height, expected) => {
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify({ bottomHeight: height }) });
+    expect(readLayout().bottomHeight).toBe(expected);
+  });
+
+  it('fits default tools into short windows and caps the panel in large windows', () => {
+    vi.stubGlobal('localStorage', { getItem: () => null });
+    vi.stubGlobal('window', { innerHeight: 400 });
+    expect(readLayout().bottomHeight).toBe(140);
+    expect(bottomPanelBounds(400)).toEqual({ min: 60, max: 140 });
+    expect(clampBottomHeight(240, 400)).toBe(140);
+    expect(clampBottomHeight(20, 1000)).toBe(150);
+    expect(bottomPanelBounds(2000)).toEqual({ min: 200, max: 600 });
+    expect(clampBottomHeight(1000, 2000)).toBe(600);
+  });
+
+  it('keeps bottom-panel defaults when preference storage is unavailable', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+    });
+    expect(readLayout()).toMatchObject({
+      bottomOpen: true,
+      bottomHeight: 240,
+      selectedBottomTab: ASSISTANCE_TAB_ID,
+    });
   });
 });

@@ -6,13 +6,9 @@
   import { Workbench, message } from '../runtime/workbench';
   import type { Marker } from '../generated/core';
   import { usePopups } from '../runtime/popups';
-  import AssistancePanel from './AssistancePanel.svelte';
-  import type { PluginManager } from '../runtime/plugins';
-  import type { AssistanceService } from '../runtime/assistance';
   let {
     workbench,
-    plugins,
-    assistance,
+    intercepting = false,
     width,
     editorHeight,
     hovered = $bindable(null),
@@ -23,8 +19,7 @@
     onresize,
   }: {
     workbench: Workbench;
-    plugins?: PluginManager;
-    assistance?: AssistanceService;
+    intercepting?: boolean;
     width: number;
     editorHeight: number;
     hovered?: string | null;
@@ -35,7 +30,6 @@
     onresize: (event: PointerEvent) => void;
   } = $props();
   let editor = $state<TranslationEditor>(),
-    assistancePanel = $state<AssistancePanel>(),
     listElement = $state<HTMLDivElement>();
   const popups = usePopups();
   const markerContext = $derived(
@@ -101,7 +95,6 @@
   }
   export async function barrier(allowTransition = false) {
     await editor?.barrier(allowTransition);
-    await assistancePanel?.barrier();
   }
   export async function exclusive(operation: () => Promise<unknown>, inputProposal = false) {
     if (editor) return editor.exclusive(operation, inputProposal);
@@ -387,12 +380,6 @@
         <small>在图片上点击或拖动<br />创建文字标记</small>
       </div>{/each}
   </div>
-  {#if plugins && assistance}<AssistancePanel
-      bind:this={assistancePanel}
-      {workbench}
-      {plugins}
-      {assistance}
-    />{/if}
   {#if marker && image}
     <div
       class="splitter horizontal"
@@ -414,9 +401,7 @@
       {#key `${project?.id}/${image.id}/${marker.id}`}<TranslationEditor
           bind:this={editor}
           {marker}
-          intercepting={$plugins?.plugins.some(
-            (plugin) => plugin.enabled && plugin.hooksState === 'ready',
-          ) ?? false}
+          {intercepting}
           imageId={image.id}
           restore={$workbench.editorRestore}
           autofocus={$workbench.editorAutoFocus}

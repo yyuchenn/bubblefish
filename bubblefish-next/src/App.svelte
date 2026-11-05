@@ -48,6 +48,7 @@
   import PendingPreview from './components/PendingPreview.svelte';
   import PluginCenter from './components/PluginCenter.svelte';
   import PluginPanel from './components/PluginPanel.svelte';
+  import BottomPanel from './components/BottomPanel.svelte';
   import PluginCommandNotice from './components/PluginCommandNotice.svelte';
   import { commandPending } from './components/CommandFeedback.svelte';
   import { PluginManager } from './runtime/plugins';
@@ -66,6 +67,8 @@
   import type { Geometry, ImageDocument, Marker } from './generated/core';
   import {
     readLayout,
+    ASSISTANCE_TAB_ID,
+    clampBottomHeight,
     readEditorPreferences,
     readPreference,
     writePreference,
@@ -83,6 +86,12 @@
         plugins.value.plugins.find((plugin) => plugin.manifest.id === pluginId)?.manifest
           .permissions ?? [],
     ),
+    {
+      onBottomPanelOpen: ({ pluginId, panelId }) => {
+        selectedBottomTab = `${pluginId}/${panelId}`;
+        bottomOpen = true;
+      },
+    },
   );
   workbench.mutations.intercept = (proposal) => plugins.intercept(proposal);
   workbench.onDomainEvent = (event, data) => plugins.emit(event, data);
@@ -110,14 +119,20 @@
     recent = $state<string[]>([]);
   let sidebar = $state<'images' | 'settings'>(layout.sidebar),
     leftOpen = $state(layout.leftOpen),
-    rightOpen = $state(layout.rightOpen);
+    rightOpen = $state(layout.rightOpen),
+    bottomOpen = $state(layout.bottomOpen),
+    selectedBottomTab = $state(layout.selectedBottomTab),
+    bottomHeight = $state(layout.bottomHeight),
+    viewportHeight = $state(window.innerHeight);
+  const actualBottomHeight = $derived(clampBottomHeight(bottomHeight, viewportHeight));
   let theme = $state(readPreference('theme') ?? 'ocean');
   let editorPreferences = $state(readEditorPreferences());
   let leftWidth = $state(layout.leftWidth),
     rightWidth = $state(layout.rightWidth),
     editorHeight = $state(layout.editorHeight);
   let canvas = $state<Canvas>(),
-    translationPanel = $state<TranslationPanel>();
+    translationPanel = $state<TranslationPanel>(),
+    bottomPanel = $state<BottomPanel>();
   let view = $state({ scale: 1, mode: 'fit' as ZoomMode, outside: false });
   let jump = $state(false),
     jumpValue = $state(''),
@@ -125,7 +140,8 @@
     hovered = $state<string | null>(null);
   let dragNew = $state<number | null>(null),
     lastMenu = '';
-  let resize: { kind: 'left' | 'right' | 'editor'; start: number; size: number } | null = null;
+  let resize: { kind: 'left' | 'right' | 'editor' | 'bottom'; start: number; size: number } | null =
+    null;
   let closing = false;
   let locateRequest = 0;
   const externalOpenQueue: string[] = [];
@@ -392,6 +408,9 @@
         await workbench.barrier();
         rightOpen = !rightOpen;
         break;
+      case 'view.toggleBottom':
+        bottomOpen = !bottomOpen;
+        break;
       case 'app.settings':
         await workbench.barrier();
         modal = 'settings';
@@ -492,21 +511,32 @@
         '按文件名排序',
       );
   }
-  function startResize(event: PointerEvent, kind: 'left' | 'right' | 'editor') {
+  function startResize(event: PointerEvent, kind: 'left' | 'right' | 'editor' | 'bottom') {
     event.preventDefault();
     resize = {
       kind,
-      start: kind === 'editor' ? event.clientY : event.clientX,
-      size: kind === 'left' ? leftWidth : kind === 'right' ? rightWidth : editorHeight,
+      start: kind === 'editor' || kind === 'bottom' ? event.clientY : event.clientX,
+      size:
+        kind === 'left'
+          ? leftWidth
+          : kind === 'right'
+            ? rightWidth
+            : kind === 'bottom'
+              ? actualBottomHeight
+              : editorHeight,
     };
     (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
   }
   function resizeMove(event: PointerEvent) {
     if (!resize) return;
-    const delta = (resize.kind === 'editor' ? event.clientY : event.clientX) - resize.start;
+    const delta =
+      (resize.kind === 'editor' || resize.kind === 'bottom' ? event.clientY : event.clientX) -
+      resize.start;
     if (resize.kind === 'left') leftWidth = Math.max(180, Math.min(420, resize.size + delta));
     else if (resize.kind === 'right')
       rightWidth = Math.max(270, Math.min(620, resize.size - delta));
+    else if (resize.kind === 'bottom')
+      bottomHeight = clampBottomHeight(resize.size - delta, viewportHeight);
     else editorHeight = Math.max(170, Math.min(window.innerHeight * 0.65, resize.size - delta));
   }
   function keydown(event: KeyboardEvent) {
@@ -564,7 +594,11 @@
     if (command) {
       event.preventDefault();
       run(() => action(command!));
-    } else if (event.key === 'Tab' && marker) {
+    } else if (
+      event.key === 'Tab' &&
+      marker &&
+      !(event.target as HTMLElement)?.closest('[data-bottom-panel]')
+    ) {
       event.preventDefault();
       run(() => selectAndLocate(() => workbench.navigateMarker(event.shiftKey ? -1 : 1)));
     }
@@ -608,7 +642,17 @@
   $effect(() => {
     writePreference(
       'layout',
-      JSON.stringify({ sidebar, leftOpen, rightOpen, leftWidth, rightWidth, editorHeight }),
+      JSON.stringify({
+        sidebar,
+        leftOpen,
+        rightOpen,
+        bottomOpen,
+        bottomHeight: actualBottomHeight,
+        selectedBottomTab,
+        leftWidth,
+        rightWidth,
+        editorHeight,
+      }),
     );
   });
   $effect(() => {
@@ -629,6 +673,7 @@
         recentFiles: recent,
         leftOpen,
         rightOpen,
+        bottomOpen,
       },
       key = JSON.stringify(menu);
     if (key !== lastMenu) {
@@ -639,10 +684,21 @@
   $effect(() => {
     workbench.editorBarrier = async (allowTransition) => {
       await translationPanel?.barrier(allowTransition);
+      await bottomPanel?.barrier();
     };
     workbench.editorTransition = (operation, inputProposal) =>
       translationPanel ? translationPanel.exclusive(operation, inputProposal) : operation();
     workbench.editorBookmark = () => translationPanel?.selectionBookmark();
+  });
+  $effect(() => {
+    if (
+      $plugins.ready &&
+      selectedBottomTab !== ASSISTANCE_TAB_ID &&
+      !$plugins.panels.some(
+        (panel) => panel.info.location === 'bottom' && panel.id === selectedBottomTab,
+      )
+    )
+      selectedBottomTab = ASSISTANCE_TAB_ID;
   });
   $effect(() => {
     popups.setScope($workbench.activeId, $workbench.imageId);
@@ -743,6 +799,7 @@
 </script>
 
 <svelte:window
+  bind:innerHeight={viewportHeight}
   onkeydown={keydown}
   onpointermove={(event) => {
     resizeMove(event);
@@ -769,6 +826,7 @@
     {recent}
     {leftOpen}
     {rightOpen}
+    {bottomOpen}
     pluginCommands={$plugins.commands.map((entry) => ({
       id: entry.id,
       title: entry.info.title,
@@ -792,6 +850,7 @@
         await workbench.barrier();
         rightOpen = !rightOpen;
       })}
+    onbottomtoggle={() => run(() => action('view.toggleBottom'))}
     onzoom={(mode) => canvas?.setMode(mode)}
     onsettings={() => (modal = 'settings')}
   />
@@ -863,73 +922,90 @@
       ></div>
     {/if}
     <main class="main-panel">
-      <div class="canvas-toolbar">
-        <div class="toolbar-group">
-          <button
-            class="icon-button"
-            aria-label="撤销"
-            title={`撤销${project?.undoLabel ?? ''} (${mod}Z)`}
-            disabled={!project?.canUndo}
-            onclick={() => run(() => action('app.undo'))}><Icon name="undo" size={17} /></button
-          ><button
-            class="icon-button"
-            aria-label="重做"
-            title={`重做${project?.redoLabel ?? ''} (${mod}Shift+Z)`}
-            disabled={!project?.canRedo}
-            onclick={() => run(() => action('app.redo'))}><Icon name="redo" size={17} /></button
-          >
-        </div>
-        <span class="toolbar-filename">{image?.filename ?? '漫画翻译工作台'}</span><span
-          class="toolbar-hint">{image ? '点击添加点标记 · 拖动框选' : '标记原文，写下译文'}</span
-        >
-      </div>
-      {#if image}
-        <Canvas
-          bind:this={canvas}
-          {image}
-          {pendingGeometries}
-          assets={workbench.assets}
-          selectedId={$workbench.markerId}
-          hoverPreview={editorPreferences.hoverPreview && !modal}
-          hoveredId={hovered}
-          onhover={(value) => (hovered = value)}
-          onselect={(markerId) =>
-            run(() => interruptAutoLocate(() => workbench.selectMarker(markerId)))}
-          onadd={(geometry) => run(() => workbench.addMarker(geometry))}
-          onchange={(markerId, geometry) =>
-            workbench.commitGeometry(project!.id, image!.id, markerId, geometry)}
-          onerror={(error) => workbench.notice(message(error))}
-          onmenu={(markerId, name) => run(() => markerAction(markerId, name))}
-          onview={(value) => (view = value)}
-        />
-      {:else}
-        <div class="welcome">
-          <div class="welcome-glow"></div>
-          <img
-            class="welcome-logo"
-            src={`${import.meta.env.BASE_URL}icon-192.png`}
-            alt="Bubblefish logo"
-          /><span class="eyebrow">BUBBLEFISH NEXT</span>
-          <h1>{project ? '准备好下一页故事' : '让每一句对白，跨越语言'}</h1>
-          <p>{project ? '添加图片，继续你的漫画翻译项目' : '为漫画标记文字，专注写下你的翻译。'}</p>
-          <div class="welcome-buttons">
+      <div class="canvas-area">
+        <div class="canvas-toolbar">
+          <div class="toolbar-group">
             <button
-              class="primary-button"
-              disabled={!$workbench.ready}
-              onclick={() => run(project ? addImages : newProject)}
-              ><Icon name="plus" />{project ? '添加图片' : '新建项目'}</button
+              class="icon-button"
+              aria-label="撤销"
+              title={`撤销${project?.undoLabel ?? ''} (${mod}Z)`}
+              disabled={!project?.canUndo}
+              onclick={() => run(() => action('app.undo'))}><Icon name="undo" size={17} /></button
             ><button
-              class="secondary-button"
-              disabled={!$workbench.ready}
-              onclick={() => run(chooseOpen)}><Icon name="folder" />打开项目</button
+              class="icon-button"
+              aria-label="重做"
+              title={`重做${project?.redoLabel ?? ''} (${mod}Shift+Z)`}
+              disabled={!project?.canRedo}
+              onclick={() => run(() => action('app.redo'))}><Icon name="redo" size={17} /></button
             >
           </div>
-          <button class="welcome-tip" onclick={() => (tipIndex = (tipIndex + 1) % tips.length)}
-            ><span>✧</span>{tips[tipIndex]}<span class="tip-next">↻</span></button
+          <span class="toolbar-filename">{image?.filename ?? '漫画翻译工作台'}</span><span
+            class="toolbar-hint">{image ? '点击添加点标记 · 拖动框选' : '标记原文，写下译文'}</span
           >
-          <span class="welcome-footnote">.bf · LabelPlus　/　所有编辑均在本地完成</span>
         </div>
-      {/if}
+        {#if image}
+          <Canvas
+            bind:this={canvas}
+            {image}
+            {pendingGeometries}
+            assets={workbench.assets}
+            selectedId={$workbench.markerId}
+            hoverPreview={editorPreferences.hoverPreview && !modal}
+            hoveredId={hovered}
+            onhover={(value) => (hovered = value)}
+            onselect={(markerId) =>
+              run(() => interruptAutoLocate(() => workbench.selectMarker(markerId)))}
+            onadd={(geometry) => run(() => workbench.addMarker(geometry))}
+            onchange={(markerId, geometry) =>
+              workbench.commitGeometry(project!.id, image!.id, markerId, geometry)}
+            onerror={(error) => workbench.notice(message(error))}
+            onmenu={(markerId, name) => run(() => markerAction(markerId, name))}
+            onview={(value) => (view = value)}
+          />
+        {:else}
+          <div class="welcome">
+            <div class="welcome-glow"></div>
+            <img
+              class="welcome-logo"
+              src={`${import.meta.env.BASE_URL}icon-192.png`}
+              alt="Bubblefish logo"
+            /><span class="eyebrow">BUBBLEFISH NEXT</span>
+            <h1>{project ? '准备好下一页故事' : '让每一句对白，跨越语言'}</h1>
+            <p>
+              {project ? '添加图片，继续你的漫画翻译项目' : '为漫画标记文字，专注写下你的翻译。'}
+            </p>
+            <div class="welcome-buttons">
+              <button
+                class="primary-button"
+                disabled={!$workbench.ready}
+                onclick={() => run(project ? addImages : newProject)}
+                ><Icon name="plus" />{project ? '添加图片' : '新建项目'}</button
+              ><button
+                class="secondary-button"
+                disabled={!$workbench.ready}
+                onclick={() => run(chooseOpen)}><Icon name="folder" />打开项目</button
+              >
+            </div>
+            <button class="welcome-tip" onclick={() => (tipIndex = (tipIndex + 1) % tips.length)}
+              ><span>✧</span>{tips[tipIndex]}<span class="tip-next">↻</span></button
+            >
+            <span class="welcome-footnote">.bf · LabelPlus　/　所有编辑均在本地完成</span>
+          </div>
+        {/if}
+      </div>
+      <BottomPanel
+        bind:this={bottomPanel}
+        {workbench}
+        {plugins}
+        {assistance}
+        open={bottomOpen}
+        height={actualBottomHeight}
+        selectedTab={selectedBottomTab}
+        {viewportHeight}
+        onselect={(id) => (selectedBottomTab = id)}
+        onresize={(event) => startResize(event, 'bottom')}
+        onheight={(height) => (bottomHeight = clampBottomHeight(height, viewportHeight))}
+      />
     </main>
     {#if rightOpen}
       <div
@@ -943,8 +1019,9 @@
       <TranslationPanel
         bind:this={translationPanel}
         {workbench}
-        {plugins}
-        {assistance}
+        intercepting={$plugins.plugins.some(
+          (plugin) => plugin.enabled && plugin.hooksState === 'ready',
+        )}
         width={rightWidth}
         {editorHeight}
         bind:hovered

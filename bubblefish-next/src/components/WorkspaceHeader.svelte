@@ -14,8 +14,10 @@
     onclose(id: string): void;
     onlefttoggle(): void;
     onrighttoggle(): void;
+    onbottomtoggle(): void;
     leftOpen: boolean;
     rightOpen: boolean;
+    bottomOpen: boolean;
     onzoom(mode: 'fit' | 'width' | 'height'): void;
     onsettings(): void;
     pluginCommands?: { id: string; title: string; disabled?: boolean }[];
@@ -36,8 +38,10 @@
     onclose,
     onlefttoggle,
     onrighttoggle,
+    onbottomtoggle,
     leftOpen,
     rightOpen,
+    bottomOpen,
     onzoom,
     onsettings,
     pluginCommands = [],
@@ -67,6 +71,35 @@
     operation();
   }
 </script>
+
+{#snippet paneControls()}
+  <div class="pane-controls" data-tauri-drag-region={chrome ? 'false' : undefined}>
+    <button
+      class="pane-button"
+      aria-label={`${bottomOpen ? '隐藏' : '显示'}底部面板`}
+      title={`${bottomOpen ? '隐藏' : '显示'}底部面板`}
+      aria-pressed={bottomOpen}
+      onclick={() => choose(onbottomtoggle)}
+      ><Icon name="pane-bottom" size={16} active={bottomOpen} /></button
+    >
+    <button
+      class="pane-button"
+      aria-label={`${leftOpen ? '隐藏' : '显示'}左侧面板`}
+      title={`${leftOpen ? '隐藏' : '显示'}左侧面板`}
+      aria-pressed={leftOpen}
+      onclick={() => choose(onlefttoggle)}
+      ><Icon name="pane-left" size={16} active={leftOpen} /></button
+    >
+    <button
+      class="pane-button"
+      aria-label={`${rightOpen ? '隐藏' : '显示'}翻译面板`}
+      title={`${rightOpen ? '隐藏' : '显示'}翻译面板`}
+      aria-pressed={rightOpen}
+      onclick={() => choose(onrighttoggle)}
+      ><Icon name="pane-right" size={16} active={rightOpen} /></button
+    >
+  </div>
+{/snippet}
 
 <header
   class="titlebar"
@@ -139,6 +172,9 @@
           <button onclick={() => choose(onrighttoggle)}
             >{rightOpen ? '隐藏' : '显示'}翻译面板</button
           >
+          <button onclick={() => choose(onbottomtoggle)}
+            >{bottomOpen ? '隐藏' : '显示'}底部面板</button
+          >
           <hr />
           <button onclick={() => choose(() => onzoom('fit'))}>适合屏幕</button>
           <button onclick={() => choose(() => onzoom('width'))}>适合宽度</button>
@@ -207,22 +243,7 @@
   </details>
   {#if compact}
     <div class="native-titlebar-actions" data-tauri-drag-region="false">
-      <div class="native-pane-controls" data-tauri-drag-region="false">
-        <button
-          class="native-pane-button"
-          aria-label={`${leftOpen ? '隐藏' : '显示'}左侧面板`}
-          title={`${leftOpen ? '隐藏' : '显示'}左侧面板`}
-          aria-pressed={leftOpen}
-          onclick={() => choose(onlefttoggle)}><Icon name="pane-left" size={16} /></button
-        >
-        <button
-          class="native-pane-button"
-          aria-label={`${rightOpen ? '隐藏' : '显示'}翻译面板`}
-          title={`${rightOpen ? '隐藏' : '显示'}翻译面板`}
-          aria-pressed={rightOpen}
-          onclick={() => choose(onrighttoggle)}><Icon name="pane-right" size={16} /></button
-        >
-      </div>
+      {@render paneControls()}
       {#if windowsChrome}
         <div class="native-window-controls" data-tauri-drag-region="false">
           <button
@@ -252,14 +273,7 @@
     </div>
   {:else}
     <div class="titlebar-actions" data-tauri-drag-region={chrome ? 'false' : undefined}>
-      <span class="runtime-badge">{desktop ? '桌面版' : '网页版'}</span>
-      <button
-        class="icon-button"
-        aria-label="保存项目"
-        title={`保存 (${mod}S)`}
-        disabled={!project}
-        onclick={() => choose(() => onaction('app.save'))}><Icon name="save" /></button
-      >
+      {@render paneControls()}
     </div>
   {/if}
 </header>

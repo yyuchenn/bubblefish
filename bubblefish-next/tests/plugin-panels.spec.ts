@@ -13,6 +13,7 @@ const plugins = [
     name: '图片与标记工具箱',
     version: '0.1.0',
     panel: '图片与标记工具箱',
+    location: 'bottom',
     commands: [],
     ready: '#project',
     readyText: projectName,
@@ -23,6 +24,7 @@ const plugins = [
     name: '历史与事件检查器',
     version: '0.1.0',
     panel: '历史与事件检查器',
+    location: 'modal',
     commands: [],
     ready: '#project',
     readyText: projectName,
@@ -33,6 +35,7 @@ const plugins = [
     name: '编辑检查插件',
     version: '0.1.0',
     panel: '编辑检查示例',
+    location: 'modal',
     commands: ['检查编辑插件主实例'],
     ready: '#result',
     readyText: '编辑检查插件已连接',
@@ -43,6 +46,7 @@ const plugins = [
     name: 'DeepSeek 翻译',
     version: '0.1.0',
     panel: 'DeepSeek 翻译设置',
+    location: 'modal',
     commands: [],
     ready: '#status',
     readyText: 'API Key',
@@ -53,6 +57,7 @@ const plugins = [
     name: 'Kha White OCR',
     version: '0.1.0',
     panel: 'Kha White OCR 模型管理',
+    location: 'modal',
     commands: ['查询 Kha White OCR 状态', '运行 Kha White OCR 自检', '释放 Kha White OCR 会话'],
     ready: '#model-state',
     readyText: 'web-wasm',
@@ -133,12 +138,27 @@ for (const plugin of plugins) {
         await expect(card.getByRole('button', { name: title, exact: true })).toBeEnabled();
       await open.click();
       await expect(dialog).not.toBeVisible();
-      const panel = page.getByRole('dialog', { name: plugin.panel, exact: true });
+      const panel = page.getByRole(plugin.location === 'bottom' ? 'tabpanel' : 'dialog', {
+        name: plugin.panel,
+        exact: true,
+      });
       await expect(panel).toBeVisible();
+      if (plugin.location === 'bottom') {
+        await expect(page.getByRole('dialog', { name: plugin.panel, exact: true })).toHaveCount(0);
+        await expect(page.getByRole('tab', { name: plugin.panel, exact: true })).toHaveAttribute(
+          'aria-selected',
+          'true',
+        );
+      }
       const frame = page.frameLocator(`iframe[title="${plugin.panel}"]`);
       await expect(frame.locator(plugin.ready)).toContainText(plugin.readyText);
       await checkPanel(frame, plugin.name);
-      await panel.getByRole('button', { name: '关闭插件面板', exact: true }).click();
+      if (plugin.location === 'bottom')
+        await page
+          .locator('header.titlebar')
+          .getByRole('button', { name: '隐藏底部面板', exact: true })
+          .click();
+      else await panel.getByRole('button', { name: '关闭插件面板', exact: true }).click();
       await expect(panel).not.toBeVisible();
     }
   });

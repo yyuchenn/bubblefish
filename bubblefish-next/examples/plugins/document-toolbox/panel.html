@@ -1,172 +1,338 @@
 <!doctype html>
 <html lang="zh-CN">
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>图片与标记工具箱</title>
-  <style>
-    :root {
-      font-family: var(--bf-panel-font-family, system-ui);
-      font-size: var(--bf-panel-font-size, 13px);
-    }
-    body {
-      background: var(--bf-panel-background);
-      color: var(--bf-panel-text);
-      margin: 20px;
-    }
-    h1 {
-      color: var(--bf-panel-strong);
-      font-size: 20px;
-    }
-    h2 {
-      color: var(--bf-panel-strong);
-      font-size: 16px;
-    }
-    fieldset {
-      margin: 16px 0;
-      border: 1px solid var(--bf-panel-border);
-      border-radius: var(--bf-panel-radius, 6px);
-    }
-    label {
-      display: block;
-      margin: 8px 0;
-    }
-    button,
-    select,
-    input,
-    textarea {
-      font: inherit;
-      padding: 6px;
-    }
-    button {
-      margin: 3px;
-    }
-    select,
-    textarea {
-      width: 100%;
-      box-sizing: border-box;
-    }
-    textarea {
-      min-height: 72px;
-    }
-    input[type='number'] {
-      width: 64px;
-    }
-    .row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
-    }
-    .row label {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-    pre {
-      white-space: pre-wrap;
-      overflow-wrap: anywhere;
-      max-height: 280px;
-      overflow: auto;
-    }
-    #preview {
-      max-width: 100%;
-      max-height: 320px;
-      object-fit: contain;
-    }
-    [data-error='true'] {
-      color: var(--bf-panel-danger);
-    }
-    .hint {
-      color: var(--bf-panel-muted);
-    }
-  </style>
-  <h1>图片与标记工具箱</h1>
-  <p class="hint">所有修改均进入项目历史。原图和模型字节通过附件传输，面板只使用公开 SDK。</p>
-  <button id="refresh">刷新当前项目</button>
-  <p id="project">等待连接…</p>
-  <label
-    >图片
-    <select id="images" aria-label="工具箱图片"></select
-  ></label>
-  <fieldset>
-    <legend>图片</legend>
-    <button id="image-get">读取图片元数据</button><button id="original">预览完整原图</button>
-    <div class="row">
-      <label>x <input id="crop-x" type="number" value="0.2" min="0" max="1" step="0.05" /></label>
-      <label>y <input id="crop-y" type="number" value="0.2" min="0" max="1" step="0.05" /></label>
-      <label
-        >宽 <input id="crop-width" type="number" value="0.5" min="0.01" max="1" step="0.05"
-      /></label>
-      <label
-        >高 <input id="crop-height" type="number" value="0.5" min="0.01" max="1" step="0.05"
-      /></label>
-      <button id="crop">预览裁剪 PNG</button>
-    </div>
-    <p class="hint">裁剪区域为 0 到 1 的归一化坐标。</p>
-    <img id="preview" alt="插件读取的图片预览" hidden />
-    <label
-      >上传图片
-      <input id="upload" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
-    /></label>
-    <button id="image-create">上传为新图片</button
-    ><button id="image-replace">替换当前图片像素</button>
-    <button id="image-copy">复制当前原图</button>
-    <label>文件名 <input id="filename" aria-label="工具箱文件名" /></label>
-    <button id="image-rename">修改文件名</button><button id="image-remove">删除当前图片</button>
-    <button id="image-reorder">反转图片顺序</button>
-  </fieldset>
-  <label
-    >标记
-    <select id="markers" aria-label="工具箱标记"></select
-  ></label>
-  <fieldset>
-    <legend>标记与样式</legend>
-    <label
-      >几何类型
-      <select id="geometry">
-        <option value="point">点</option>
-        <option value="rectangle">矩形</option>
-      </select></label
-    >
-    <div class="row">
-      <label>x <input id="x" type="number" value="0.2" min="0" max="1" step="0.05" /></label>
-      <label>y <input id="y" type="number" value="0.2" min="0" max="1" step="0.05" /></label>
-      <label
-        >宽 <input id="width" type="number" value="0.3" min="0.01" max="1" step="0.05"
-      /></label>
-      <label
-        >高 <input id="height" type="number" value="0.2" min="0.01" max="1" step="0.05"
-      /></label>
-      <label><input id="overlay" type="checkbox" /> 覆盖文字</label>
-      <label><input id="horizontal" type="checkbox" /> 横排</label>
-    </div>
-    <button id="marker-create">新增标记</button><button id="marker-get">读取完整标记</button>
-    <button id="marker-update">更新几何与样式</button><button id="marker-remove">删除标记</button>
-    <button id="marker-reorder">反转标记顺序</button>
-  </fieldset>
-  <fieldset>
-    <legend>译文与辅助字段</legend>
-    <label>纯文本译文 <textarea id="translation" aria-label="工具箱纯文本译文"></textarea></label>
-    <button id="translation-get">读取译文</button
-    ><button id="translation-set">写入纯文本译文</button>
-    <button id="translation-clear">清空译文</button>
-    <label
-      >完整 RichText JSON
-      <textarea id="richtext" aria-label="工具箱富文本译文">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>图片与标记工具箱</title>
+    <style>
+      :root {
+        font-family: var(--bf-panel-font-family, system-ui);
+        font-size: var(--bf-panel-font-size, 13px);
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        height: 100%;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        background: var(--bf-panel-background);
+        color: var(--bf-panel-text);
+        margin: 0;
+      }
+      .toolbox-header {
+        flex: none;
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--bf-panel-border);
+      }
+      .title-row,
+      .actions,
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 4px 8px;
+      }
+      h1 {
+        color: var(--bf-panel-strong);
+        font-size: 15px;
+        margin: 0;
+        line-height: 1.5;
+      }
+      #project {
+        flex: 1;
+        min-width: 100px;
+        margin: 0;
+        color: var(--bf-panel-muted);
+        overflow-wrap: anywhere;
+      }
+      .target-selectors {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 12px;
+        margin-top: 5px;
+      }
+      .target-selectors label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      #target {
+        margin: 5px 0 0;
+        line-height: 1.4;
+        overflow-wrap: anywhere;
+      }
+      .toolbox-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 8px 10px;
+        scrollbar-gutter: stable;
+      }
+      .toolbox-groups {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: start;
+        gap: 8px;
+      }
+      fieldset {
+        min-width: 0;
+        margin: 0;
+        padding: 8px;
+        border: 1px solid var(--bf-panel-border);
+        border-radius: var(--bf-panel-radius, 6px);
+      }
+      legend {
+        padding: 0 5px;
+        color: var(--bf-panel-strong);
+        font-weight: 600;
+      }
+      fieldset > * + * {
+        margin-top: 8px;
+      }
+      label {
+        display: grid;
+        min-width: 0;
+        gap: 4px;
+      }
+      button,
+      select,
+      input,
+      textarea {
+        font: inherit;
+        padding: 4px 6px;
+        min-width: 0;
+        max-width: 100%;
+      }
+      button,
+      select,
+      input:not([type='checkbox']) {
+        min-height: 28px;
+      }
+      button {
+        margin: 0;
+      }
+      select,
+      textarea,
+      input[type='file'],
+      #filename {
+        width: 100%;
+      }
+      textarea {
+        min-height: 64px;
+        resize: vertical;
+      }
+      #richtext {
+        min-height: 100px;
+      }
+      input[type='number'] {
+        width: 68px;
+      }
+      .row label {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .translation-group,
+      .batch-group {
+        grid-column: 1 / -1;
+      }
+      .translation-fields,
+      .auxiliary-fields {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      .field-group {
+        display: grid;
+        align-content: start;
+        gap: 6px;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 180px;
+        overflow: auto;
+        padding: 8px;
+        margin: 8px 0 0;
+        line-height: 1.5;
+      }
+      #preview {
+        display: block;
+        max-width: 100%;
+        max-height: 180px;
+        object-fit: contain;
+      }
+      #preview[hidden] {
+        display: none;
+      }
+      [data-error='true'] {
+        color: var(--bf-panel-danger);
+      }
+      .hint {
+        color: var(--bf-panel-muted);
+      }
+      .crop-hint,
+      .batch-group p {
+        margin-bottom: 0;
+        line-height: 1.5;
+      }
+      @media (max-width: 600px) {
+        .toolbox-groups,
+        .translation-fields,
+        .auxiliary-fields {
+          grid-template-columns: minmax(0, 1fr);
+        }
+      }
+      @media (max-width: 420px) {
+        .target-selectors {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .toolbox-header,
+        .toolbox-scroll {
+          padding-inline: 8px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="toolbox-header">
+      <div class="title-row">
+        <h1>图片与标记工具箱</h1>
+        <p id="project">等待连接…</p>
+        <button id="refresh">刷新当前项目</button>
+      </div>
+      <div class="target-selectors">
+        <label
+          >图片
+          <select id="images" aria-label="工具箱图片"></select
+        ></label>
+        <label
+          >标记
+          <select id="markers" aria-label="工具箱标记"></select
+        ></label>
+      </div>
+      <p id="target" class="hint" aria-live="polite">
+        在下拉框中选择操作目标，修改可在主界面撤销。
+      </p>
+    </header>
+    <main class="toolbox-scroll" tabindex="0" aria-label="工具箱功能">
+      <div class="toolbox-groups">
+        <fieldset>
+          <legend>图片</legend>
+          <div class="actions">
+            <button id="image-get">读取图片元数据</button>
+            <button id="original">预览完整原图</button>
+          </div>
+          <div class="row">
+            <label
+              >x <input id="crop-x" type="number" value="0.2" min="0" max="1" step="0.05"
+            /></label>
+            <label
+              >y <input id="crop-y" type="number" value="0.2" min="0" max="1" step="0.05"
+            /></label>
+            <label
+              >宽 <input id="crop-width" type="number" value="0.5" min="0.01" max="1" step="0.05"
+            /></label>
+            <label
+              >高 <input id="crop-height" type="number" value="0.5" min="0.01" max="1" step="0.05"
+            /></label>
+            <button id="crop">预览裁剪 PNG</button>
+          </div>
+          <p class="hint crop-hint">裁剪区域为 0 到 1 的归一化坐标。</p>
+          <img id="preview" alt="插件读取的图片预览" hidden />
+          <label
+            >上传图片
+            <input
+              id="upload"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+          /></label>
+          <div class="actions">
+            <button id="image-create">上传为新图片</button>
+            <button id="image-replace">替换当前图片像素</button>
+            <button id="image-copy">复制当前原图</button>
+          </div>
+          <label>文件名 <input id="filename" aria-label="工具箱文件名" /></label>
+          <div class="actions">
+            <button id="image-rename">修改文件名</button>
+            <button id="image-remove">删除当前图片</button>
+            <button id="image-reorder">反转图片顺序</button>
+          </div>
+        </fieldset>
+        <fieldset>
+          <legend>标记与样式</legend>
+          <label
+            >几何类型
+            <select id="geometry">
+              <option value="point">点</option>
+              <option value="rectangle">矩形</option>
+            </select></label
+          >
+          <div class="row">
+            <label>x <input id="x" type="number" value="0.2" min="0" max="1" step="0.05" /></label>
+            <label>y <input id="y" type="number" value="0.2" min="0" max="1" step="0.05" /></label>
+            <label
+              >宽 <input id="width" type="number" value="0.3" min="0.01" max="1" step="0.05"
+            /></label>
+            <label
+              >高 <input id="height" type="number" value="0.2" min="0.01" max="1" step="0.05"
+            /></label>
+            <label><input id="overlay" type="checkbox" /> 覆盖文字</label>
+            <label><input id="horizontal" type="checkbox" /> 横排</label>
+          </div>
+          <div class="actions">
+            <button id="marker-create">新增标记</button>
+            <button id="marker-get">读取完整标记</button>
+            <button id="marker-update">更新几何与样式</button>
+            <button id="marker-remove">删除标记</button>
+            <button id="marker-reorder">反转标记顺序</button>
+          </div>
+        </fieldset>
+        <fieldset class="translation-group">
+          <legend>译文与辅助字段</legend>
+          <div class="translation-fields">
+            <div class="field-group">
+              <label
+                >纯文本译文 <textarea id="translation" aria-label="工具箱纯文本译文"></textarea>
+              </label>
+              <div class="actions">
+                <button id="translation-get">读取译文</button>
+                <button id="translation-set">写入纯文本译文</button>
+                <button id="translation-clear">清空译文</button>
+              </div>
+            </div>
+            <div class="field-group">
+              <label
+                >完整 RichText JSON
+                <textarea id="richtext" aria-label="工具箱富文本译文">
 {"runs":[{"text":"粗体示例１２３","marks":["bold"]},{"text":" 与强调","marks":["emphasis"]}]}</textarea>
-    </label>
-    <button id="translation-rich">写入富文本译文</button>
-    <label>原文 <textarea id="original-text"></textarea></label>
-    <label>机器译文 <textarea id="machine-text"></textarea></label>
-    <button id="assistance-get">读取辅助字段</button
-    ><button id="assistance-update">更新辅助字段</button>
-    <button id="assistance-clear">清空辅助字段</button>
-  </fieldset>
-  <fieldset>
-    <legend>原子批事务</legend>
-    <p>复制当前原图，新增矩形标记，再写入富文本与辅助字段。四个操作只产生一条撤销记录。</p>
-    <button id="batch">执行图片与标记批事务</button>
-  </fieldset>
-  <pre id="result" role="status" aria-live="polite">等待连接…</pre>
-  <!-- plugin:script -->
+              </label>
+              <div class="actions"><button id="translation-rich">写入富文本译文</button></div>
+            </div>
+          </div>
+          <div class="auxiliary-fields">
+            <label>原文 <textarea id="original-text"></textarea></label>
+            <label>机器译文 <textarea id="machine-text"></textarea></label>
+          </div>
+          <div class="actions">
+            <button id="assistance-get">读取辅助字段</button>
+            <button id="assistance-update">更新辅助字段</button>
+            <button id="assistance-clear">清空辅助字段</button>
+          </div>
+        </fieldset>
+        <fieldset class="batch-group">
+          <legend>原子批事务</legend>
+          <p>复制当前原图，新增矩形标记，再写入富文本与辅助字段。四个操作只产生一条撤销记录。</p>
+          <div class="actions"><button id="batch">执行图片与标记批事务</button></div>
+        </fieldset>
+      </div>
+      <pre id="result" role="status" aria-live="polite">等待连接…</pre>
+    </main>
+    <!-- plugin:script -->
+  </body>
 </html>

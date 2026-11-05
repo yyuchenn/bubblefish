@@ -15,6 +15,15 @@ type Gate = {
   releaseAck(): void;
 };
 
+async function saveFromMenu(page: Page) {
+  const header = page.locator('header.titlebar');
+  await header
+    .locator('.menu-bar summary')
+    .filter({ hasText: /^文件$/ })
+    .click();
+  await header.getByRole('button', { name: /^保存\s/ }).click();
+}
+
 async function installGate(page: Page) {
   await page.addInitScript(() => {
     // Delay the real browser transport, retaining the original Worker and Rust core.
@@ -281,7 +290,7 @@ test('rectangle resize is stable while dispatch is delayed; immediate save and u
   await gate(page, 'dispatch');
   await drag(page, page.getByRole('button', { name: '调整标记 se', exact: true }), 40, 30);
   // Keep save adjacent to pointerup; an assertion here would hide a missing barrier.
-  await page.getByRole('button', { name: '保存项目', exact: true }).click();
+  await saveFromMenu(page);
   await expect.poll(() => held(page, 'requests')).toBe(1);
   const resized = await bounds(marker(page));
   expect(resized.width).toBeGreaterThan(original.width + 30);

@@ -91,7 +91,9 @@ export type PluginPanelThemeTokens = { background: string, surface: string, surf
 
 export type PluginPanelAppearance = { revision: number, theme: string, colorScheme: PluginPanelColorScheme, tokens: PluginPanelThemeTokens, };
 
-export type PanelInfo = { id: string, title: string, entry: string, };
+export type PanelLocation = "modal" | "bottom";
+
+export type PanelInfo = { id: string, title: string, entry: string, location?: PanelLocation, };
 
 export type PluginEntrypoints = { web?: string, native?: Record<string, string>, };
 

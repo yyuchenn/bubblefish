@@ -7,6 +7,13 @@
   "entrypoints": { "web": "web.js" },
   "permissions": ["document.read", "document.write", "images.read", "images.write"],
   "contributes": {
-    "panels": [{ "id": "toolbox", "title": "图片与标记工具箱", "entry": "panel.html" }]
+    "panels": [
+      {
+        "id": "toolbox",
+        "title": "图片与标记工具箱",
+        "entry": "panel.html",
+        "location": "bottom"
+      }
+    ]
   }
 }

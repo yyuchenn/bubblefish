@@ -1,5 +1,18 @@
 <script lang="ts">
-  let { name, size = 18 }: { name: string; size?: number } = $props();
+  let {
+    name,
+    size = 18,
+    active = false,
+  }: { name: string; size?: number; active?: boolean } = $props();
+  const panes: Record<
+    string,
+    { x: number; y: number; width: number; height: number; divider: string }
+  > = {
+    'pane-left': { x: 1, y: 1, width: 4, height: 14, divider: 'M5 1v14' },
+    'pane-bottom': { x: 1, y: 11, width: 14, height: 4, divider: 'M1 11h14' },
+    'pane-right': { x: 11, y: 1, width: 4, height: 14, divider: 'M11 1v14' },
+  };
+  const pane = $derived(panes[name]);
   const paths: Record<string, string> = {
     plus: 'M12 5v14M5 12h14',
     plugins: 'M9 3v4H5v4H2v6h3v4h6v-3h4v3h6v-6h-3v-4h3V7h-6V3H9Z',
@@ -21,8 +34,6 @@
     check: 'm5 12 4 4L19 6',
     download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
     grip: 'M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01',
-    'pane-left': 'M3 4h18v16H3V4Zm6 0v16',
-    'pane-right': 'M3 4h18v16H3V4Zm12 0v16',
     'window-minimize': 'M5 12h14',
     'window-maximize': 'M5 5h14v14H5V5Z',
     'window-restore': 'M9 8V4h11v11h-4M4 9h11v11H4V9Z',
@@ -32,11 +43,25 @@
 <svg
   width={size}
   height={size}
-  viewBox="0 0 24 24"
+  viewBox={pane ? '0 0 16 16' : '0 0 24 24'}
   fill="none"
   stroke="currentColor"
-  stroke-width="1.7"
+  stroke-width={pane ? 1 : 1.7}
   stroke-linecap="round"
   stroke-linejoin="round"
-  aria-hidden="true"><path d={paths[name] ?? paths.more} /></svg
+  aria-hidden="true"
 >
+  {#if pane}
+    <rect x="1" y="1" width="14" height="14" rx="1" />
+    <path d={pane.divider} />
+    {#if active}<rect
+        x={pane.x}
+        y={pane.y}
+        width={pane.width}
+        height={pane.height}
+        fill="currentColor"
+      />{/if}
+  {:else}
+    <path d={paths[name] ?? paths.more} />
+  {/if}
+</svg>

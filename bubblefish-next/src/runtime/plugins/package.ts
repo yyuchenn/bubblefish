@@ -111,6 +111,12 @@ export function validateManifest(value: unknown): PluginManifest {
       if (kind === 'panels') {
         label(entry.entry, 'panel entry');
         resourcePath(entry.entry);
+        if (
+          entry.location !== undefined &&
+          entry.location !== 'modal' &&
+          entry.location !== 'bottom'
+        )
+          throw new Error('Invalid plugin panel location');
       }
       if (
         kind === 'configuration' &&
