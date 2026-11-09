@@ -157,6 +157,10 @@
       <details class="app-menu" open={$popups?.id === 'edit'} use:popups.boundary={{ id: 'edit' }}>
         <summary data-popup-trigger onclick={(event) => disclose(event, 'edit')}>编辑</summary>
         <div class="menu-popover">
+          <button onclick={() => choose(() => onaction('app.find'))}
+            >查找替换<kbd>{mod}F</kbd></button
+          >
+          <hr />
           <button disabled={!project?.canUndo} onclick={() => choose(() => onaction('app.undo'))}
             >撤销{project?.undoLabel ?? ''}<kbd>{mod}Z</kbd></button
           >

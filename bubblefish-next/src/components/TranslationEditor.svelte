@@ -2,7 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { Schema, type Node as PMNode } from 'prosemirror-model';
   import { EditorState, TextSelection, type Transaction } from 'prosemirror-state';
-  import { EditorView } from 'prosemirror-view';
+  import { Decoration, DecorationSet, EditorView } from 'prosemirror-view';
   import { keymap } from 'prosemirror-keymap';
   import {
     baseKeymap,
@@ -20,6 +20,11 @@
     TextRun,
   } from '../generated/core';
   import type { ViewState } from '../runtime/workbench';
+  import {
+    textOffsetToEditorPosition,
+    validSearchRange,
+    type SearchHighlight,
+  } from '../runtime/search-highlight';
 
   let {
     marker,
@@ -31,6 +36,7 @@
     autofocus = true,
     intercepting = false,
     onrecover,
+    searchHighlight = null,
   }: {
     marker: Marker;
     imageId: string;
@@ -41,6 +47,7 @@
     autofocus?: boolean;
     intercepting?: boolean;
     onrecover: (draft: { imageId: string; marker: Marker }) => void;
+    searchHighlight?: SearchHighlight | null;
   } = $props();
   let element: HTMLDivElement;
   let view = $state.raw<EditorView>();
@@ -128,6 +135,53 @@
       );
     });
     return { runs };
+  }
+  function searchDecorations(state: EditorState, highlight: SearchHighlight | null) {
+    if (
+      !highlight ||
+      highlight.field !== 'translation' ||
+      highlight.imageId !== imageId ||
+      highlight.markerId !== marker.id
+    )
+      return DecorationSet.empty;
+    const text = fromDoc(state.doc)
+      .runs.map((run) => run.text)
+      .join('');
+    if (!validSearchRange(highlight, text)) return DecorationSet.empty;
+    const from = textOffsetToEditorPosition(text, highlight.from),
+      to = textOffsetToEditorPosition(text, highlight.to);
+    const decoration =
+      from === to
+        ? Decoration.widget(
+            from,
+            () => {
+              const cursor = element.ownerDocument.createElement('span');
+              cursor.className = 'search-current-insertion';
+              cursor.setAttribute('aria-hidden', 'true');
+              cursor.textContent = '\u200b';
+              return cursor;
+            },
+            { side: 1, key: `search:${from}` },
+          )
+        : Decoration.inline(from, to, { class: 'search-current-match' });
+    const decorations = [decoration];
+    for (let offset = highlight.from; offset < highlight.to; offset++) {
+      if (text[offset] !== '\n') continue;
+      decorations.push(
+        Decoration.widget(
+          textOffsetToEditorPosition(text, offset),
+          () => {
+            const linebreak = element.ownerDocument.createElement('span');
+            linebreak.className = 'search-current-linebreak';
+            linebreak.setAttribute('aria-hidden', 'true');
+            linebreak.textContent = '↵';
+            return linebreak;
+          },
+          { side: -1, key: `search-linebreak:${offset}` },
+        ),
+      );
+    }
+    return DecorationSet.create(state.doc, decorations);
   }
   function bookmark(state: EditorState): EditorBookmark {
     return {
@@ -547,6 +601,24 @@
     active = value.bookmark.storedMarks;
     group = '';
   });
+  $effect(() => {
+    const editor = view,
+      highlight = searchHighlight;
+    if (!editor) return;
+    editor.setProps({ decorations: (state) => searchDecorations(state, highlight) });
+    let current = true;
+    void tick().then(() => {
+      if (!current || editor !== view) return;
+      editor.dom
+        .querySelector(
+          '.search-current-match, .search-current-insertion, .search-current-linebreak',
+        )
+        ?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => {
+      current = false;
+    };
+  });
 </script>
 
 <div class="translation-editor">
@@ -567,3 +639,22 @@
     </div>{/if}
   <div class="editor-content" bind:this={element}></div>
 </div>
+
+<style>
+  .editor-content :global(.search-current-match) {
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    box-shadow: 0 0 0 1px var(--accent);
+    border-radius: 2px;
+  }
+  .editor-content :global(.search-current-insertion) {
+    border-left: 2px solid var(--accent);
+    margin-left: -1px;
+    pointer-events: none;
+  }
+  .editor-content :global(.search-current-linebreak) {
+    color: var(--accent-deep);
+    background: var(--accent-soft);
+    user-select: none;
+    pointer-events: none;
+  }
+</style>

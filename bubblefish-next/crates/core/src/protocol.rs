@@ -99,6 +99,9 @@ pub enum Command {
         #[ts(optional)]
         style: Option<MarkerStyle>,
     },
+    UpdateTranslations {
+        updates: Vec<TranslationUpdate>,
+    },
     UpdateAssistance {
         updates: Vec<AssistanceUpdate>,
     },
@@ -128,6 +131,14 @@ pub enum Command {
     MarkSaved {
         state_id: String,
     },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+pub struct TranslationUpdate {
+    pub image_id: String,
+    pub marker_id: String,
+    pub translation: RichText,
 }
 
 /// Optional fields distinguish an omitted change from an explicit null (clear).

@@ -12,6 +12,8 @@ import type {
   Reply,
   RichText,
   HistoryPage,
+  AssistanceUpdate,
+  TranslationUpdate,
 } from '../generated/core';
 import type { JsonValue, PluginMutationOrigin, PluginOperation } from '../generated/plugins';
 import { createTransport, type CoreTransport } from './transports';
@@ -30,6 +32,14 @@ import {
 } from './document-operations';
 import { documentChanges } from './document-events';
 import { encodeBundle, safeFilename } from './export-bundle';
+import {
+  collectSearchFields,
+  replaceRichTextRanges,
+  type SearchMatch,
+  type SearchOptions,
+  type PreparedSearchReplacement,
+} from './search';
+import type { SearchService } from './search-client';
 
 export interface DispatchOptions {
   origin?: PluginMutationOrigin;
@@ -344,8 +354,10 @@ export class Workbench {
           if (options.guard && !options.guard()) throw new MutationRejected('插件实例已关闭');
           const changed = JSON.stringify(prepared) !== JSON.stringify(operations);
           reconcile ||= changed;
-          const commands = operationsToCommands(prepared, (handle) =>
-            this.resources.resolve(handle, owner, projectId),
+          const commands = operationsToCommands(
+            prepared,
+            (handle) => this.resources.resolve(handle, owner, projectId),
+            Math.max(10000, operations.length),
           );
           const next = {
             ...envelope,
@@ -572,6 +584,31 @@ export class Workbench {
     await this.barrier();
     this.state.update((s) => ({ ...s, markerId, editorRestore: null, editorAutoFocus: true }));
   }
+  async revealSearchMatch(match: SearchMatch, isCurrent: () => boolean = () => true) {
+    await this.barrier();
+    if (!isCurrent()) return false;
+    const project = this.active;
+    if (!project || project.id !== match.projectId) throw new Error('项目已切换，请重新查找');
+    const marker = project.images
+      .find((image) => image.id === match.imageId)
+      ?.markers.find((marker) => marker.id === match.markerId);
+    const cache = marker?.bunnyCache;
+    const text =
+      match.field === 'translation'
+        ? marker?.translation.runs.map((run) => run.text).join('')
+        : cache && typeof cache === 'object' && !Array.isArray(cache)
+          ? cache[match.field]
+          : undefined;
+    if (!marker || text !== match.text) throw new Error('匹配文本已变化，请重新查找');
+    this.state.update((state) => ({
+      ...state,
+      imageId: match.imageId,
+      markerId: match.markerId,
+      editorRestore: null,
+      editorAutoFocus: false,
+    }));
+    return true;
+  }
   async navigateImage(delta: number) {
     const project = this.active;
     if (!project) return;
@@ -685,6 +722,70 @@ export class Workbench {
         bookmark,
       );
     });
+  }
+  async replaceSearch(
+    service: Pick<SearchService, 'prepareReplacement'>,
+    options: SearchOptions,
+    replacement: string,
+    current?: SearchMatch,
+  ): Promise<PreparedSearchReplacement> {
+    const projectId = this.value.activeId;
+    const capturedOptions = { ...options };
+    const capturedMatch = current ? { ...current } : undefined;
+    let result: PreparedSearchReplacement = { changes: [], matchCount: 0 };
+    if (!projectId) return result;
+    await this.editorTransition(async () => {
+      await this.barrier(true);
+      const project = this.active;
+      if (!project || project.id !== projectId) throw new Error('项目已切换，替换已取消');
+      const stateId = project.stateId;
+      result = await service.prepareReplacement(
+        collectSearchFields(project),
+        capturedOptions,
+        replacement,
+        capturedMatch,
+      );
+      const valid = () => this.value.activeId === projectId && this.active?.stateId === stateId;
+      if (!valid()) throw new Error('项目内容已变化，请重新查找后替换');
+      const translations: TranslationUpdate[] = [];
+      const assistance = new Map<string, AssistanceUpdate>();
+      for (const change of result.changes) {
+        if (change.field === 'translation') {
+          const marker = project.images
+            .find((image) => image.id === change.imageId)
+            ?.markers.find((marker) => marker.id === change.markerId);
+          if (!marker) throw new Error('匹配标记已不存在，请重新查找');
+          translations.push({
+            imageId: change.imageId,
+            markerId: change.markerId,
+            translation: replaceRichTextRanges(marker.translation, change.edits),
+          });
+        } else {
+          const key = JSON.stringify([change.imageId, change.markerId]);
+          const update = assistance.get(key) ?? {
+            imageId: change.imageId,
+            markerId: change.markerId,
+          };
+          update[change.field] = change.after;
+          assistance.set(key, update);
+        }
+      }
+      const commands: Command[] = [];
+      if (translations.length) commands.push({ type: 'updateTranslations', updates: translations });
+      if (assistance.size)
+        commands.push({ type: 'updateAssistance', updates: [...assistance.values()] });
+      if (!commands.length) return;
+      const selection = this.editorBookmark() ?? this.context();
+      const bookmark = selection ? { ...selection, focusEditor: false } : undefined;
+      await this.dispatch(
+        { type: 'batch', commands, expectedStateId: stateId },
+        { label: current ? '替换当前匹配' : '全部替换', before: bookmark, after: bookmark },
+        projectId,
+        bookmark,
+        { expectedStateId: stateId, guard: valid },
+      );
+    });
+    return result;
   }
   edit(imageId: string, markerId: string, translation: RichText, history: HistoryMeta) {
     const projectId = this.value.activeId;

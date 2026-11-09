@@ -49,6 +49,13 @@ describe('editor preferences', () => {
 describe('bottom-panel layout preferences', () => {
   beforeEach(() => vi.stubGlobal('window', { innerHeight: 1000 }));
 
+  it('restores the search sidebar while retaining the shared panel dimensions', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => JSON.stringify({ sidebar: 'search', leftWidth: 310 }),
+    });
+    expect(readLayout()).toMatchObject({ sidebar: 'search', leftWidth: 310 });
+  });
+
   it.each([null, 'not json', 'null', '[]', '42'])(
     'opens the built-in tools by default when layout is missing or damaged: %s',
     (stored) => {

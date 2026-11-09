@@ -8,6 +8,169 @@ fn assistance(image_id: &str, marker_id: &str) -> AssistanceUpdate {
     }
 }
 
+fn translation(image_id: &str, marker_id: &str, value: &str) -> TranslationUpdate {
+    TranslationUpdate {
+        image_id: image_id.into(),
+        marker_id: marker_id.into(),
+        translation: text(value),
+    }
+}
+
+#[test]
+fn translation_updates_and_assistance_form_one_undo_step_without_changing_metadata() {
+    let mut h = Harness::new();
+    for (page, id) in [("page1", "m1"), ("page2", "m2")] {
+        h.call(Command::AddMarker {
+            image_id: page.into(),
+            marker: marker(id),
+        });
+    }
+    let before = h.doc();
+    let mut original = assistance("page1", "m1");
+    original.original_text = Some(Some("new original".into()));
+    let patch = h.call(Command::Batch {
+        commands: vec![
+            Command::UpdateTranslations {
+                updates: vec![
+                    translation("page1", "m1", "first"),
+                    translation("page2", "m2", "second"),
+                ],
+            },
+            Command::UpdateAssistance {
+                updates: vec![original],
+            },
+        ],
+        expected_state_id: None,
+    });
+    assert_eq!(patch.history_depth, 3);
+    assert_eq!(patch.upsert_images.len(), 2);
+    let after = h.doc();
+    assert_eq!(after.images[0].markers[0].translation, text("first"));
+    assert_eq!(after.images[1].markers[0].translation, text("second"));
+    for (previous, current) in before.images.iter().zip(&after.images) {
+        assert_eq!(previous.markers[0].geometry, current.markers[0].geometry);
+        assert_eq!(previous.markers[0].style, current.markers[0].style);
+    }
+    assert_eq!(
+        after.images[1].markers[0].bunny_cache,
+        before.images[1].markers[0].bunny_cache
+    );
+    h.call(Command::Undo);
+    assert_eq!(h.doc(), before);
+    h.call(Command::Redo);
+    assert_eq!(h.doc(), after);
+}
+
+#[test]
+fn translation_updates_reject_missing_duplicate_and_invalid_targets_atomically() {
+    let mut h = Harness::new();
+    for id in ["m1", "m2"] {
+        h.call(Command::AddMarker {
+            image_id: "page1".into(),
+            marker: marker(id),
+        });
+    }
+    let before = h.doc();
+    let history = h.engine.history("p", HistoryQuery::default()).unwrap();
+    let first = translation("page1", "m1", "changed");
+    let mut invalid = translation("page1", "m2", "invalid");
+    invalid.translation.runs[0].marks = vec![TextMark::Bold, TextMark::Bold];
+    for (updates, code) in [
+        (
+            vec![first.clone(), translation("missing", "m2", "missing")],
+            "imageNotFound",
+        ),
+        (
+            vec![first.clone(), translation("page1", "missing", "missing")],
+            "markerNotFound",
+        ),
+        (
+            vec![first.clone(), first.clone()],
+            "duplicateTranslationUpdate",
+        ),
+        (vec![first.clone(), invalid], "invalidMarks"),
+    ] {
+        h.fail(Command::UpdateTranslations { updates }, code);
+        assert_eq!(h.doc(), before);
+        assert_eq!(
+            h.engine.history("p", HistoryQuery::default()).unwrap(),
+            history
+        );
+    }
+}
+
+#[test]
+fn translation_update_preview_is_read_only_and_checks_the_base_state() {
+    let mut h = Harness::new();
+    h.call(Command::AddMarker {
+        image_id: "page1".into(),
+        marker: marker("m1"),
+    });
+    let before = h.doc();
+    let history = h.engine.history("p", HistoryQuery::default()).unwrap();
+    let command = Command::UpdateTranslations {
+        updates: vec![translation("page1", "m1", "preview")],
+    };
+    let preview = h.engine.preview("p", vec![command.clone()], None).unwrap();
+    assert_eq!(preview.images[0].markers[0].translation, text("preview"));
+    assert_eq!(h.doc(), before);
+    assert_eq!(
+        h.engine.history("p", HistoryQuery::default()).unwrap(),
+        history
+    );
+    assert_eq!(
+        h.engine
+            .preview("p", vec![command], Some("stale".into()))
+            .unwrap_err()
+            .code,
+        "stateConflict"
+    );
+}
+
+#[test]
+fn translation_updates_cover_fifteen_thousand_markers_in_one_history_entry() {
+    let mut h = Harness {
+        engine: Engine::new(),
+        next: 0,
+    };
+    let mut document = document("p");
+    document.images = (0..500)
+        .map(|page| {
+            let mut image = image(&format!("page-{page}"));
+            image.markers = (0..30)
+                .map(|index| marker(&format!("marker-{page}-{index}")))
+                .collect();
+            image
+        })
+        .collect();
+    let before = document.clone();
+    let updates = document
+        .images
+        .iter()
+        .flat_map(|image| {
+            image
+                .markers
+                .iter()
+                .map(|marker| translation(&image.id, &marker.id, "replaced"))
+        })
+        .collect();
+    h.call(Command::CreateProject {
+        document,
+        saved: true,
+    });
+    let patch = h.call(Command::UpdateTranslations { updates });
+    assert_eq!(patch.history_depth, 1);
+    assert_eq!(patch.upsert_images.len(), 500);
+    assert!(h
+        .doc()
+        .images
+        .iter()
+        .flat_map(|image| &image.markers)
+        .all(|marker| marker.translation == text("replaced")));
+    h.call(Command::Undo);
+    assert_eq!(h.doc(), before);
+}
+
 #[test]
 fn assistance_updates_preserve_unknown_cache_and_form_one_undo_step() {
     let mut h = Harness::new();

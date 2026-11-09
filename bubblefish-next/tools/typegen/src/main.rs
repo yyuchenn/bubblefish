@@ -22,6 +22,7 @@ fn declarations() -> String {
         HistoryPage::decl(&cfg),
         AssistanceExpected::decl(&cfg),
         AssistanceUpdate::decl(&cfg),
+        TranslationUpdate::decl(&cfg),
         Command::decl(&cfg),
         Envelope::decl(&cfg),
         CoreError::decl(&cfg),

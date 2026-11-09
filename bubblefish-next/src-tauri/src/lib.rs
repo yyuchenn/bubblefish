@@ -547,7 +547,13 @@ fn platform_sync_menu(app: tauri::AppHandle, menu: NativeMenuState) -> Result<()
                         .map_err(err)?;
                 }
             }
-            for id in ["app.new", "app.open", "app.snapshots", "app.settings"] {
+            for id in [
+                "app.new",
+                "app.open",
+                "app.snapshots",
+                "app.settings",
+                "app.find",
+            ] {
                 if let Some(entry) = submenu
                     .get(id)
                     .and_then(|entry| entry.as_menuitem().cloned())
@@ -710,6 +716,8 @@ fn setup_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .item(&item("app.closeCurrent", "关闭项目", "CmdOrCtrl+W")?)
         .build()?;
     let edit = SubmenuBuilder::new(app, "编辑")
+        .item(&item("app.find", "查找替换", "CmdOrCtrl+F")?)
+        .separator()
         .item(&item("app.undo", "撤销", "CmdOrCtrl+Z")?)
         .item(&item("app.redo", "重做", "CmdOrCtrl+Shift+Z")?)
         .separator()

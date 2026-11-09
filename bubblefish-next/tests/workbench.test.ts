@@ -3,6 +3,12 @@ import { Workbench } from '../src/runtime/workbench';
 import { platform, type SaveResult } from '../src/runtime/platform';
 import type { CoreTransport } from '../src/runtime/transports/types';
 import type { Envelope, ProjectDocument, ProjectPatch, Reply } from '../src/generated/core';
+import {
+  collectSearchFields,
+  findSearchMatches,
+  prepareSearchReplacement,
+  type SearchOptions,
+} from '../src/runtime/search';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -476,6 +482,146 @@ function acknowledgeTranslation(context: Context, envelope: Envelope): Reply {
     ),
   });
 }
+
+describe('Workbench project search replacement', () => {
+  const options: SearchOptions = {
+    query: 'original',
+    caseSensitive: false,
+    wholeWord: false,
+    regex: false,
+    includeOriginal: true,
+    includeMachine: true,
+  };
+  const service = () => ({
+    prepareReplacement: vi.fn(async (...args: Parameters<typeof prepareSearchReplacement>) =>
+      prepareSearchReplacement(...args),
+    ),
+  });
+
+  it('waits for the editor barrier, prepares the latest snapshot and commits all fields together', async () => {
+    const document = translationDocument();
+    document.images[0].markers[0].bunnyCache = {
+      originalText: 'original OCR',
+      machineTranslation: 'original machine',
+      unknown: 'keep',
+    };
+    const { workbench, dispatch, remote, acknowledge } = await setup(document);
+    const client = service();
+    let transition = false;
+    workbench.editorTransition = async (operation) => {
+      transition = true;
+      try {
+        return await operation();
+      } finally {
+        transition = false;
+      }
+    };
+    workbench.editorBarrier = async (allowed) => {
+      expect(transition).toBe(true);
+      expect(allowed).toBe(true);
+      remote.current.upsertImages[0].markers[1].translation.runs[0].text = 'original latest draft';
+    };
+    const fallback = dispatch.getMockImplementation()!;
+    dispatch.mockImplementation(async (envelope) =>
+      envelope.command.type === 'batch'
+        ? acknowledge(envelope, { ...remote.current, stateId: 'replaced' })
+        : fallback(envelope),
+    );
+    const result = await workbench.replaceSearch(client, options, 'new');
+    expect(result.matchCount).toBe(4);
+    expect(
+      client.prepareReplacement.mock.calls[0][0].find((field) => field.markerId === 'other')?.text,
+    ).toBe('original latest draft');
+    const entries = dispatch.mock.calls
+      .map(([entry]) => entry)
+      .filter((entry) => entry.command.type === 'batch');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].history).toMatchObject({ label: '全部替换' });
+    expect(entries[0].history?.groupId).toBeUndefined();
+    expect(entries[0].command).toMatchObject({
+      type: 'batch',
+      expectedStateId: 'state-0',
+      commands: [
+        {
+          type: 'updateTranslations',
+          updates: [
+            { markerId: 'selected', translation: { runs: [{ text: 'selected new', marks: [] }] } },
+            { markerId: 'other', translation: { runs: [{ text: 'new latest draft', marks: [] }] } },
+          ],
+        },
+        {
+          type: 'updateAssistance',
+          updates: [
+            { markerId: 'selected', originalText: 'new OCR', machineTranslation: 'new machine' },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('rejects a stale current result and does not write any replacement', async () => {
+    const { workbench, dispatch, remote } = await setup(translationDocument());
+    const selected = findSearchMatches(collectSearchFields(workbench.active!), options)[0];
+    workbench.editorBarrier = async () => {
+      remote.current.upsertImages[0].markers[0].translation.runs[0].text = 'new draft';
+    };
+    await expect(workbench.replaceSearch(service(), options, 'changed', selected)).rejects.toThrow(
+      '结果已变化',
+    );
+    expect(dispatch.mock.calls.some(([entry]) => entry.command.type === 'batch')).toBe(false);
+  });
+
+  it('cancels preparation when content changes while the worker is running', async () => {
+    const { workbench, dispatch, remote, acknowledge } = await setup(translationDocument());
+    const fallback = dispatch.getMockImplementation()!;
+    dispatch.mockImplementation(async (envelope) =>
+      envelope.command.type === 'updateProject'
+        ? acknowledge(envelope, { ...remote.current, name: 'concurrent', stateId: 'concurrent' })
+        : fallback(envelope),
+    );
+    const client = {
+      prepareReplacement: vi.fn(async (...args: Parameters<typeof prepareSearchReplacement>) => {
+        await workbench.dispatch({ type: 'updateProject', name: 'concurrent' });
+        return prepareSearchReplacement(...args);
+      }),
+    };
+    await expect(workbench.replaceSearch(client, options, 'changed')).rejects.toThrow('内容已变化');
+    expect(dispatch.mock.calls.some(([entry]) => entry.command.type === 'batch')).toBe(false);
+  });
+
+  it('leaves the document unchanged when hooks reject and skips no-op history entries', async () => {
+    const { workbench, dispatch } = await setup(translationDocument());
+    workbench.mutations.intercept = async () => {
+      throw new Error('guard rejected');
+    };
+    await expect(workbench.replaceSearch(service(), options, 'changed')).rejects.toThrow(
+      'guard rejected',
+    );
+    expect(workbench.active!.images[0].markers[0].translation.runs[0].text).toBe(
+      'selected original',
+    );
+    expect(workbench.queue.blocked).toBe(false);
+    await workbench.replaceSearch(service(), options, 'original');
+    expect(dispatch.mock.calls.some(([entry]) => entry.command.type === 'batch')).toBe(false);
+  });
+
+  it('reveals a result without autofocus and rejects stale navigation targets', async () => {
+    const { workbench } = await setup(translationDocument());
+    const match = findSearchMatches(collectSearchFields(workbench.active!), options)[0];
+    await workbench.revealSearchMatch(match);
+    expect(workbench.value).toMatchObject({
+      imageId: 'image',
+      markerId: 'selected',
+      editorAutoFocus: false,
+    });
+    await expect(workbench.revealSearchMatch({ ...match, text: 'stale' })).rejects.toThrow(
+      '文本已变化',
+    );
+    await workbench.selectMarker(null);
+    await expect(workbench.revealSearchMatch(match, () => false)).resolves.toBe(false);
+    expect(workbench.value.markerId).toBeNull();
+  });
+});
 
 describe('Workbench external translation replacement', () => {
   it('does not move the current selection when a plugin undoes a background project', async () => {

@@ -43,6 +43,8 @@
   import Canvas, { type ZoomMode } from './components/Canvas.svelte';
   import TranslationPanel from './components/TranslationPanel.svelte';
   import ImageSidebar from './components/ImageSidebar.svelte';
+  import SearchSidebar from './components/SearchSidebar.svelte';
+  import type { SearchMatch } from './runtime/search';
   import WorkspaceHeader from './components/WorkspaceHeader.svelte';
   import Icon from './components/Icon.svelte';
   import PendingPreview from './components/PendingPreview.svelte';
@@ -117,7 +119,7 @@
     assignments = $state<Record<string, string>>({});
   let snapshotList = $state<Snapshot[]>([]),
     recent = $state<string[]>([]);
-  let sidebar = $state<'images' | 'settings'>(layout.sidebar),
+  let sidebar = $state<'images' | 'settings' | 'search'>(layout.sidebar),
     leftOpen = $state(layout.leftOpen),
     rightOpen = $state(layout.rightOpen),
     bottomOpen = $state(layout.bottomOpen),
@@ -133,6 +135,9 @@
   let canvas = $state<Canvas>(),
     translationPanel = $state<TranslationPanel>(),
     bottomPanel = $state<BottomPanel>();
+  let searchSidebar = $state<SearchSidebar>(),
+    searchHighlight = $state.raw<SearchMatch | null>(null);
+  let beforeSearchFocus: HTMLElement | null = null;
   let view = $state({ scale: 1, mode: 'fit' as ZoomMode, outside: false });
   let jump = $state(false),
     jumpValue = $state(''),
@@ -192,6 +197,36 @@
   const run = (operation: () => Promise<unknown>) => {
     void operation().catch((error) => workbench.notice(message(error)));
   };
+  async function openSearch() {
+    if (!(document.activeElement as HTMLElement | null)?.closest('[data-search-panel]'))
+      beforeSearchFocus = document.activeElement as HTMLElement | null;
+    popups.close('action');
+    sidebar = 'search';
+    leftOpen = true;
+    await tick();
+    searchSidebar?.focus();
+  }
+  async function revealSearchMatch(match: SearchMatch, isCurrent: () => boolean) {
+    const request = ++locateRequest;
+    if (!(await workbench.revealSearchMatch(match, () => request === locateRequest && isCurrent())))
+      return;
+    if (request !== locateRequest || $workbench.activeId !== match.projectId) return;
+    if (match.field === 'translation') rightOpen = true;
+    else {
+      bottomOpen = true;
+      selectedBottomTab = ASSISTANCE_TAB_ID;
+    }
+    await tick();
+    if (
+      request !== locateRequest ||
+      $workbench.activeId !== match.projectId ||
+      $workbench.imageId !== match.imageId ||
+      $workbench.markerId !== match.markerId
+    )
+      return;
+    const target = image?.markers.find((item) => item.id === match.markerId);
+    if (target) canvas?.locate(target);
+  }
   function interruptAutoLocate<T>(operation: () => Promise<T>): Promise<T> {
     locateRequest++;
     return operation();
@@ -354,6 +389,9 @@
     if (name === 'app.quit') return closeWindow();
     if (modal && name !== 'app.snapshots') return;
     switch (name) {
+      case 'app.find':
+        await openSearch();
+        break;
       case 'app.save':
         await workbench.save();
         recent = await platform.recentFiles();
@@ -547,11 +585,26 @@
         return;
       }
       if (modal && !working) modal = null;
+      else if (
+        leftOpen &&
+        sidebar === 'search' &&
+        (event.target as HTMLElement)?.closest('[data-search-panel]')
+      ) {
+        event.preventDefault();
+        leftOpen = false;
+        if (beforeSearchFocus?.isConnected) beforeSearchFocus.focus();
+        else document.querySelector<HTMLElement>('.canvas-viewport')?.focus();
+      }
       return;
     }
     if (modal || $plugins.activePanel) return;
     const normal = (event.target as HTMLElement)?.closest('input,textarea,select');
     const modifier = mac ? event.metaKey : event.ctrlKey;
+    if (modifier && !event.altKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      run(openSearch);
+      return;
+    }
     if (normal) {
       if (
         normal.hasAttribute('data-assistance-editor') &&
@@ -597,7 +650,7 @@
     } else if (
       event.key === 'Tab' &&
       marker &&
-      !(event.target as HTMLElement)?.closest('[data-bottom-panel]')
+      !(event.target as HTMLElement)?.closest('[data-bottom-panel],[data-search-panel]')
     ) {
       event.preventDefault();
       run(() => selectAndLocate(() => workbench.navigateMarker(event.shiftKey ? -1 : 1)));
@@ -870,6 +923,15 @@
         }}><Icon name="images" size={22} /></button
       >
       <button
+        class:active={leftOpen && sidebar === 'search'}
+        title={`查找替换 (${mod}F)`}
+        aria-label="查找替换面板"
+        onclick={() => {
+          if (sidebar === 'search' && leftOpen) leftOpen = false;
+          else run(openSearch);
+        }}><Icon name="search" size={22} /></button
+      >
+      <button
         class:active={leftOpen && sidebar === 'settings'}
         title="项目配置"
         aria-label="项目配置"
@@ -894,23 +956,35 @@
         ><Icon name="sun" size={21} /></button
       >
     </aside>
+    <SearchSidebar
+      bind:this={searchSidebar}
+      {project}
+      {workbench}
+      open={leftOpen && sidebar === 'search'}
+      width={leftWidth}
+      onselect={revealSearchMatch}
+      onhighlight={(match) => (searchHighlight = match)}
+    />
     {#if leftOpen}
-      <ImageSidebar
-        {project}
-        assets={workbench.assets}
-        selectedImageId={$workbench.imageId}
-        mode={sidebar}
-        width={leftWidth}
-        onselect={(imageId) => run(() => interruptAutoLocate(() => workbench.selectImage(imageId)))}
-        onadd={() => run(addImages)}
-        onremove={(imageId) => run(() => removeImage(imageId))}
-        onreorder={(projectId, imageIds) =>
-          workbench.documentCommand({ type: 'reorderImages', imageIds }, '重排图片', projectId)}
-        onerror={(error) => workbench.notice(message(error))}
-        onsort={() => run(sortImages)}
-        onprojectchange={(patch, label) =>
-          run(() => workbench.documentCommand({ type: 'updateProject', ...patch }, label))}
-      />
+      {#if sidebar !== 'search'}
+        <ImageSidebar
+          {project}
+          assets={workbench.assets}
+          selectedImageId={$workbench.imageId}
+          mode={sidebar}
+          width={leftWidth}
+          onselect={(imageId) =>
+            run(() => interruptAutoLocate(() => workbench.selectImage(imageId)))}
+          onadd={() => run(addImages)}
+          onremove={(imageId) => run(() => removeImage(imageId))}
+          onreorder={(projectId, imageIds) =>
+            workbench.documentCommand({ type: 'reorderImages', imageIds }, '重排图片', projectId)}
+          onerror={(error) => workbench.notice(message(error))}
+          onsort={() => run(sortImages)}
+          onprojectchange={(patch, label) =>
+            run(() => workbench.documentCommand({ type: 'updateProject', ...patch }, label))}
+        />
+      {/if}
 
       <div
         class="splitter vertical"
@@ -998,6 +1072,7 @@
         {workbench}
         {plugins}
         {assistance}
+        {searchHighlight}
         open={bottomOpen}
         height={actualBottomHeight}
         selectedTab={selectedBottomTab}
@@ -1019,6 +1094,7 @@
       <TranslationPanel
         bind:this={translationPanel}
         {workbench}
+        {searchHighlight}
         intercepting={$plugins.plugins.some(
           (plugin) => plugin.enabled && plugin.hooksState === 'ready',
         )}

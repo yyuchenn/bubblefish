@@ -67,6 +67,8 @@ export function commandsToOperations(
         return [{ type: 'marker.remove', imageId: command.imageId, markerId: command.markerId }];
       case 'updateMarker':
         return [{ ...command, type: 'marker.update' }];
+      case 'updateTranslations':
+        return command.updates.map((update) => ({ ...update, type: 'marker.update' }));
       case 'reorderMarkers':
         return [{ type: 'marker.reorder', imageId: command.imageId, markerIds: command.markerIds }];
       case 'updateAssistance':
@@ -85,10 +87,11 @@ export function commandsToOperations(
 export function operationsToCommands(
   operations: PluginOperation[],
   resolve: (handle: string) => ImageDocument,
+  maxOperations = 10000,
 ): Command[] {
-  if (!Array.isArray(operations) || operations.length > 10000)
-    throw new Error('事务操作必须为数组，最多 10000 项');
-  return operations.map((operation): Command => {
+  if (!Array.isArray(operations) || operations.length > maxOperations)
+    throw new Error(`事务操作必须为数组，最多 ${maxOperations} 项`);
+  const commands = operations.map((operation): Command => {
     if (!operation || typeof operation !== 'object') throw new Error('事务操作无效');
     switch (operation.type) {
       case 'project.update':
@@ -195,6 +198,55 @@ export function operationsToCommands(
         throw new Error('不支持的事务操作');
     }
   });
+  const grouped: Command[] = [];
+  let kind: 'translation' | 'assistance' | null = null;
+  const targets = new Set<string>();
+  for (const command of commands) {
+    const translation =
+      command.type === 'updateMarker' &&
+      command.translation !== undefined &&
+      command.geometry === undefined &&
+      command.style === undefined
+        ? {
+            imageId: command.imageId,
+            markerId: command.markerId,
+            translation: command.translation,
+          }
+        : undefined;
+    const assistance = command.type === 'updateAssistance' ? command.updates[0] : undefined;
+    const update = translation ?? assistance;
+    const nextKind = translation ? 'translation' : assistance ? 'assistance' : null;
+    const key = update ? JSON.stringify([update.imageId, update.markerId]) : '';
+    // A repeated target starts another command so intermediate checks and order
+    // retain their meaning, including assistance preconditions on prior writes.
+    if (!nextKind || nextKind !== kind || targets.has(key)) {
+      grouped.push(command);
+      kind = nextKind;
+      targets.clear();
+      if (update) targets.add(key);
+      continue;
+    }
+    const previous = grouped.at(-1)!;
+    if (translation) {
+      if (previous.type === 'updateTranslations') previous.updates.push(translation);
+      else if (previous.type === 'updateMarker' && previous.translation !== undefined)
+        grouped[grouped.length - 1] = {
+          type: 'updateTranslations',
+          updates: [
+            {
+              imageId: previous.imageId,
+              markerId: previous.markerId,
+              translation: previous.translation,
+            },
+            translation,
+          ],
+        };
+    } else if (assistance && previous.type === 'updateAssistance') {
+      previous.updates.push(assistance);
+    }
+    targets.add(key);
+  }
+  return grouped;
 }
 export function richText(value: unknown): RichText {
   if (typeof value === 'string') return { runs: value ? [{ text: value, marks: [] }] : [] };

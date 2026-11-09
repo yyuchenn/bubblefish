@@ -6,6 +6,7 @@
   import { Workbench, message } from '../runtime/workbench';
   import type { Marker } from '../generated/core';
   import { usePopups } from '../runtime/popups';
+  import type { SearchHighlight } from '../runtime/search-highlight';
   let {
     workbench,
     intercepting = false,
@@ -17,6 +18,7 @@
     onmarkeraction,
     onaction,
     onresize,
+    searchHighlight = null,
   }: {
     workbench: Workbench;
     intercepting?: boolean;
@@ -28,6 +30,7 @@
     onmarkeraction: (id: string, action: 'delete' | 'convert') => Promise<unknown>;
     onaction: (name: string) => Promise<unknown>;
     onresize: (event: PointerEvent) => void;
+    searchHighlight?: SearchHighlight | null;
   } = $props();
   let editor = $state<TranslationEditor>(),
     listElement = $state<HTMLDivElement>();
@@ -70,6 +73,14 @@
   const project = $derived($workbench.projects.find((p) => p.id === $workbench.activeId));
   const image = $derived(project?.images.find((i) => i.id === $workbench.imageId));
   const marker = $derived(image?.markers.find((m) => m.id === $workbench.markerId));
+  const activeSearchHighlight = $derived(
+    searchHighlight?.projectId === project?.id &&
+      searchHighlight?.imageId === image?.id &&
+      searchHighlight?.markerId === marker?.id &&
+      searchHighlight?.field === 'translation'
+      ? searchHighlight
+      : null,
+  );
   const dragMarker = $derived(drag?.markerId ?? null);
   const draggedItem = $derived(image?.markers.find((m) => m.id === dragMarker));
   const orderedMarkers = $derived.by(() => {
@@ -402,6 +413,7 @@
           bind:this={editor}
           {marker}
           {intercepting}
+          searchHighlight={activeSearchHighlight}
           imageId={image.id}
           restore={$workbench.editorRestore}
           autofocus={$workbench.editorAutoFocus}

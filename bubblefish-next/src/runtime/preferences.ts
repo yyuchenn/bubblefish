@@ -4,7 +4,7 @@ export interface LayoutPreferences {
   bottomOpen: boolean;
   bottomHeight: number;
   selectedBottomTab: string;
-  sidebar: 'images' | 'settings';
+  sidebar: 'images' | 'settings' | 'search';
   leftWidth: number;
   rightWidth: number;
   editorHeight: number;
@@ -89,7 +89,8 @@ export function readLayout(): LayoutPreferences {
         typeof value.selectedBottomTab === 'string' && value.selectedBottomTab.length > 0
           ? value.selectedBottomTab
           : ASSISTANCE_TAB_ID,
-      sidebar: value.sidebar === 'settings' ? 'settings' : 'images',
+      sidebar:
+        value.sidebar === 'settings' || value.sidebar === 'search' ? value.sidebar : 'images',
       leftWidth: size(value.leftWidth, 228, 180, 420),
       rightWidth: size(value.rightWidth, 338, 270, 620),
       editorHeight: size(value.editorHeight, 260, 170, Math.max(170, window.innerHeight * 0.65)),

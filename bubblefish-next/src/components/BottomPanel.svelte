@@ -5,6 +5,7 @@
   import type { PluginManager } from '../runtime/plugins';
   import type { AssistanceService } from '../runtime/assistance';
   import { ASSISTANCE_TAB_ID, bottomPanelBounds } from '../runtime/preferences';
+  import type { SearchHighlight } from '../runtime/search-highlight';
 
   let {
     workbench,
@@ -17,6 +18,7 @@
     onselect,
     onresize,
     onheight,
+    searchHighlight = null,
   }: {
     workbench: Workbench;
     plugins: PluginManager;
@@ -28,6 +30,7 @@
     onselect(id: string): void;
     onresize(event: PointerEvent): void;
     onheight(height: number): void;
+    searchHighlight?: SearchHighlight | null;
   } = $props();
   let assistancePanel = $state<AssistancePanel>();
   let visited = $state<string[]>([]);
@@ -142,7 +145,13 @@
     aria-labelledby={`bottom-tab-${ASSISTANCE_TAB_ID}`}
     hidden={selectedTab !== ASSISTANCE_TAB_ID}
   >
-    <AssistancePanel bind:this={assistancePanel} {workbench} {plugins} {assistance} />
+    <AssistancePanel
+      bind:this={assistancePanel}
+      {workbench}
+      {plugins}
+      {assistance}
+      searchHighlight={open && selectedTab === ASSISTANCE_TAB_ID ? searchHighlight : null}
+    />
   </div>
   {#each pluginPanels as panel (panel.id)}
     <div

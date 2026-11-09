@@ -15,6 +15,7 @@
   const pane = $derived(panes[name]);
   const paths: Record<string, string> = {
     plus: 'M12 5v14M5 12h14',
+    search: 'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0Z',
     plugins: 'M9 3v4H5v4H2v6h3v4h6v-3h4v3h6v-6h-3v-4h3V7h-6V3H9Z',
     folder: 'M3 7V5a1 1 0 0 1 1-1h5l2 3h9a1 1 0 0 1 1 1l-2 11H3V7Z',
     save: 'M5 3h12l4 4v14H3V3h2Zm2 0v7h10V3M7 21v-7h10v7',

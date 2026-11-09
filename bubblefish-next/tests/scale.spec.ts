@@ -90,7 +90,7 @@ function bf() {
   return gzipSync(Buffer.concat(parts));
 }
 
-test('300 full-resolution pages and 15,000 markers import, navigate, edit, undo, and release resources through the real UI', async ({
+test('300 full-resolution pages and 15,000 markers import, search, replace, undo, and release resources through the real UI', async ({
   page,
   context,
 }) => {
@@ -185,6 +185,57 @@ test('300 full-resolution pages and 15,000 markers import, navigate, edit, undo,
   await expect(editor).toHaveText(original);
   await expect.poll(() => editor.evaluate(() => window.getSelection()?.anchorOffset)).toBe(1);
   const heapEdited = await heap();
+
+  await page.keyboard.press(`${mod}+f`);
+  const search = page.getByRole('complementary', { name: '查找替换', exact: true });
+  const query = search.getByRole('textbox', { name: '查找文本', exact: true });
+  await expect(query).toBeFocused();
+  const searchStarted = performance.now();
+  await query.fill('前中后');
+  await expect(search.getByTestId('search-count')).toHaveText('15000 处匹配', {
+    timeout: 30_000,
+  });
+  const searchMilliseconds = Math.round(performance.now() - searchStarted);
+  const initialSearchResults = await search.locator('.search-result').count();
+  expect(initialSearchResults).toBeGreaterThan(0);
+  expect(initialSearchResults).toBeLessThanOrEqual(100);
+  await expect(search.getByRole('button', { name: '继续显示（剩余 14900 处）' })).toBeVisible();
+
+  const replacement = '规模替换';
+  await search.getByRole('textbox', { name: '替换文本', exact: true }).fill(replacement);
+  const replacementStarted = performance.now();
+  await search.getByRole('button', { name: '全部替换', exact: true }).click();
+  await expect(search.locator('.search-feedback')).toHaveText('已替换 15000 处', {
+    timeout: 30_000,
+  });
+  const replacementMilliseconds = Math.round(performance.now() - replacementStarted);
+  await expect(search.getByTestId('search-count')).toHaveText('0 处匹配');
+  await expect(editor).toHaveText(original.replace('前中后', replacement));
+  await page.getByRole('button', { name: '翻译项 50', exact: true }).click();
+  await expect(editor).toHaveText(translation(300, 50).replace('前中后', replacement));
+  await query.fill(replacement);
+  await expect(search.getByTestId('search-count')).toHaveText('15000 处匹配', {
+    timeout: 30_000,
+  });
+
+  // One project undo must restore the full batch, including pages outside the
+  // first hundred rendered search results and the currently displayed last page.
+  await page
+    .locator('.app-menu > summary')
+    .filter({ hasText: /^编辑$/ })
+    .click();
+  await page.getByRole('button', { name: /^撤销全部替换/ }).click();
+  await expect(editor).toHaveText(original);
+  await expect(search.getByTestId('search-count')).toHaveText('0 处匹配', {
+    timeout: 30_000,
+  });
+  await page.getByRole('button', { name: '翻译项 50', exact: true }).click();
+  await expect(editor).toHaveText(translation(300, 50));
+  await query.fill('前中后');
+  await expect(search.getByTestId('search-count')).toHaveText('15000 处匹配', {
+    timeout: 30_000,
+  });
+
   const urlStats = () =>
     page.evaluate(() => {
       const stats = (
@@ -230,6 +281,14 @@ test('300 full-resolution pages and 15,000 markers import, navigate, edit, undo,
     bfBytes: projectBytes.length,
     importMilliseconds,
     pageJumpMilliseconds,
+    search: {
+      totalMatches: pages * markersPerPage,
+      initialDomResults: initialSearchResults,
+      searchMilliseconds,
+      replacementMilliseconds,
+      replacedMatches: pages * markersPerPage,
+      singleUndoRestoredMatches: pages * markersPerPage,
+    },
     domImages: { initial: initialImages, page300: lastPageImages },
     pageJsHeapBytes: {
       before: heapBefore,

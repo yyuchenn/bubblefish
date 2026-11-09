@@ -6,12 +6,19 @@
   import { message } from '../runtime/workbench';
   import type { Marker } from '../generated/core';
   import { rebaseTextChange, textChange, type TextChange } from '../runtime/text-rebase';
+  import { validSearchRange, type SearchHighlight } from '../runtime/search-highlight';
   import './assistance-panel.css';
   let {
     workbench,
     plugins,
     assistance,
-  }: { workbench: Workbench; plugins: PluginManager; assistance: AssistanceService } = $props();
+    searchHighlight = null,
+  }: {
+    workbench: Workbench;
+    plugins: PluginManager;
+    assistance: AssistanceService;
+    searchHighlight?: SearchHighlight | null;
+  } = $props();
   const project = $derived($workbench.projects.find((p) => p.id === $workbench.activeId));
   const image = $derived(project?.images.find((i) => i.id === $workbench.imageId));
   const marker = $derived(image?.markers.find((m) => m.id === $workbench.markerId));
@@ -38,6 +45,74 @@
     originalComposing = false,
     compositionPending = false;
   let originalElement = $state<HTMLTextAreaElement>();
+  let machineElement = $state<HTMLTextAreaElement>();
+  const activeSearchHighlight = $derived(
+    searchHighlight &&
+      searchHighlight.projectId === project?.id &&
+      searchHighlight.imageId === image?.id &&
+      searchHighlight.markerId === marker?.id &&
+      searchHighlight.field !== 'translation' &&
+      validSearchRange(
+        searchHighlight,
+        searchHighlight.field === 'originalText'
+          ? original
+          : assistanceText(marker, 'machineTranslation'),
+      )
+      ? searchHighlight
+      : null,
+  );
+  $effect(() => {
+    const highlight = activeSearchHighlight,
+      element = highlight?.field === 'originalText' ? originalElement : machineElement;
+    if (!highlight || !element) return;
+    let current = true;
+    void tick().then(() => {
+      if (!current || !element.isConnected || !element.clientWidth) return;
+      element.setSelectionRange(highlight.from, highlight.to);
+      scrollToSearchRange(element, highlight);
+      element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    });
+    return () => {
+      current = false;
+    };
+  });
+  function scrollToSearchRange(element: HTMLTextAreaElement, highlight: SearchHighlight) {
+    // A temporary mirror measures soft wraps without focusing the textarea.
+    const owner = element.ownerDocument,
+      style = getComputedStyle(element),
+      mirror = owner.createElement('div'),
+      position = owner.createElement('span');
+    for (const property of [
+      'font',
+      'letter-spacing',
+      'line-height',
+      'padding',
+      'text-indent',
+      'text-align',
+      'direction',
+      'tab-size',
+      'word-break',
+    ])
+      mirror.style.setProperty(property, style.getPropertyValue(property));
+    Object.assign(mirror.style, {
+      position: 'fixed',
+      left: '-10000px',
+      top: '0',
+      width: `${element.clientWidth}px`,
+      boxSizing: 'border-box',
+      whiteSpace: 'pre-wrap',
+      overflowWrap: 'break-word',
+      visibility: 'hidden',
+      pointerEvents: 'none',
+    });
+    mirror.textContent = highlight.text.slice(0, highlight.from);
+    position.textContent = highlight.text.slice(highlight.from) || '\u200b';
+    mirror.append(position);
+    owner.body.append(mirror);
+    const lineHeight = Number.parseFloat(style.lineHeight) || Number.parseFloat(style.fontSize);
+    element.scrollTop = Math.max(0, position.offsetTop - (element.clientHeight - lineHeight) / 2);
+    mirror.remove();
+  }
   let selectionVersion = 0;
   const intercepting = $derived(
     $plugins.plugins.some(
@@ -254,6 +329,8 @@
           >原文<textarea
             aria-label="OCR 原文"
             data-assistance-editor
+            class:search-highlight={activeSearchHighlight?.field === 'originalText'}
+            data-search-highlight={activeSearchHighlight?.field === 'originalText' || undefined}
             bind:this={originalElement}
             rows="3"
             bind:value={original}
@@ -300,6 +377,10 @@
         <label class="assistance-label"
           >机器译文<textarea
             aria-label="机器译文"
+            bind:this={machineElement}
+            class:search-highlight={activeSearchHighlight?.field === 'machineTranslation'}
+            data-search-highlight={activeSearchHighlight?.field === 'machineTranslation' ||
+              undefined}
             readonly
             rows="3"
             value={assistanceText(marker, 'machineTranslation')}></textarea></label
@@ -338,3 +419,11 @@
     </div>
   {/if}
 </section>
+
+<style>
+  textarea.search-highlight {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    background: var(--accent-soft);
+  }
+</style>

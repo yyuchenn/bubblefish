@@ -271,21 +271,25 @@ export function createPluginHost(
     },
     async validateOperations(pluginId, proposal, operations) {
       requirePermission(pluginId, 'document.intercept');
-      if (!Array.isArray(operations) || operations.length > 10000)
-        throw new RpcError('invalid_params', 'operations 必须为数组，最多10000项');
+      const maxOperations = Math.max(10000, proposal.operations.length);
+      if (!Array.isArray(operations) || operations.length > maxOperations)
+        throw new RpcError('invalid_params', `operations 必须为数组，最多${maxOperations}项`);
       const changes = changedOperations(proposal.operations, operations);
       if (changes.length) validate(pluginId, changes);
       const project = projectFor(
         { projectId: proposal.projectId },
         { runtimeRole: 'hooks', instanceId: `validate:${pluginId}`, proposal },
       );
-      const commands = operationsToCommands(operations, (handle) =>
-        workbench.resources.resolve(
-          handle,
-          `validate:${pluginId}`,
-          project.id,
-          stagedHandles(proposal.operations),
-        ),
+      const commands = operationsToCommands(
+        operations,
+        (handle) =>
+          workbench.resources.resolve(
+            handle,
+            `validate:${pluginId}`,
+            project.id,
+            stagedHandles(proposal.operations),
+          ),
+        maxOperations,
       );
       if (!workbench.transport.preview) throw new RpcError('unsupported', '当前核心不支持事务预检');
       await workbench.transport.preview(project.id, commands, proposal.baseStateId);

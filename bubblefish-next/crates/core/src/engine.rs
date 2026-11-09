@@ -379,6 +379,28 @@ fn apply(snapshot: &mut Snapshot, command: Command) -> Result<(), CoreError> {
                 marker.style = value;
             }
         }
+        Command::UpdateTranslations { updates } => {
+            let mut targets = HashSet::new();
+            for update in updates {
+                if !targets.insert((update.image_id.clone(), update.marker_id.clone())) {
+                    return Err(CoreError::new(
+                        "duplicateTranslationUpdate",
+                        "Each marker may only occur once in a translation update",
+                    )
+                    .at(&update.marker_id));
+                }
+                let marker = snapshot
+                    .image_mut(&update.image_id)?
+                    .markers
+                    .iter_mut()
+                    .find(|marker| marker.id == update.marker_id)
+                    .ok_or_else(|| {
+                        CoreError::new("markerNotFound", "The marker does not exist")
+                            .at(&update.marker_id)
+                    })?;
+                marker.translation = update.translation;
+            }
+        }
         Command::UpdateAssistance { updates } => {
             let mut targets = HashSet::new();
             for update in updates {
