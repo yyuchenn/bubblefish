@@ -4,7 +4,9 @@ test('local model files persist as IndexedDB chunks across reload and remain iso
   page,
 }) => {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   const original = await page.evaluate(async () => {
     const module = await import(
       /* @vite-ignore */ `${location.origin}/src/runtime/plugins/local-resources.ts`
@@ -43,7 +45,7 @@ test('local model files persist as IndexedDB chunks across reload and remain iso
     return { digest, bytes: bytes.length };
   });
   await page.reload();
-  await expect(page.getByTestId('ready')).toHaveText('就绪');
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
   const restored = await page.evaluate(async () => {
     const module = await import(
       /* @vite-ignore */ `${location.origin}/src/runtime/plugins/local-resources.ts`
@@ -90,7 +92,9 @@ test('a failed replacement keeps the previous ready catalog and removes incomple
   page,
 }) => {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   const result = await page.evaluate(async () => {
     const module = await import(
       /* @vite-ignore */ `${location.origin}/src/runtime/plugins/local-resources.ts`

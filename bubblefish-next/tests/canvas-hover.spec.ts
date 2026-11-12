@@ -20,7 +20,9 @@ async function bounds(locator: Locator) {
 
 async function project(page: Page, x = 0.3473, y = 0.4187) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   await page.keyboard.press(`${mod}+Alt+n`);
   const dialog = page.getByRole('dialog', { name: '新建项目', exact: true });
   await dialog.getByRole('textbox', { name: '项目名称', exact: true }).fill('悬浮显示回归');

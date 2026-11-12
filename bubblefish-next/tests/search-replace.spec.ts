@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { historyFromMenu } from './history-actions';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import type { Marker, ProjectDocument } from '../src/generated/core';
@@ -13,7 +14,9 @@ const sidebar = (page: Page) => page.getByRole('complementary', { name: '查找�
 
 async function ready(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
 }
 
 async function createProject(page: Page, pages = 2) {
@@ -204,9 +207,9 @@ test('project search keeps focus, navigates across paragraphs and pages, and rep
   await count(page, 2);
   await sidebar(page).getByRole('button', { name: '全部替换', exact: true }).click();
   await count(page, 0);
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await count(page, 2);
-  await page.getByRole('button', { name: '重做', exact: true }).click();
+  await historyFromMenu(page, 'redo');
   await count(page, 0);
 
   const saved = await savedDocument(page);
@@ -286,9 +289,9 @@ test('independent OCR and machine scopes reveal their fields and persist one ato
   await replacement(page).fill('犬');
   await sidebar(page).getByRole('button', { name: '全部替换', exact: true }).click();
   await count(page, 0);
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await count(page, 8);
-  await page.getByRole('button', { name: '重做', exact: true }).click();
+  await historyFromMenu(page, 'redo');
   await count(page, 0);
   const saved = await savedDocument(page);
   expect(saved.images.map((image) => image.markers.map(text))).toEqual([
@@ -331,7 +334,7 @@ test('advanced rules handle captures, invalid expressions, line breaks and zero-
   expect(text((await savedDocument(page)).images[0].markers[0])).toBe(
     'cat-cat-$ CAT-CAT-$ scatter\ncat-cat-$ 😀',
   );
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await expect(editor(page)).toHaveText('cat CAT scattercat 😀');
 
   await query(page).fill('[');

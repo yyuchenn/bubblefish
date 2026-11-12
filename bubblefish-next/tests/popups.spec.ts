@@ -7,7 +7,9 @@ const menus = (page: Page) => page.locator('details[open]');
 
 async function create(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   await page.keyboard.press(`${mod}+Alt+n`);
   const dialog = page.getByRole('dialog', { name: '新建项目', exact: true });
   await dialog.getByRole('textbox', { name: '项目名称', exact: true }).fill('菜单回归项目');

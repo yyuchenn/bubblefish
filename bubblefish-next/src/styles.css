@@ -848,36 +848,6 @@ small,
 .bottom-plugin-content {
   padding: 8px;
 }
-.canvas-toolbar {
-  height: 41px;
-  min-height: 41px;
-  border-bottom: 1px solid var(--line);
-  background: var(--surface2);
-  display: flex;
-  align-items: center;
-  padding: 0 12px;
-  gap: 13px;
-  user-select: none;
-}
-.toolbar-group {
-  display: flex;
-  gap: 2px;
-  padding-right: 10px;
-  border-right: 1px solid var(--line);
-}
-.toolbar-filename {
-  font-size: 11px;
-  color: var(--muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.toolbar-hint {
-  font-size: 10px;
-  color: var(--muted);
-  margin-left: auto;
-  white-space: nowrap;
-}
 .welcome {
   flex: 1;
   position: relative;
@@ -959,14 +929,6 @@ small,
   opacity: 0.6;
   font-size: 13px;
   margin-left: 5px;
-}
-.welcome-footnote {
-  position: absolute;
-  bottom: 26px;
-  font-size: 9px;
-  color: var(--muted);
-  opacity: 0.7;
-  letter-spacing: 0.6px;
 }
 .canvas-viewport {
   flex: 1;
@@ -1419,15 +1381,22 @@ body:has(.translation-drag-ghost, .image-drag-ghost) * {
   align-items: center;
   gap: 12px;
 }
+.statistics-button {
+  font-size: inherit;
+  height: 21px;
+  padding: 0;
+  border-radius: 3px;
+}
+.statistics-button:hover {
+  color: var(--accent-deep);
+  background: var(--accent-soft);
+}
 .status-indicator {
   width: 5px;
   height: 5px;
-  background: #69ae91;
+  background: #e9ad5d;
   border-radius: 50%;
   margin-right: -6px;
-}
-.status-indicator.busy {
-  background: #e9ad5d;
   animation: pulse 1s infinite;
 }
 .status-separator {
@@ -1698,6 +1667,28 @@ body:has(.translation-drag-ghost, .image-drag-ghost) * {
   color: var(--muted);
   margin: 0 0 20px;
 }
+.project-statistics {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 0;
+}
+.project-statistics > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+}
+.project-statistics dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+.project-statistics dd {
+  margin: 0;
+  color: var(--strong);
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
 .matching-list {
   max-height: 300px;
   overflow: auto;
@@ -1866,9 +1857,6 @@ body:has(.translation-drag-ghost, .image-drag-ghost) * {
   }
 }
 @media (max-width: 1100px) {
-  .toolbar-hint {
-    display: none;
-  }
   .brand > span {
     display: none;
   }

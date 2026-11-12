@@ -43,7 +43,9 @@ async function setup(
   images?: string[],
 ) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   await createProject(page, '文档插件回归', images);
   const dialog = await center(page);
   await dialog

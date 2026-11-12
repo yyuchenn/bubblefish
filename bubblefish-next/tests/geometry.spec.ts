@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { historyFromMenu } from './history-actions';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -143,7 +144,7 @@ function stable(samples: Box[], target: Box) {
 async function project(page: Page, count = 1) {
   await installGate(page);
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪');
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
   await page.keyboard.press(`${mod}+Alt+n`);
   const dialog = page.getByRole('dialog', { name: '新建项目', exact: true });
   await dialog.getByRole('textbox', { name: '项目名称', exact: true }).fill('几何回归');
@@ -264,9 +265,9 @@ test('two quick point drags keep their latest preview across delayed acknowledge
   await gate(page, 'releaseAck');
   stable(await frames(page, marker(page)), second);
   await gate(page, 'pass');
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await expect.poll(async () => Math.abs((await bounds(marker(page))).x - first.x)).toBeLessThan(1);
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await expect
     .poll(async () => Math.abs((await bounds(marker(page))).x - original.x))
     .toBeLessThan(1);
@@ -304,14 +305,14 @@ test('rectangle resize is stable while dispatch is delayed; immediate save and u
   expect(exported.size![0]).toBeCloseTo((resized.width / image.width) * 100, 1);
   await gate(page, 'ack');
   await drag(page, page.getByRole('button', { name: '调整标记 se', exact: true }), 25, 20);
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await expect.poll(() => held(page, 'acknowledgements')).toBe(1);
   await gate(page, 'releaseAck');
   await expect
     .poll(async () => Math.abs((await bounds(marker(page))).width - resized.width))
     .toBeLessThan(1);
   await gate(page, 'pass');
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await expect
     .poll(async () => Math.abs((await bounds(marker(page))).width - original.width))
     .toBeLessThan(1);

@@ -35,7 +35,9 @@ test.beforeAll(async () => {
 
 async function ready(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
 }
 
 async function center(page: Page) {
@@ -107,7 +109,7 @@ test('bottom tools open by default and remember height and collapsed layout', as
   expect((await page.locator('.left-panel').boundingBox())!.height).toBe(leftHeight);
   expect((await page.locator('.translation-panel').boundingBox())!.height).toBe(rightHeight);
   await page.reload();
-  await expect(page.getByTestId('ready')).toHaveText('就绪');
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
   await expect(bottom(page)).not.toBeVisible();
   await header(page).getByRole('button', { name: '显示底部面板', exact: true }).click();
   await expect(bottom(page)).toBeVisible();

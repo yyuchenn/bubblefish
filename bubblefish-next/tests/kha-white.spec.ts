@@ -87,7 +87,9 @@ test.describe('real Kha White ONNX OCR', () => {
     const failures: string[] = [];
     page.on('pageerror', (error) => failures.push(error.message));
     await page.goto('/');
-    await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+      timeout: 30_000,
+    });
     const manager = await center(page);
     await manager.getByLabel('安装插件包', { exact: true }).setInputFiles(plugin);
     await manager
@@ -239,7 +241,7 @@ test.describe('real Kha White ONNX OCR', () => {
       originalText: expected,
       lastOcrModel: 'kha-white-ocr-plugin/kha-white-ocr',
     });
-    await page.getByTestId('ready').click();
+    await page.locator('.statusbar').click({ position: { x: 8, y: 8 } });
     await page.keyboard.press(`${mod}+z`);
     await expect(original).toHaveValue('');
     await page.keyboard.press(`${mod}+Shift+z`);
@@ -259,7 +261,7 @@ test.describe('real Kha White ONNX OCR', () => {
     await expect(original).toHaveValue('用户更新的原文');
     expect(await savedOriginal(page)).toMatchObject({ originalText: '用户更新的原文' });
     await page.reload();
-    await expect(page.getByTestId('ready')).toHaveText('就绪');
+    await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
     frame = await panel(page);
     await expect(frame.locator('#model-state')).toContainText('模型已导入');
     await context.setOffline(true);

@@ -32,7 +32,9 @@
     return {
       destroy() {
         node.removeEventListener('keydown', handler);
-        if (previous?.isConnected) previous.focus();
+        queueMicrotask(() => {
+          if (previous?.isConnected) previous.focus();
+        });
       },
     };
   }
@@ -66,6 +68,7 @@
   import { observeWindowChrome } from './runtime/window-chrome';
   import { naturalCompare, checksumKey, id } from './runtime/assets';
   import { snapshots, type Snapshot } from './runtime/snapshots';
+  import { projectStatistics } from './runtime/project-statistics';
   import type { Geometry, ImageDocument, Marker } from './generated/core';
   import {
     readLayout,
@@ -106,7 +109,11 @@
       ? bootstrapChrome.platform === 'macos'
       : /Mac|iPhone|iPad/.test(navigator.platform),
     mod = mac ? '⌘' : 'Ctrl+';
-  let modal = $state<'new' | 'open' | 'snapshots' | 'settings' | 'export' | 'plugins' | null>(null);
+  let modal = $state<
+    'new' | 'open' | 'snapshots' | 'settings' | 'export' | 'plugins' | 'statistics' | null
+  >(null);
+  const statusBusy = $derived(!$workbench.ready || $workbench.pending > 0);
+  let statusVisible = $state(false);
   let commandFocus = $state<string | undefined>();
   const commandNoticeRun = $derived(
     $plugins.commandRuns.find((entry) => entry.id === $plugins.commandNotice?.runId),
@@ -152,6 +159,9 @@
   const externalOpenQueue: string[] = [];
   let openingExternal = false;
   const project = $derived($workbench.projects.find((p) => p.id === $workbench.activeId));
+  const statistics = $derived(
+    modal === 'statistics' && project ? projectStatistics(project) : null,
+  );
   const image = $derived(project?.images.find((i) => i.id === $workbench.imageId));
   const pendingGeometries = $derived(
     pendingGeometriesForImage($workbench.pendingGeometries, project?.id ?? '', image?.id ?? ''),
@@ -453,6 +463,12 @@
         await workbench.barrier();
         modal = 'settings';
         break;
+      case 'app.statistics':
+        if (project) {
+          await workbench.barrier();
+          if (project && !modal && !$plugins.activePanel) modal = 'statistics';
+        }
+        break;
       case 'app.plugins':
         await workbench.barrier();
         commandFocus = undefined;
@@ -735,6 +751,14 @@
     }
   });
   $effect(() => {
+    if (!statusBusy) {
+      statusVisible = false;
+      return;
+    }
+    const timer = setTimeout(() => (statusVisible = true), 100);
+    return () => clearTimeout(timer);
+  });
+  $effect(() => {
     workbench.editorBarrier = async (allowTransition) => {
       await translationPanel?.barrier(allowTransition);
       await bottomPanel?.barrier();
@@ -869,6 +893,7 @@
 
 <div
   class="app-shell"
+  data-ready={$workbench.ready}
   inert={!!modal || !!$plugins.activePanel}
   role="application"
   aria-label="Bubblefish 工作区"
@@ -997,26 +1022,6 @@
     {/if}
     <main class="main-panel">
       <div class="canvas-area">
-        <div class="canvas-toolbar">
-          <div class="toolbar-group">
-            <button
-              class="icon-button"
-              aria-label="撤销"
-              title={`撤销${project?.undoLabel ?? ''} (${mod}Z)`}
-              disabled={!project?.canUndo}
-              onclick={() => run(() => action('app.undo'))}><Icon name="undo" size={17} /></button
-            ><button
-              class="icon-button"
-              aria-label="重做"
-              title={`重做${project?.redoLabel ?? ''} (${mod}Shift+Z)`}
-              disabled={!project?.canRedo}
-              onclick={() => run(() => action('app.redo'))}><Icon name="redo" size={17} /></button
-            >
-          </div>
-          <span class="toolbar-filename">{image?.filename ?? '漫画翻译工作台'}</span><span
-            class="toolbar-hint">{image ? '点击添加点标记 · 拖动框选' : '标记原文，写下译文'}</span
-          >
-        </div>
         {#if image}
           <Canvas
             bind:this={canvas}
@@ -1044,10 +1049,10 @@
               src={`${import.meta.env.BASE_URL}icon-192.png`}
               alt="Bubblefish logo"
             /><span class="eyebrow">BUBBLEFISH NEXT</span>
-            <h1>{project ? '准备好下一页故事' : '让每一句对白，跨越语言'}</h1>
-            <p>
-              {project ? '添加图片，继续你的漫画翻译项目' : '为漫画标记文字，专注写下你的翻译。'}
-            </p>
+            {#if project}
+              <h1>准备好下一页故事</h1>
+              <p>添加图片，继续你的漫画翻译项目</p>
+            {/if}
             <div class="welcome-buttons">
               <button
                 class="primary-button"
@@ -1063,7 +1068,6 @@
             <button class="welcome-tip" onclick={() => (tipIndex = (tipIndex + 1) % tips.length)}
               ><span>✧</span>{tips[tipIndex]}<span class="tip-next">↻</span></button
             >
-            <span class="welcome-footnote">.bf · LabelPlus　/　所有编辑均在本地完成</span>
           </div>
         {/if}
       </div>
@@ -1110,15 +1114,23 @@
     {/if}
   </div>
   <footer class="statusbar">
-    <span class="status-left"
-      ><span class="status-indicator" class:busy={$workbench.pending > 0}></span><span
-        data-testid="ready"
-        >{$workbench.ready ? ($workbench.pending ? '正在记录…' : '就绪') : '正在启动核心…'}</span
-      >{#if project}<span class="status-separator">/</span>{project.images.reduce(
-          (n, i) => n + i.markers.length,
-          0,
-        )} 个标记{/if}</span
-    >
+    <span class="status-left">
+      {#if project}
+        <button
+          class="statistics-button"
+          aria-label="查看项目统计"
+          title="项目统计"
+          aria-haspopup="dialog"
+          onclick={() => run(() => action('app.statistics'))}
+          >{project.images.reduce((n, i) => n + i.markers.length, 0)} 个标记</button
+        >
+      {/if}
+      {#if statusBusy && statusVisible}
+        {#if project}<span class="status-separator">/</span>{/if}
+        <span class="status-indicator" aria-hidden="true"></span>
+        <span>{$workbench.ready ? '正在记录…' : '正在启动核心…'}</span>
+      {/if}
+    </span>
     <div class="status-right">
       {#if image}<span>{image.width} × {image.height}</span>
         <details
@@ -1245,9 +1257,11 @@
             ? '项目快照'
             : modal === 'plugins'
               ? '插件管理'
-              : modal === 'export'
-                ? '导出 LabelPlus'
-                : '设置与外观'}
+              : modal === 'statistics'
+                ? '项目统计'
+                : modal === 'export'
+                  ? '导出 LabelPlus'
+                  : '设置与外观'}
       tabindex="-1"
       use:modalFocus
     >
@@ -1263,9 +1277,11 @@
                   ? '项目快照'
                   : modal === 'plugins'
                     ? '插件管理'
-                    : modal === 'export'
-                      ? '导出 LabelPlus'
-                      : '设置与外观'}
+                    : modal === 'statistics'
+                      ? '项目统计'
+                      : modal === 'export'
+                        ? '导出 LabelPlus'
+                        : '设置与外观'}
           </h2>
         </div>
         <button
@@ -1423,6 +1439,21 @@
               <small>编辑满 30 秒或完成 20 次操作后自动生成</small>
             </div>{/each}
         </div>
+      {:else if modal === 'statistics' && statistics}
+        <dl class="project-statistics">
+          <div>
+            <dt>总标记数</dt>
+            <dd>{statistics.totalMarkers}</dd>
+          </div>
+          <div>
+            <dt>非空标记数</dt>
+            <dd>{statistics.nonEmptyMarkers}</dd>
+          </div>
+          <div>
+            <dt>总字数</dt>
+            <dd>{statistics.totalCharacters}</dd>
+          </div>
+        </dl>
       {:else if modal === 'export'}
         <p class="modal-description">
           LabelPlus 仅支持点标记。矩形将按上边中点导出，文字和样式继续使用兼容语法。

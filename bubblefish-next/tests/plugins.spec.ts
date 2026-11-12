@@ -12,7 +12,9 @@ test.beforeAll(async () => {
 });
 async function ready(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
 }
 async function center(page: Page) {
   await page.getByRole('button', { name: '插件管理', exact: true }).click();
@@ -264,7 +266,7 @@ test('deleting original text before its previous ACK arrives preserves the lates
     gate.hold = false;
     gate.replies.splice(0).forEach((reply) => reply());
   });
-  await expect(page.getByTestId('ready')).toHaveText('就绪');
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
   await expect(original).toHaveValue('');
   expect(cached(await save(page))[0].originalText).toBe('');
 });

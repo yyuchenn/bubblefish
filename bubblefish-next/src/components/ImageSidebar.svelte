@@ -3,7 +3,7 @@
   import { flip } from 'svelte/animate';
   import Icon from './Icon.svelte';
   import Thumbnail from './Thumbnail.svelte';
-  import type { ProjectDocument } from '../generated/core';
+  import type { ImageDocument, ProjectDocument } from '../generated/core';
   import type { AssetStore } from '../runtime/assets';
   import type { ProjectView } from '../runtime/workbench';
 
@@ -92,6 +92,13 @@
     ['simplifiedChinese', '简体中文'],
     ['traditionalChinese', '繁体中文'],
   ];
+
+  function markerSummary(image: ImageDocument) {
+    const emptyCount = image.markers.filter(
+      (marker) => !marker.translation.runs.some((run) => run.text.trim().length > 0),
+    ).length;
+    return `${image.markers.length} 个标记${emptyCount ? ` · ${emptyCount} 个空标记` : ''}`;
+  }
 
   function releasePointer() {
     const target = capturedPointer,
@@ -307,14 +314,6 @@
   <div class="panel-heading">
     <span>{mode === 'images' ? '图片' : '项目配置'}</span>
     <span class="muted count">{project?.images.length ?? 0}</span>
-    <div class="grow"></div>
-    <button
-      class="icon-button"
-      title="添加图片"
-      aria-label="添加图片"
-      disabled={!project}
-      onclick={onadd}><Icon name="plus" size={16} /></button
-    >
   </div>
   {#if mode === 'settings' && project}
     <div class="project-settings">
@@ -389,7 +388,7 @@
           <Thumbnail assetId={item.assetId} {assets} alt={item.filename} />
           <span class="image-info">
             <span>{item.filename}</span>
-            <small>{item.width} × {item.height} · {item.markers.length} 个标记</small>
+            <small>{markerSummary(item)}</small>
           </span>
           <span class="page-index">{pageNumbers.get(item.id)}</span>
         </button>
@@ -410,7 +409,7 @@
       </div>
     {/each}
   </div>
-  {#if project}
+  {#if mode === 'settings' && project}
     <button class="add-images-button" onclick={onadd}><Icon name="plus" size={16} />添加图片</button
     >
   {/if}
@@ -437,9 +436,7 @@
       </div>
       <span class="image-info">
         <span>{draggedItem.filename}</span>
-        <small
-          >{draggedItem.width} × {draggedItem.height} · {draggedItem.markers.length} 个标记</small
-        >
+        <small>{markerSummary(draggedItem)}</small>
       </span>
       <span class="page-index">{pageNumbers.get(draggedItem.id)}</span>
     </div>

@@ -116,7 +116,9 @@ test('300 full-resolution pages and 15,000 markers import, search, replace, undo
     };
   });
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   const cdp = await context.newCDPSession(page);
   await cdp.send('Performance.enable');
   const heap = async () => {
@@ -153,6 +155,20 @@ test('300 full-resolution pages and 15,000 markers import, search, replace, undo
     .poll(() => canvas.locator('img').evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBe(width);
   const importMilliseconds = Math.round(performance.now() - started);
+  await page.getByRole('button', { name: '查看项目统计', exact: true }).click();
+  const statistics = page.getByRole('dialog', { name: '项目统计', exact: true });
+  let totalCharacters = 0;
+  for (let pageNumber = 1; pageNumber <= pages; pageNumber++) {
+    for (let markerNumber = 1; markerNumber <= markersPerPage; markerNumber++)
+      totalCharacters += [...translation(pageNumber, markerNumber).replace(/\s/g, '')].length;
+  }
+  await expect(statistics.locator('.project-statistics dd')).toHaveText([
+    '15000',
+    '15000',
+    String(totalCharacters),
+  ]);
+  await statistics.getByRole('button', { name: '关闭弹窗', exact: true }).click();
+  await expect(statistics).not.toBeVisible();
   const heapImported = await heap();
   const initialImages = await page.locator('img').count();
   expect(initialImages).toBeLessThan(30);

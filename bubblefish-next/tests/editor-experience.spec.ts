@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { historyFromMenu } from './history-actions';
 import { resolve } from 'node:path';
 
 const images = [1, 2].map((n) => resolve(`tests/fixtures/images/page-${n}.png`));
@@ -13,7 +14,9 @@ const tooltip = (page: Page) => page.getByRole('tooltip', { name: '译文预览'
 
 async function ready(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
 }
 async function createProject(page: Page, pages = 1) {
   await page.keyboard.press(`${mod}+Alt+n`);
@@ -176,7 +179,7 @@ test('editor settings have conservative navigation defaults, persist, and immedi
   await settings.getByRole('checkbox', { name: '切换标记时自动定位到标记', exact: true }).check();
   await closeSettings(page);
   await page.reload();
-  await expect(page.getByTestId('ready')).toHaveText('就绪');
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
   settings = await openSettings(page);
   await expect(
     settings.getByRole('checkbox', { name: '悬浮气泡预览', exact: true }),
@@ -393,9 +396,9 @@ test('long-press reorder shows a moving ghost and live yielding, retains the dro
   await page.mouse.up();
   await expect(page.locator('.translation-drag-ghost')).toHaveCount(0);
   await expect(item(page, 1)).toContainText('第一项');
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await expect.poll(() => order(page)).toEqual(['第二项', '第三项', '第一项']);
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await expect.poll(() => order(page)).toEqual(['第一项', '第二项', '第三项']);
 });
 

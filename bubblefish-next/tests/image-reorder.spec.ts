@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { historyFromMenu } from './history-actions';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
@@ -65,7 +66,9 @@ const commandCount = (page: Page) =>
 async function project(page: Page, files: string[] | ImageFile[] = images) {
   await installGate(page);
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   await page.keyboard.press(`${mod}+Alt+n`);
   const dialog = page.getByRole('dialog', { name: '新建项目', exact: true });
   await dialog.getByRole('textbox', { name: '项目名称', exact: true }).fill('图片拖拽回归');
@@ -73,6 +76,16 @@ async function project(page: Page, files: string[] | ImageFile[] = images) {
   await dialog.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(canvas(page).locator('img')).toBeVisible();
+}
+async function expectUndoUnavailable(page: Page) {
+  const header = page.locator('header.titlebar');
+  await header
+    .locator('.menu-bar summary')
+    .filter({ hasText: /^编辑$/ })
+    .click();
+  await expect(header.getByRole('button', { name: /^撤销/ })).toBeDisabled();
+  await page.keyboard.press('Escape');
+  await expect(header.locator('.app-menu[open]')).toHaveCount(0);
 }
 async function settings(page: Page) {
   await page.getByRole('button', { name: '项目配置', exact: true }).click();
@@ -155,7 +168,7 @@ test('image dragging requires project settings and a full hold; clicks, delete c
   await page.mouse.up();
   await expect.poll(() => confirmations).toBe(1);
   await expectClean(page);
-  await expect(page.getByRole('button', { name: '撤销', exact: true })).toBeDisabled();
+  await expectUndoUnavailable(page);
 });
 
 test('image reorder previews preserve thumbnail, page numbers, selected image and canvas until one acknowledged history change', async ({
@@ -233,9 +246,9 @@ test('image reorder previews preserve thumbnail, page numbers, selected image an
   await expect(page.getByRole('button', { name: '图片 3 page-2.png', exact: true })).toBeVisible();
   await expect(page.locator('.image-list > .image-row .page-index')).toHaveText(['1', '2', '3']);
   await expect.poll(() => canvasState(page)).toEqual(before);
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await expect.poll(() => order(page)).toEqual(original);
-  await expect(page.getByRole('button', { name: '撤销', exact: true })).toBeDisabled();
+  await expectUndoUnavailable(page);
   await expect.poll(() => canvasState(page)).toEqual(before);
 });
 

@@ -322,9 +322,9 @@
   <div class="panel-heading">
     <span>翻译</span><span class="muted count">{image?.markers.length ?? 0}</span>
     <div class="grow"></div>
-    <span class="panel-tag"
-      >{marker ? `#${(image?.markers.indexOf(marker) ?? 0) + 1}` : '当前页面'}</span
-    >
+    {#if marker}
+      <span class="panel-tag">#{(image?.markers.indexOf(marker) ?? 0) + 1}</span>
+    {/if}
   </div>
   <div
     class="translation-list"

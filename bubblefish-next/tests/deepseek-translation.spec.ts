@@ -34,7 +34,9 @@ test.beforeAll(async () => {
 
 async function ready(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
 }
 
 async function center(page: Page) {
@@ -185,7 +187,7 @@ test('installed DeepSeek package persists custom prompts and translates, adopts,
   await expect(frame.locator('#status')).toContainText('已保存');
   await closePanel(page);
   await page.reload();
-  await expect(page.getByTestId('ready')).toHaveText('就绪');
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
   frame = await settings(page);
   await expect(frame.getByLabel('API Key', { exact: true })).toHaveValue(fakeKey);
   await expect(frame.getByLabel('系统提示词', { exact: true })).toHaveValue(system);

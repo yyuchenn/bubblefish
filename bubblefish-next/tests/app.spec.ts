@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { historyFromMenu } from './history-actions';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -9,7 +10,9 @@ const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
 
 async function ready(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
 }
 
 async function saveFromMenu(page: Page) {
@@ -196,7 +199,9 @@ test('creates point and rectangle markers, preserves middle-edit cursor through 
   await download.saveAs(output);
   expect((await readFile(output)).subarray(0, 2)).toEqual(Buffer.from([0x1f, 0x8b]));
   await page.reload();
-  await expect(page.getByTestId('ready')).toBeVisible();
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   const fileChooser = page.waitForEvent('filechooser');
   await page.getByRole('button', { name: '打开项目', exact: true }).first().click();
   await (await fileChooser).setFiles(output);
@@ -272,7 +277,14 @@ test('image ordering, deletion with undo, marker conversion, and adding after th
     void dialog.accept();
   });
   await createProject(page, '图片管理', [imagePaths[1], imagePaths[0]]);
+  const panel = page.locator('.left-panel');
+  const addImages = page.locator('.left-panel .add-images-button');
+  await expect(panel).toBeVisible();
+  await expect(panel.locator('.panel-heading button')).toHaveCount(0);
+  await expect(addImages).toHaveCount(0);
   await page.getByRole('button', { name: '项目配置', exact: true }).click();
+  await expect(panel.getByRole('button', { name: '添加图片', exact: true })).toHaveCount(1);
+  await expect(addImages).toBeVisible();
   const first = page.getByRole('button', { name: '图片 1 page-2.png', exact: true }).locator('..');
   const second = page.getByRole('button', { name: '图片 2 page-1.png', exact: true }).locator('..');
   await second.hover();
@@ -297,7 +309,7 @@ test('image ordering, deletion with undo, marker conversion, and adding after th
   await expect(
     page.getByRole('button', { name: '图片 1 page-1.png', exact: true }),
   ).not.toBeVisible();
-  await page.getByRole('button', { name: '撤销', exact: true }).click();
+  await historyFromMenu(page, 'undo');
   await page.getByRole('button', { name: '图片 1 page-1.png', exact: true }).click();
   await page.getByRole('button', { name: '翻译项 1', exact: true }).click();
   await expect(page.getByRole('textbox', { name: '翻译内容' })).toHaveText(
@@ -307,8 +319,12 @@ test('image ordering, deletion with undo, marker conversion, and adding after th
   await page.getByRole('button', { name: '删除图片 1', exact: true }).click();
   await page.getByRole('button', { name: '删除图片 1', exact: true }).click();
   await expect(page.getByRole('application', { name: '图片标注画布' })).not.toBeVisible();
+  await expect(addImages).toBeVisible();
+  await expect(
+    page.locator('.welcome').getByRole('button', { name: '添加图片', exact: true }),
+  ).toBeVisible();
   const chooser = page.waitForEvent('filechooser');
-  await page.getByRole('button', { name: '添加图片', exact: true }).first().click();
+  await addImages.click();
   await (await chooser).setFiles(imagePaths[2]);
   await expect(page.getByRole('button', { name: '图片 1 page-3.png', exact: true })).toBeVisible();
   await expect(page.getByRole('application', { name: '图片标注画布' })).toBeVisible();

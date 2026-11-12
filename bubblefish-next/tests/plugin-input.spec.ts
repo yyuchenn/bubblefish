@@ -14,7 +14,9 @@ test.beforeAll(async () => {
 
 async function setup(page: Page, delay = 160) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   await page.keyboard.press(`${mod}+Alt+n`);
   const create = page.getByRole('dialog', { name: '新建项目', exact: true });
   await create.getByLabel('项目名称', { exact: true }).fill('拦截输入回归');

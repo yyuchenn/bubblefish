@@ -41,7 +41,9 @@ async function install(dialog: Locator, file = fixture, title = name) {
 
 async function setup(page: Page) {
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   const dialog = await center(page);
   return { dialog, card: await install(dialog) };
 }

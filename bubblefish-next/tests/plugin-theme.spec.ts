@@ -68,7 +68,9 @@ async function ready(page: Page, theme = 'fruit', system: 'light' | 'dark' = 'da
     if (window === window.top) localStorage.setItem('bubblefish-next.theme', value);
   }, theme);
   await page.goto('/');
-  await expect(page.getByTestId('ready')).toHaveText('就绪', { timeout: 30_000 });
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true', {
+    timeout: 30_000,
+  });
   await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 }
 
