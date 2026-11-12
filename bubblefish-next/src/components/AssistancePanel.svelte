@@ -7,6 +7,11 @@
   import type { Marker } from '../generated/core';
   import { rebaseTextChange, textChange, type TextChange } from '../runtime/text-rebase';
   import { validSearchRange, type SearchHighlight } from '../runtime/search-highlight';
+  import {
+    readAssistancePreferences,
+    writePreference,
+    type AssistancePreferences,
+  } from '../runtime/preferences';
   import './assistance-panel.css';
   let {
     workbench,
@@ -25,9 +30,23 @@
   const markerNumber = $derived(marker && image ? image.markers.indexOf(marker) + 1 : null);
   const ocrProviders = $derived($plugins.providers.filter((p) => p.kind === 'ocr'));
   const translators = $derived($plugins.providers.filter((p) => p.kind === 'translation'));
-  let ocr = $state(''),
-    translator = $state(''),
-    wholePage = $state(false);
+  let providerPreferences = $state(readAssistancePreferences());
+  // Unavailable providers leave the remembered choices intact, including during startup.
+  const ocr = $derived(
+    ocrProviders.some((provider) => provider.id === providerPreferences.ocr)
+      ? providerPreferences.ocr
+      : '',
+  );
+  const translator = $derived(
+    translators.some((provider) => provider.id === providerPreferences.translator)
+      ? providerPreferences.translator
+      : '',
+  );
+  function selectProvider(kind: keyof AssistancePreferences, providerId: string) {
+    providerPreferences[kind] = providerId;
+    writePreference('assistance', JSON.stringify(providerPreferences));
+  }
+  let wholePage = $state(false);
   let original = $state('');
   let originalScope = $state(''),
     originalDirty = $state(false);
@@ -314,7 +333,12 @@
   <div class="assistance-columns">
     <div class="assistance-column">
       <div class="assistance-controls">
-        <select aria-label="OCR 插件" bind:value={ocr} disabled={!ocrProviders.length}>
+        <select
+          aria-label="OCR 插件"
+          value={ocr}
+          onchange={(event) => selectProvider('ocr', event.currentTarget.value)}
+          disabled={!ocrProviders.length}
+        >
           <option value="">{ocrProviders.length ? '选择 OCR 插件' : '尚未安装 OCR 插件'}</option>
           {#each ocrProviders as provider}<option value={provider.id}>{provider.info.name}</option
             >{/each}
@@ -356,7 +380,12 @@
     </div>
     <div class="assistance-column">
       <div class="assistance-controls">
-        <select aria-label="翻译插件" bind:value={translator} disabled={!translators.length}>
+        <select
+          aria-label="翻译插件"
+          value={translator}
+          onchange={(event) => selectProvider('translator', event.currentTarget.value)}
+          disabled={!translators.length}
+        >
           <option value="">{translators.length ? '选择翻译插件' : '尚未安装翻译插件'}</option>
           {#each translators as provider}<option value={provider.id}>{provider.info.name}</option
             >{/each}

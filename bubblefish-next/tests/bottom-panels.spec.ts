@@ -78,6 +78,140 @@ async function createProjectMarker(page: Page) {
   return bounds;
 }
 
+async function expectProviders(page: Page, ocr: string, translator: string) {
+  await expect(page.getByLabel('OCR 插件', { exact: true })).toHaveValue(ocr);
+  await expect(page.getByLabel('翻译插件', { exact: true })).toHaveValue(translator);
+}
+
+test('OCR and translation choices restore independently across reloads and reopening the app', async ({
+  page,
+}) => {
+  const { dialog } = await setup(page);
+  await install(dialog, otherFixture, '底部页面测试乙');
+  await closeCenter(dialog);
+  await expectProviders(page, '', '');
+  await page.getByLabel('OCR 插件', { exact: true }).selectOption('test.bottom-panels/ocr');
+  await page
+    .getByLabel('翻译插件', { exact: true })
+    .selectOption('test.bottom-panels-other/translator');
+  await page.reload();
+  await expectProviders(page, 'test.bottom-panels/ocr', 'test.bottom-panels-other/translator');
+
+  const reopened = await page.context().newPage();
+  await page.close();
+  try {
+    await ready(reopened);
+    await expectProviders(
+      reopened,
+      'test.bottom-panels/ocr',
+      'test.bottom-panels-other/translator',
+    );
+    await reopened.getByLabel('OCR 插件', { exact: true }).selectOption('');
+    await reopened.reload();
+    await expectProviders(reopened, '', 'test.bottom-panels-other/translator');
+    await reopened.getByLabel('OCR 插件', { exact: true }).selectOption('test.bottom-panels/ocr');
+    await reopened.getByLabel('翻译插件', { exact: true }).selectOption('');
+    await reopened.reload();
+    await expectProviders(reopened, 'test.bottom-panels/ocr', '');
+  } finally {
+    await reopened.close();
+  }
+});
+
+test('disabled providers stay remembered while unavailable and restore when enabled again', async ({
+  page,
+}) => {
+  const { dialog, card } = await setup(page);
+  await install(dialog, otherFixture, '底部页面测试乙');
+  await closeCenter(dialog);
+  await createProjectMarker(page);
+  await page.getByRole('textbox', { name: 'OCR 原文', exact: true }).fill('可翻译的原文');
+  await page.getByLabel('OCR 插件', { exact: true }).selectOption('test.bottom-panels/ocr');
+  await page.getByLabel('翻译插件', { exact: true }).selectOption('test.bottom-panels/translator');
+  const recognize = page.getByRole('button', { name: '识别原文', exact: true });
+  const translate = page.getByRole('button', { name: '机器翻译', exact: true });
+  await expect(recognize).toBeEnabled();
+  await expect(translate).toBeEnabled();
+  await center(page);
+  await card.getByRole('button', { name: '停用', exact: true }).click();
+  await closeCenter(dialog);
+  await expectProviders(page, '', '');
+  await expect(page.getByLabel('OCR 插件', { exact: true })).toBeEnabled();
+  await expect(page.getByLabel('翻译插件', { exact: true })).toBeEnabled();
+  await expect(recognize).toBeDisabled();
+  await expect(translate).toBeDisabled();
+
+  page.once('dialog', (confirmation) => confirmation.accept());
+  await page.reload();
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
+  await expect(page.getByLabel('OCR 插件', { exact: true })).toBeEnabled();
+  await expectProviders(page, '', '');
+  expect(
+    await page.evaluate(() => JSON.parse(localStorage.getItem('bubblefish-next.assistance')!)),
+  ).toEqual({ ocr: 'test.bottom-panels/ocr', translator: 'test.bottom-panels/translator' });
+  await createProjectMarker(page);
+  await page.getByRole('textbox', { name: 'OCR 原文', exact: true }).fill('再次打开后的原文');
+  await expect(recognize).toBeDisabled();
+  await expect(translate).toBeDisabled();
+  await center(page);
+  await card.getByRole('button', { name: '启用', exact: true }).click();
+  await closeCenter(dialog);
+  await expectProviders(page, 'test.bottom-panels/ocr', 'test.bottom-panels/translator');
+  await expect(recognize).toBeEnabled();
+  await expect(translate).toBeEnabled();
+});
+
+test('replacing unavailable providers keeps the new choices after the old plugin returns', async ({
+  page,
+}) => {
+  const { dialog, card } = await setup(page);
+  await install(dialog, otherFixture, '底部页面测试乙');
+  await closeCenter(dialog);
+  await page.getByLabel('OCR 插件', { exact: true }).selectOption('test.bottom-panels/ocr');
+  await page.getByLabel('翻译插件', { exact: true }).selectOption('test.bottom-panels/translator');
+  await center(page);
+  await card.getByRole('button', { name: '停用', exact: true }).click();
+  await closeCenter(dialog);
+  await page.getByLabel('OCR 插件', { exact: true }).selectOption('test.bottom-panels-other/ocr');
+  await page
+    .getByLabel('翻译插件', { exact: true })
+    .selectOption('test.bottom-panels-other/translator');
+  await center(page);
+  await card.getByRole('button', { name: '启用', exact: true }).click();
+  await closeCenter(dialog);
+  await expectProviders(
+    page,
+    'test.bottom-panels-other/ocr',
+    'test.bottom-panels-other/translator',
+  );
+  await page.reload();
+  await expectProviders(
+    page,
+    'test.bottom-panels-other/ocr',
+    'test.bottom-panels-other/translator',
+  );
+});
+
+test('uninstalling and reinstalling the same plugin restores its remembered providers', async ({
+  page,
+}) => {
+  const { dialog, card } = await setup(page);
+  await closeCenter(dialog);
+  await page.getByLabel('OCR 插件', { exact: true }).selectOption('test.bottom-panels/ocr');
+  await page.getByLabel('翻译插件', { exact: true }).selectOption('test.bottom-panels/translator');
+  await center(page);
+  await card.getByRole('button', { name: '卸载', exact: true }).click();
+  await expect(card).toHaveCount(0);
+  await closeCenter(dialog);
+  await expectProviders(page, '', '');
+  await page.reload();
+  await expect(page.locator('.app-shell')).toHaveAttribute('data-ready', 'true');
+  await expectProviders(page, '', '');
+  await install(await center(page));
+  await closeCenter(dialog);
+  await expectProviders(page, 'test.bottom-panels/ocr', 'test.bottom-panels/translator');
+});
+
 test('bottom tools open by default and remember height and collapsed layout', async ({ page }) => {
   await ready(page);
   await expect(bottom(page)).toBeVisible();

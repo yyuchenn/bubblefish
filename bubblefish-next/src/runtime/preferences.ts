@@ -24,6 +24,10 @@ export interface EditorPreferences {
   hoverPreview: boolean;
   autoLocateMarker: boolean;
 }
+export interface AssistancePreferences {
+  ocr: string;
+  translator: string;
+}
 export function readPreference(key: string): string | null {
   try {
     return localStorage.getItem(`bubblefish-next.${key}`);
@@ -51,6 +55,20 @@ export function readEditorPreferences(): EditorPreferences {
         typeof saved.autoLocateMarker === 'boolean'
           ? saved.autoLocateMarker
           : defaults.autoLocateMarker,
+    };
+  } catch {
+    return defaults;
+  }
+}
+export function readAssistancePreferences(): AssistancePreferences {
+  const defaults: AssistancePreferences = { ocr: '', translator: '' };
+  try {
+    const value: unknown = JSON.parse(readPreference('assistance') ?? '{}');
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return defaults;
+    const saved = value as Partial<AssistancePreferences>;
+    return {
+      ocr: typeof saved.ocr === 'string' ? saved.ocr : defaults.ocr,
+      translator: typeof saved.translator === 'string' ? saved.translator : defaults.translator,
     };
   } catch {
     return defaults;

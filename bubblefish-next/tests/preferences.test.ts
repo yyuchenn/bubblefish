@@ -3,12 +3,89 @@ import {
   ASSISTANCE_TAB_ID,
   bottomPanelBounds,
   clampBottomHeight,
+  readAssistancePreferences,
   readEditorPreferences,
   readLayout,
   writePreference,
 } from '../src/runtime/preferences';
 
 afterEach(() => vi.unstubAllGlobals());
+
+describe('assistance provider preferences', () => {
+  it.each([null, 'not json', 'null', '[]', '42', '"provider"', '{}'])(
+    'leaves both providers unselected for missing or invalid stored values: %s',
+    (stored) => {
+      vi.stubGlobal('localStorage', { getItem: () => stored });
+      expect(readAssistancePreferences()).toEqual({ ocr: '', translator: '' });
+    },
+  );
+
+  it('round-trips independent full provider IDs with the application namespace', () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    const selection = { ocr: 'example.first/provider', translator: 'example.second/provider' };
+    writePreference('assistance', JSON.stringify(selection));
+    expect(values.get('bubblefish-next.assistance')).toBe(JSON.stringify(selection));
+    expect(readAssistancePreferences()).toEqual(selection);
+  });
+
+  it.each(['ocr', 'translator'] as const)(
+    'remembers an explicit empty %s selection without clearing the other provider',
+    (field) => {
+      const values = new Map<string, string>();
+      vi.stubGlobal('localStorage', {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+      });
+      writePreference(
+        'assistance',
+        JSON.stringify({ ocr: 'example.first/ocr', translator: 'example.second/translator' }),
+      );
+      const selection = { ...readAssistancePreferences(), [field]: '' };
+      writePreference('assistance', JSON.stringify(selection));
+      expect(readAssistancePreferences()).toEqual(selection);
+    },
+  );
+
+  it.each([
+    [{ ocr: 'example.first/ocr' }, { ocr: 'example.first/ocr', translator: '' }],
+    [
+      { translator: 'example.second/translator' },
+      { ocr: '', translator: 'example.second/translator' },
+    ],
+    [
+      { ocr: false, translator: 'example.second/translator' },
+      { ocr: '', translator: 'example.second/translator' },
+    ],
+    [
+      { ocr: 'example.first/ocr', translator: 42 },
+      { ocr: 'example.first/ocr', translator: '' },
+    ],
+    [
+      { ocr: null, translator: [] },
+      { ocr: '', translator: '' },
+    ],
+  ])('validates each provider independently: %j', (stored, expected) => {
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(stored) });
+    expect(readAssistancePreferences()).toEqual(expected);
+  });
+
+  it('keeps provider preferences optional when storage is unavailable', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    });
+    expect(readAssistancePreferences()).toEqual({ ocr: '', translator: '' });
+    expect(() => writePreference('assistance', '{"ocr":"example.first/ocr"}')).not.toThrow();
+  });
+});
 
 describe('editor preferences', () => {
   it.each([null, 'not json', 'null', '[]', '42', '{"hoverPreview":"false","autoLocateMarker":1}'])(
