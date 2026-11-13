@@ -1,0 +1,184 @@
+name: Update Release Manifests
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update (e.g., 0.1.1)'
+        required: true
+      release_url:
+        description: 'GitHub release URL'
+        required: true
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  update-manifests:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository (updater branch)
+        uses: actions/checkout@v4
+        with:
+          ref: updater
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Create updater branch if it doesn't exist
+        run: |
+          git fetch origin
+          if ! git ls-remote --heads origin updater | grep -q updater; then
+            git checkout -b updater
+            git push origin updater
+          fi
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Get release information
+        id: release_info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Determine if triggered by release event or workflow_dispatch
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            VERSION="${{ github.event.release.tag_name }}"
+            RELEASE_URL="${{ github.event.release.html_url }}"
+            RELEASE_NOTES="${{ github.event.release.body }}"
+          else
+            VERSION="${{ github.event.inputs.version }}"
+            RELEASE_URL="${{ github.event.inputs.release_url }}"
+            
+            # Fetch release notes from the GitHub API for workflow_dispatch
+            RELEASE_TAG="${VERSION}"
+            if [[ ! "$RELEASE_TAG" =~ ^v ]]; then
+              RELEASE_TAG="v${VERSION}"
+            fi
+            
+            RELEASE_NOTES=$(gh api repos/${{ github.repository }}/releases/tags/${RELEASE_TAG} --jq '.body' 2>/dev/null || echo "Update to version $VERSION")
+          fi
+          
+          # Remove 'v' prefix if present
+          VERSION="${VERSION#v}"
+          
+          # Handle multi-line content by encoding it
+          RELEASE_NOTES_ESCAPED=$(echo "$RELEASE_NOTES" | sed ':a;N;$!ba;s/\n/\\n/g' | sed 's/"/\\"/g')
+          
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "release_url=$RELEASE_URL" >> $GITHUB_OUTPUT
+          # Use EOF delimiter for multi-line content
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$RELEASE_NOTES" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+      
+      - name: Download release assets
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          
+          # Create temp directory for assets
+          mkdir -p temp_assets
+          
+          # Download release assets information
+          gh api repos/${{ github.repository }}/releases/tags/v$VERSION \
+            --jq '.assets[] | {name: .name, url: .browser_download_url}' > assets.json || \
+          gh api repos/${{ github.repository }}/releases/tags/$VERSION \
+            --jq '.assets[] | {name: .name, url: .browser_download_url}' > assets.json
+          
+          # Download signature files
+          cat assets.json | jq -r 'select(.name | endswith(".sig")) | .url' | while read url; do
+            filename=$(echo "$url" | rev | cut -d'/' -f1 | rev)
+            curl -L -o "temp_assets/$filename" "$url"
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Generate update manifest
+        run: |
+          VERSION="${{ steps.release_info.outputs.version }}"
+          PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          REPO="${{ github.repository }}"
+          
+          # Create manifest using jq
+          jq -n \
+            --arg version "$VERSION" \
+            --arg notes "${{ steps.release_info.outputs.release_notes }}" \
+            --arg pub_date "$PUB_DATE" \
+            --arg repo "$REPO" \
+            '{
+              version: $version,
+              notes: $notes,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish.app.tar.gz"
+                },
+                "windows-x86_64": {
+                  "signature": "",
+                  "url": "https://github.com/\($repo)/releases/download/v\($version)/Bubblefish_\($version)_x64.msi"
+                }
+              }
+            }' > latest.json
+          
+          # Add signatures if available
+          for sig_file in temp_assets/*.sig; do
+            if [ -f "$sig_file" ]; then
+              base_name=$(basename "$sig_file" .sig)
+              # Read signature and ensure it's properly formatted
+              signature=$(cat "$sig_file" | tr -d '\n\r')
+              echo "Processing signature for: $base_name"
+              echo "Signature content: $signature"
+              
+              # Update the appropriate platform signature
+              if [[ "$base_name" == *".app.tar.gz"* ]]; then
+                echo "Updating darwin-aarch64 signature for app.tar.gz"
+                jq --arg sig "$signature" '.platforms."darwin-aarch64".signature = $sig' latest.json > latest.tmp && mv latest.tmp latest.json
+              elif [[ "$base_name" == *"x64"* ]] || [[ "$base_name" == *".msi"* ]]; then
+                echo "Updating windows-x86_64 signature"
+                jq --arg sig "$signature" '.platforms."windows-x86_64".signature = $sig' latest.json > latest.tmp && mv latest.tmp latest.json
+              fi
+            fi
+          done
+          
+          # Check if signatures were added
+          echo "Final manifest:"
+          cat latest.json
+      
+      
+      - name: Commit and push manifests
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # Add manifest
+          git add latest.json
+          
+          # Commit if there are changes
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Update manifests for version ${{ steps.release_info.outputs.version }}"
+            git push origin updater
+          fi
+      
+      - name: Upload manifests as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-manifests
+          path: |
+            latest.json
+          retention-days: 30
+      
+      - name: Trigger sync to Gitee
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'sync-gitee.yml',
+              ref: 'main'
+            })

@@ -1,0 +1,26 @@
+# Cloudflare deployment directory .gitignore
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Wrangler state
+.wrangler/
+
+# Build artifacts
+dist/
+build/
+.cache/
+
+# Logs
+*.log
+wrangler-debug.log
+
+# Node modules (if any local packages)
+node_modules/
+
+# Temporary files
+*.tmp
+*.bak
+.DS_Store

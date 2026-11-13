@@ -1,0 +1,74 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Bubblefish",
+  "version": "0.4.0",
+  "identifier": "com.yyuchenn.bubblefish",
+  "build": {
+    "frontendDist": "../dist/desktop",
+    "devUrl": "http://127.0.0.1:5174"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "Bubblefish",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 800,
+        "minHeight": 560,
+        "dragDropEnabled": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost https:; worker-src 'self' blob:; frame-src bf-plugin: http://bf-plugin.localhost; font-src 'self' data:",
+      "devCsp": "default-src 'self'; script-src 'self' blob: 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: asset: http://asset.localhost; connect-src ipc: http://ipc.localhost https: http://127.0.0.1:5174 ws://127.0.0.1:5174; worker-src 'self' blob:; frame-src bf-plugin: http://bf-plugin.localhost; font-src 'self' data:",
+      "assetProtocol": { "enable": true, "scope": [] }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "useLocalToolsDir": true,
+    "publisher": "yyuchenn",
+    "createUpdaterArtifacts": false,
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "fileAssociations": [
+      {
+        "ext": ["bf"],
+        "name": "Bubblefish Project",
+        "description": "Bubblefish translation project",
+        "role": "Editor",
+        "mimeType": "application/x-bubblefish"
+      }
+    ],
+    "windows": {
+      "wix": { "upgradeCode": "7fc33f0a-2e35-51fe-9cd3-2e23b04dbeb2" },
+      "nsis": {
+        "installMode": "perMachine",
+        "languages": ["SimpChinese", "English"],
+        "headerImage": "resources/nsis/header.bmp",
+        "sidebarImage": "resources/nsis/sidebar.bmp",
+        "installerIcon": "icons/installer_icon.ico"
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc3N0ZBNTM0NUU5RjgwQTMKUldTamdKOWVOS1YvZHpxcSs4NzMvSlU0Y0w0NWdKRlhtMzFIVVd2UVZOQ1NLQkNzbDVjdVVvUzcK",
+      "requireSignedVersion": true,
+      "allowDowngrades": false,
+      "endpoints": [
+        "https://gitee.com/yyuchenn/bubblefish/raw/updater/latest.json",
+        "https://raw.githubusercontent.com/yyuchenn/bubblefish/updater/latest.json"
+      ],
+      "windows": { "installMode": "passive" }
+    }
+  }
+}

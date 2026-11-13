@@ -1,0 +1,51 @@
+name: Set up Bubblefish
+description: Install the repository's locked Node, npm, Rust and dependencies.
+inputs:
+  rust:
+    description: Install Rust and cache Rust dependencies
+    default: 'true'
+  dependencies:
+    description: Install the locked npm dependencies
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: .node-version
+        cache: npm
+        cache-dependency-path: package-lock.json
+    - name: Read pinned tool versions
+      id: versions
+      shell: bash
+      run: |
+        node --input-type=module <<'NODE'
+        import { appendFileSync, readFileSync } from 'node:fs';
+        const npm = JSON.parse(readFileSync('package.json', 'utf8')).packageManager.match(/^npm@(\d+\.\d+\.\d+)$/)?.[1];
+        const rust = readFileSync('rust-toolchain.toml', 'utf8').match(/^channel\s*=\s*"([\d.]+)"/m)?.[1];
+        if (!npm || !rust) throw new Error('Expected exact npm and Rust versions in repository configuration');
+        appendFileSync(process.env.GITHUB_OUTPUT, `npm=${npm}\nrust=${rust}\n`);
+        NODE
+    - name: Install pinned npm
+      shell: bash
+      run: npm install --global "npm@${{ steps.versions.outputs.npm }}"
+    - uses: dtolnay/rust-toolchain@stable
+      if: inputs.rust == 'true'
+      with:
+        toolchain: ${{ steps.versions.outputs.rust }}
+        targets: wasm32-unknown-unknown
+    - name: Cache Rust dependencies and WASM tools
+      if: inputs.rust == 'true'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry/
+          ~/.cargo/git/
+          .cache/wasm-pack/
+        key: ${{ runner.os }}-${{ runner.arch }}-bubblefish-rust-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', 'package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-${{ runner.arch }}-bubblefish-rust-
+    - name: Install locked npm dependencies
+      if: inputs.dependencies == 'true'
+      shell: bash
+      run: npm ci
