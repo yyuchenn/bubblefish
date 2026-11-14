@@ -22,6 +22,7 @@ export interface ImageProbe {
 export interface CoreTransport {
   ready(): Promise<void>;
   dispatch(envelope: Envelope): Promise<Reply>;
+  acknowledge(sessionId: string, commandId: string): Promise<void>;
   importProject(bytes: Uint8Array, format: ProjectFormat, projectId: string): Promise<ImportResult>;
   exportProject(projectId: string, format: ProjectFormat): Promise<Uint8Array>;
   probeImage(bytes: Uint8Array): Promise<ImageProbe>;

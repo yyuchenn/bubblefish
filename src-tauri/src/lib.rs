@@ -272,6 +272,15 @@ fn core_dispatch(state: tauri::State<'_, HostState>, envelope: Envelope) -> Resu
     Ok(lock(&state.engine)?.dispatch(envelope))
 }
 #[tauri::command]
+fn core_acknowledge(
+    state: tauri::State<'_, HostState>,
+    session_id: String,
+    command_id: String,
+) -> Result<(), String> {
+    lock(&state.engine)?.acknowledge(&session_id, &command_id);
+    Ok(())
+}
+#[tauri::command]
 fn core_history(
     state: tauri::State<'_, HostState>,
     project_id: String,
@@ -922,6 +931,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             core_ready,
             core_dispatch,
+            core_acknowledge,
             core_history,
             core_preview,
             core_encode_project,

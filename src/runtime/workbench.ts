@@ -23,6 +23,7 @@ import { CommandQueue } from './queue';
 import { snapshots } from './snapshots';
 import { MutationCoordinator, MutationRejected } from './mutations';
 import { ImageResources } from './image-resources';
+import { ImageImportSession } from './image-import-session';
 import {
   commandsToOperations,
   operationsToCommands,
@@ -141,6 +142,7 @@ export class Workbench {
   private paths = new Map<string, string>();
   private selections = new Map<string, { imageId: string | null; markerId: string | null }>();
   private ownedAssets = new Map<string, Set<string>>();
+  private importSessions = new Set<ImageImportSession>();
   private lastSnapshot = new Map<string, { stateId: string; depth: number; time: number }>();
   private snapshotRunning = false;
   private snapshotRetryAfter = 0;
@@ -242,8 +244,15 @@ export class Workbench {
     );
     let reconcile = !!options.operations;
     let dispatched = false;
-    const send = async (prepared: Envelope): Promise<Reply> =>
-      this.queue.enqueue(async () => {
+    const send = async (prepared: Envelope): Promise<Reply> => {
+      let consumedReply: Reply | undefined;
+      return this.queue.enqueue(async () => {
+        if (consumedReply) {
+          // A lost receipt must never replay a command whose patch and events
+          // have already been consumed, even if the core retired its reply.
+          await this.transport.acknowledge(prepared.sessionId, prepared.commandId);
+          return consumedReply;
+        }
         // After an uncertain ACK, the exact command must reach the core again even
         // if its plugin stopped meanwhile: it may already own committed resources.
         if (!dispatched && options.guard && !options.guard())
@@ -256,7 +265,15 @@ export class Workbench {
         if (!dispatched) options.onDispatch?.();
         dispatched = true;
         const result = await this.transport.dispatch(prepared);
-        if (result.patch) this.applyPatch(result.patch, isHistory(command));
+        if (result.patch) {
+          this.applyPatch(result.patch, isHistory(command));
+          if (!result.error) {
+            const owned = this.ownedAssets.get(result.patch.id) ?? new Set<string>();
+            for (const image of result.patch.upsertImages)
+              if (this.assets.get(image.assetId)) owned.add(image.assetId);
+            this.ownedAssets.set(result.patch.id, owned);
+          }
+        }
         const after = this.value.projects.find((project) => project.id === projectId);
         const oldMarker = before?.images
           .find((image) => image.id === this.value.imageId)
@@ -291,9 +308,6 @@ export class Workbench {
           else if (command.type === 'closeProject' && projectId)
             this.publish('project.closed', { projectId });
           if (before && after && before.stateId !== after.stateId) {
-            for (const image of after.images)
-              if (this.assets.get(image.assetId))
-                this.ownedAssets.get(after.id)?.add(image.assetId);
             const changes = documentChanges(before, after);
             const event = JSON.parse(
               JSON.stringify({
@@ -318,8 +332,11 @@ export class Workbench {
             this.publish('history.changed', { ...event, historyRevision: after.historyRevision });
           }
         }
+        consumedReply = result;
+        await this.transport.acknowledge(prepared.sessionId, prepared.commandId);
         return result;
       });
+    };
     let reply: Reply;
     if (
       projectId &&
@@ -511,14 +528,19 @@ export class Workbench {
     );
     return operation;
   }
-  async importImages(files: PickedFile[]) {
-    try {
-      return await this.assets.import(files, this.transport, (done, total) =>
-        this.state.update((s) => ({ ...s, progress: { done, total } })),
-      );
-    } finally {
-      this.state.update((s) => ({ ...s, progress: null }));
-    }
+  beginImportSession() {
+    if (this.disposed) throw new Error('图片资源会话已关闭');
+    const session = new ImageImportSession(
+      this.assets,
+      this.transport,
+      (progress) => this.state.update((s) => ({ ...s, progress })),
+      () => {
+        this.importSessions.delete(session);
+        this.releaseStagedAssets();
+      },
+    );
+    this.importSessions.add(session);
+    return session;
   }
   async create(name: string, images: ImageDocument[]) {
     await this.barrier();
@@ -530,7 +552,6 @@ export class Workbench {
       images,
     };
     await this.dispatch({ type: 'createProject', document, saved: false }, undefined, null);
-    this.ownedAssets.set(document.id, new Set(images.map((i) => i.assetId)));
     this.activate(document.id);
   }
   async parseProject(picked: PickedFile): Promise<OpenDraft> {
@@ -558,7 +579,6 @@ export class Workbench {
         .rememberFile(draft.path)
         .catch((error) => this.notice(`项目已打开；最近文件记录失败：${message(error)}`));
     }
-    this.ownedAssets.set(draft.document.id, new Set(draft.document.images.map((i) => i.assetId)));
     this.activate(draft.document.id);
   }
   async switchProject(projectId: string) {
@@ -642,10 +662,8 @@ export class Workbench {
   async addImages(images: ImageDocument[]) {
     await this.barrier();
     if (!this.active) return;
-    const projectId = this.active.id;
     await this.dispatch({ type: 'addImages', images }, { label: '添加图片' });
-    images.forEach((i) => this.ownedAssets.get(projectId)?.add(i.assetId));
-    if (!this.value.imageId) await this.selectImage(images[0]?.id ?? null);
+    if (!this.value.imageId) await this.selectImage(this.active?.images[0]?.id ?? null);
   }
   private context(imageId = this.value.imageId, markerId = this.value.markerId) {
     return imageId
@@ -1198,6 +1216,7 @@ export class Workbench {
     this.queue.dispose();
     this.mutations.dispose();
     this.resources.dispose();
+    for (const session of this.importSessions) session.release();
     this.assets.dispose();
     this.transport.dispose();
   }

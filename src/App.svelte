@@ -130,6 +130,7 @@
   let openDraft = $state<OpenDraft | null>(null),
     candidates = $state<ImageDocument[]>([]),
     assignments = $state<Record<string, string>>({});
+  let openImportSession: ReturnType<Workbench['beginImportSession']> | null = null;
   let snapshotList = $state<Snapshot[]>([]),
     recent = $state<string[]>([]);
   let sidebar = $state<'images' | 'settings' | 'search'>(layout.sidebar),
@@ -313,18 +314,31 @@
   async function createProject() {
     if (!newName.trim() || !newFiles.length) return;
     await busy(async () => {
-      const images = await workbench.importImages(newFiles);
-      await workbench.create(newName, images);
-      modal = null;
-      newFiles = [];
+      const session = workbench.beginImportSession();
+      try {
+        await workbench.create(newName, await session.import(newFiles));
+        modal = null;
+        newFiles = [];
+      } finally {
+        session.release();
+      }
     });
+  }
+  async function importAndAddImages(files: PickedFile[]) {
+    const session = workbench.beginImportSession();
+    try {
+      await workbench.addImages(await session.import(files));
+    } finally {
+      session.release();
+    }
   }
   async function addImages() {
     const files = await platform.pickImages();
-    if (files.length)
-      await busy(async () => {
-        await workbench.addImages(await workbench.importImages(files));
-      });
+    if (files.length) await busy(() => importAndAddImages(files));
+  }
+  function releaseOpenImport() {
+    openImportSession?.release();
+    openImportSession = null;
   }
   async function chooseOpen() {
     popups.close('action');
@@ -336,6 +350,8 @@
     popups.close('action');
     await busy(async () => {
       const draft = await workbench.parseProject(file);
+      releaseOpenImport();
+      openImportSession = workbench.beginImportSession();
       openDraft = draft;
       candidates = [];
       assignments = {};
@@ -356,8 +372,11 @@
     });
   }
   async function addCandidates(files: PickedFile[]) {
-    if (!files.length) return;
-    candidates = [...candidates, ...(await workbench.importImages(files))];
+    const session = openImportSession;
+    if (!files.length || !session) return;
+    const images = await session.import(files);
+    if (session !== openImportSession) return;
+    candidates = [...candidates, ...images];
     const next = { ...assignments };
     for (const required of openDraft?.document.images ?? []) {
       if (next[required.id]) continue;
@@ -387,6 +406,7 @@
       }),
     };
     await workbench.finishOpen({ ...draft, document });
+    releaseOpenImport();
     modal = null;
     openDraft = null;
     recent = await platform.recentFiles();
@@ -507,6 +527,8 @@
         file: new File([new Uint8Array(item.bytes)], `${item.projectName}.bf`),
       });
     await workbench.barrier();
+    releaseOpenImport();
+    openImportSession = workbench.beginImportSession();
     openDraft = {
       document: { ...JSON.parse(JSON.stringify(item.document)), id: id() },
       warnings: item.exportError
@@ -717,7 +739,7 @@
       await openFile(doc);
       return;
     }
-    if (project) await busy(async () => workbench.addImages(await workbench.importImages(files)));
+    if (project) await busy(() => importAndAddImages(files));
     else {
       await newProject();
       newFiles = files;
@@ -818,6 +840,7 @@
   });
   $effect(() => {
     if (!modal && !working) {
+      releaseOpenImport();
       workbench.releaseStagedAssets();
       candidates = [];
       openDraft = null;
@@ -880,6 +903,7 @@
       assistance.dispose();
       updater.dispose();
       void plugins.dispose();
+      releaseOpenImport();
       workbench.dispose();
     };
   });

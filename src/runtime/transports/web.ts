@@ -46,6 +46,10 @@ export function createTransport(): CoreTransport {
       await ready;
       return call('dispatch', [envelope]);
     },
+    acknowledge: async (sessionId, commandId) => {
+      await ready;
+      return call<void>('acknowledge', [sessionId, commandId]);
+    },
     importProject: async (bytes, format, id) => {
       await ready;
       return call('importProject', [bytes, format, id]);

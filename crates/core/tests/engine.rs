@@ -691,6 +691,210 @@ fn failed_commands_are_cached_without_consuming_state_ids() {
     assert_eq!(patch.state_id, "p:1");
 }
 
+fn lifecycle_envelope(command_id: &str, command: Command) -> Envelope {
+    Envelope {
+        command_id: command_id.into(),
+        session_id: "receipt-test".into(),
+        project_id: Some("p".into()),
+        command,
+        history: None,
+        expected_state_id: None,
+    }
+}
+
+#[test]
+fn acknowledged_replies_release_merged_versions_and_closed_project_documents() {
+    use std::sync::Arc;
+
+    let mut engine = Engine::new();
+    let create = lifecycle_envelope(
+        "create",
+        Command::CreateProject {
+            document: document("p"),
+            saved: true,
+        },
+    );
+    let created = engine.dispatch(create);
+    let initial_images: Vec<_> = created
+        .patch
+        .as_ref()
+        .unwrap()
+        .upsert_images
+        .iter()
+        .map(Arc::downgrade)
+        .collect();
+    engine.acknowledge("receipt-test", "create");
+    drop(created);
+
+    let metadata = Some(HistoryMeta {
+        group_id: Some("typing".into()),
+        label: "Typing".into(),
+        origin: None,
+        before: None,
+        after: None,
+    });
+    let mut first = lifecycle_envelope(
+        "first",
+        Command::AddMarker {
+            image_id: "page1".into(),
+            marker: marker("m1"),
+        },
+    );
+    first.history = metadata.clone();
+    let first_reply = engine.dispatch(first.clone());
+    let intermediate = Arc::downgrade(&first_reply.patch.as_ref().unwrap().upsert_images[0]);
+    let mut second = lifecycle_envelope(
+        "second",
+        Command::UpdateMarker {
+            image_id: "page1".into(),
+            marker_id: "m1".into(),
+            geometry: None,
+            translation: Some(text("translated")),
+            style: None,
+        },
+    );
+    second.history = metadata;
+    let second_reply = engine.dispatch(second);
+    let current = Arc::downgrade(&second_reply.patch.as_ref().unwrap().upsert_images[0]);
+    assert_eq!(
+        engine
+            .history("p", HistoryQuery::default())
+            .unwrap()
+            .undo_total,
+        1
+    );
+    // An unacknowledged reply must still survive later commands exactly.
+    assert_eq!(engine.dispatch(first), first_reply);
+    drop(first_reply);
+    drop(second_reply);
+    assert!(intermediate.upgrade().is_some());
+    engine.acknowledge("receipt-test", "first");
+    assert!(intermediate.upgrade().is_none());
+    engine.acknowledge("receipt-test", "second");
+    assert!(initial_images.iter().all(|image| image.upgrade().is_some()));
+    assert!(current.upgrade().is_some());
+
+    let close = lifecycle_envelope("close", Command::CloseProject);
+    let closed = engine.dispatch(close.clone());
+    assert_eq!(engine.dispatch(close), closed);
+    engine.acknowledge("receipt-test", "close");
+    assert!(initial_images.iter().all(|image| image.upgrade().is_none()));
+    assert!(current.upgrade().is_none());
+}
+
+#[test]
+fn acknowledgements_are_idempotent_and_isolate_existing_session_command_pairs() {
+    let mut h = Harness::new();
+    let invalid = h.envelope(
+        Command::ReorderImages {
+            image_ids: vec!["page1".into(), "page1".into()],
+        },
+        None,
+    );
+    let failed = h.engine.dispatch(invalid.clone());
+    assert_eq!(failed.error.as_ref().unwrap().code, "invalidOrder");
+    let mut other_session = invalid.clone();
+    other_session.session_id = "other-session".into();
+    let other_reply = h.engine.dispatch(other_session.clone());
+
+    h.engine.acknowledge("unknown-session", &invalid.command_id);
+    assert_eq!(h.engine.dispatch(invalid.clone()), failed);
+    h.engine.acknowledge("test", &invalid.command_id);
+    h.engine.acknowledge("test", &invalid.command_id);
+    let retired = h.engine.dispatch(invalid);
+    assert_eq!(retired.error.unwrap().code, "alreadyAcknowledged");
+    assert_eq!(retired.event_revision, failed.event_revision);
+    assert!(retired.patch.is_none());
+    assert!(retired.closed_project_id.is_none());
+    assert_eq!(h.engine.dispatch(other_session), other_reply);
+
+    let future = h.envelope(
+        Command::UpdateProject {
+            name: Some("after receipt".into()),
+            source_language: None,
+            target_language: None,
+        },
+        None,
+    );
+    h.engine.acknowledge("test", &future.command_id);
+    let reply = h.engine.dispatch(future);
+    assert!(reply.error.is_none());
+    assert_eq!(reply.event_revision, other_reply.event_revision + 1);
+    assert_eq!(reply.patch.unwrap().state_id, "p:1");
+}
+
+#[test]
+fn retired_lifecycle_and_history_commands_cannot_mutate_a_reopened_project() {
+    let mut engine = Engine::new();
+    let create = lifecycle_envelope(
+        "create",
+        Command::CreateProject {
+            document: document("p"),
+            saved: true,
+        },
+    );
+    let created = engine.dispatch(create.clone());
+    engine.acknowledge("receipt-test", "create");
+    let added = lifecycle_envelope(
+        "add",
+        Command::AddMarker {
+            image_id: "page1".into(),
+            marker: marker("m1"),
+        },
+    );
+    assert!(engine.dispatch(added).error.is_none());
+    engine.acknowledge("receipt-test", "add");
+    let undo = lifecycle_envelope("undo", Command::Undo);
+    let undone = engine.dispatch(undo.clone());
+    engine.acknowledge("receipt-test", "undo");
+    let close = lifecycle_envelope("close", Command::CloseProject);
+    let closed = engine.dispatch(close.clone());
+    engine.acknowledge("receipt-test", "close");
+
+    // Retrying an acknowledged create must not resurrect a closed project.
+    let retired_create = engine.dispatch(create);
+    assert_eq!(retired_create.error.unwrap().code, "alreadyAcknowledged");
+    assert_eq!(retired_create.event_revision, created.event_revision);
+    assert!(engine.document("p").is_err());
+
+    let reopen = lifecycle_envelope(
+        "reopen",
+        Command::CreateProject {
+            document: document("p"),
+            saved: true,
+        },
+    );
+    assert!(engine.dispatch(reopen).error.is_none());
+    let edit = lifecycle_envelope(
+        "new-edit",
+        Command::AddMarker {
+            image_id: "page1".into(),
+            marker: marker("new-marker"),
+        },
+    );
+    let edited = engine.dispatch(edit);
+    let before = engine.document("p").unwrap();
+    let history = engine.history("p", HistoryQuery::default()).unwrap();
+    for (command, expected_revision) in [
+        (undo, undone.event_revision),
+        (close, closed.event_revision),
+    ] {
+        let retired = engine.dispatch(command);
+        assert_eq!(retired.error.unwrap().code, "alreadyAcknowledged");
+        assert_eq!(retired.event_revision, expected_revision);
+        assert!(retired.patch.is_none());
+        assert!(retired.closed_project_id.is_none());
+        assert_eq!(engine.document("p").unwrap(), before);
+        assert_eq!(
+            engine.history("p", HistoryQuery::default()).unwrap(),
+            history
+        );
+    }
+    let next = engine.dispatch(lifecycle_envelope("new-undo", Command::Undo));
+    assert_eq!(next.event_revision, edited.event_revision + 1);
+    assert!(engine.document("p").unwrap().images[0].markers.is_empty());
+}
+
 #[test]
 fn marker_order_keeps_bunny_cache_attached_to_identity() {
     let mut h = Harness::new();

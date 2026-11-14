@@ -16,6 +16,9 @@ self.onmessage = ({ data }: MessageEvent<{ id: number; method: string; args: unk
         case 'dispatch':
           result = core.dispatch(a);
           break;
+        case 'acknowledge':
+          core.acknowledge(a as string, b as string);
+          break;
         case 'importProject':
           result = core.importProject(a as Uint8Array, b as string, c as string);
           break;

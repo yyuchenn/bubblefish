@@ -4,6 +4,7 @@ declare module '*bubblefish_wasm' {
   export class CoreHost {
     constructor();
     dispatch(envelope: unknown): unknown;
+    acknowledge(sessionId: string, commandId: string): void;
     document(projectId: string): unknown;
     importProject(bytes: Uint8Array, format: string, projectId: string): unknown;
     exportProject(projectId: string, format: string): Uint8Array;

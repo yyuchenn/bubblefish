@@ -101,6 +101,10 @@ mod wasm {
             value(&self.engine.dispatch(envelope))
         }
 
+        pub fn acknowledge(&mut self, session_id: &str, command_id: &str) {
+            self.engine.acknowledge(session_id, command_id);
+        }
+
         pub fn document(&self, project_id: &str) -> Result<JsValue, JsValue> {
             value(&self.engine.document(project_id).map_err(core_error)?)
         }

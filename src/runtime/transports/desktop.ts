@@ -21,6 +21,7 @@ export function createTransport(): CoreTransport {
   return {
     ready: () => run<void>('core_ready'),
     dispatch: (envelope) => run('core_dispatch', { envelope }),
+    acknowledge: (sessionId, commandId) => run<void>('core_acknowledge', { sessionId, commandId }),
     importProject: (bytes, format, projectId) =>
       run('core_import', bytes, { 'x-bf-format': format, 'x-bf-project': projectId }),
     exportProject: async (projectId, format) =>

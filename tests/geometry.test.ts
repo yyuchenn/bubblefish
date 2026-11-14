@@ -149,6 +149,7 @@ async function setup(projectIds = ['project']) {
   const transport: CoreTransport = {
     ready: async () => {},
     dispatch,
+    acknowledge: vi.fn(async () => {}),
     exportProject: vi.fn(async (projectId) =>
       new TextEncoder().encode(JSON.stringify(remotes.get(projectId)!.document)),
     ),

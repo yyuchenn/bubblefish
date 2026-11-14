@@ -47,6 +47,7 @@ async function exitWorkbench() {
   const transport: CoreTransport = {
     ready: vi.fn(async () => {}),
     dispatch,
+    acknowledge: vi.fn(async () => {}),
     importProject: vi.fn(),
     exportProject: vi.fn(async (id) => encode(id)),
     probeImage: vi.fn(),
@@ -125,6 +126,7 @@ async function setup(document: ProjectDocument = original) {
   const transport: CoreTransport = {
     ready: vi.fn(async () => {}),
     dispatch,
+    acknowledge: vi.fn(async () => {}),
     importProject: vi.fn(async () => {
       throw new Error('Unused import');
     }),
@@ -430,6 +432,68 @@ describe('Workbench transaction boundaries', () => {
     expect(workbench.value.queueError).toBeNull();
   });
 
+  it.each(['before retirement', 'after retirement'])(
+    'retries only the receipt when its response is lost %s',
+    async (failure) => {
+      const { workbench, dispatch, transport, acknowledge } = await setup();
+      const interrupted = deferred<void>();
+      const retired = new Set<string>();
+      const events = vi.fn();
+      workbench.onDomainEvent = events;
+      dispatch.mockClear();
+      dispatch.mockImplementation(async (envelope) => {
+        if (retired.has(envelope.commandId))
+          throw new Error('An acknowledged command was replayed');
+        const name = envelope.command.type === 'updateProject' ? envelope.command.name! : '';
+        return acknowledge(envelope, patch(name, `state-${name}`));
+      });
+      const receipt = vi.fn(async (_sessionId: string, commandId: string) => {
+        if (receipt.mock.calls.length === 1) {
+          if (failure === 'after retirement') retired.add(commandId);
+          interrupted.resolve();
+          throw new Error('Receipt response was lost');
+        }
+        retired.add(commandId);
+      });
+      transport.acknowledge = receipt;
+      const first = workbench.dispatch({ type: 'updateProject', name: 'first' });
+      const later = workbench.dispatch({ type: 'updateProject', name: 'later' });
+      await interrupted.promise;
+      await vi.waitFor(() => expect(workbench.queue.blocked).toBe(true));
+      expect(workbench.active!.name).toBe('first');
+      expect(dispatch).toHaveBeenCalledTimes(1);
+      expect(events.mock.calls.filter(([name]) => name === 'document.changed')).toHaveLength(1);
+      workbench.retry();
+      await Promise.all([first, later]);
+      expect(receipt.mock.calls[1]).toEqual(receipt.mock.calls[0]);
+      expect(receipt).toHaveBeenCalledTimes(3);
+      expect(dispatch).toHaveBeenCalledTimes(2);
+      expect(events.mock.calls.filter(([name]) => name === 'document.changed')).toHaveLength(2);
+      expect(workbench.active!.name).toBe('later');
+      expect(workbench.value.queueError).toBeNull();
+    },
+  );
+
+  it('acknowledges a consumed business rejection before reporting it to the caller', async () => {
+    const { workbench, dispatch, transport } = await setup();
+    dispatch.mockImplementation(async (envelope) => ({
+      commandId: envelope.commandId,
+      eventRevision: 2,
+      error: { code: 'stateConflict', message: 'Stale proposal' },
+    }));
+    vi.mocked(transport.acknowledge).mockClear();
+    await expect(workbench.dispatch({ type: 'updateProject', name: 'rejected' })).rejects.toThrow(
+      'Stale proposal',
+    );
+    const envelope = dispatch.mock.lastCall![0];
+    expect(transport.acknowledge).toHaveBeenCalledExactlyOnceWith(
+      envelope.sessionId,
+      envelope.commandId,
+    );
+    expect(workbench.queue.blocked).toBe(false);
+    expect(workbench.active!.name).toBe('original');
+  });
+
   it('waits for the editor composition barrier before exporting', async () => {
     const { workbench, transport } = await setup();
     const compositionFinished = deferred<void>();
@@ -480,6 +544,127 @@ describe('Workbench transaction boundaries', () => {
     expect(save.mock.calls[0][1].format).toBe('labelplus');
     expect(dispatch.mock.calls.some(([e]) => e.command.type === 'markSaved')).toBe(false);
     expect(workbench.dirty(workbench.active!)).toBe(true);
+  });
+});
+
+describe('Workbench user image imports', () => {
+  const pickedImages = (...names: string[]) =>
+    names.map((name) => ({ name, file: new File(['image'], name, { type: 'image/png' }) }));
+  const probe = { width: 4, height: 3, checksum: 'checksum', format: 'png' };
+
+  it('keeps matching candidates through other mutations and transfers only selected resources', async () => {
+    const { workbench, dispatch, transport, acknowledge } = await setup();
+    vi.mocked(transport.probeImage).mockResolvedValue(probe);
+    const session = workbench.beginImportSession();
+    const [selected, unused] = await session.import(pickedImages('selected.png', 'unused.png'));
+    const defaultDispatch = dispatch.getMockImplementation()!;
+    dispatch.mockImplementation(async (envelope) => {
+      if (envelope.command.type === 'updateProject')
+        return acknowledge(envelope, patch('background completed', 'state-1'));
+      if (envelope.command.type === 'createProject') {
+        const document = envelope.command.document;
+        return {
+          commandId: envelope.commandId,
+          eventRevision: 3,
+          projectId: document.id,
+          patch: {
+            ...patch(document.name, `${document.id}:0`),
+            id: document.id,
+            imageOrder: document.images.map((image) => image.id),
+            upsertImages: document.images,
+          },
+        };
+      }
+      return defaultDispatch(envelope);
+    });
+    await workbench.dispatch({ type: 'updateProject', name: 'background completed' });
+    for (const image of [selected, unused])
+      await expect(workbench.assets.file(image.assetId)).resolves.toBeInstanceOf(File);
+    workbench.onDomainEvent = () => workbench.releaseStagedAssets();
+    await workbench.finishOpen({
+      document: { ...original, id: 'imported', images: [selected] },
+      warnings: [],
+      forceSaveAs: false,
+      format: 'bf',
+    });
+    const selectedUrl = workbench.assets.get(selected.assetId)!.url;
+    const unusedUrl = workbench.assets.get(unused.assetId)!.url;
+    const revoked = vi.spyOn(URL, 'revokeObjectURL');
+    session.release();
+    expect(workbench.assets.get(selected.assetId)?.url).toBe(selectedUrl);
+    expect(workbench.assets.get(unused.assetId)).toBeUndefined();
+    expect(revoked).toHaveBeenCalledExactlyOnceWith(unusedUrl);
+  });
+
+  it('keeps an import leased through an uncertain create acknowledgement and its retry', async () => {
+    const { workbench, dispatch, transport } = await setup();
+    vi.mocked(transport.probeImage).mockResolvedValue(probe);
+    const session = workbench.beginImportSession();
+    const images = await session.import(pickedImages('pending.png'));
+    let attempts = 0;
+    dispatch.mockImplementation(async (envelope) => {
+      if (++attempts === 1) throw new Error('Create reply was lost');
+      return {
+        commandId: envelope.commandId,
+        eventRevision: 2,
+        projectId: 'imported',
+        patch: {
+          ...patch('imported', 'imported:0'),
+          id: 'imported',
+          imageOrder: images.map((image) => image.id),
+          upsertImages: images,
+        },
+      };
+    });
+    dispatch.mockClear();
+    const opening = workbench.finishOpen({
+      document: { ...original, id: 'imported', images },
+      warnings: [],
+      forceSaveAs: false,
+      format: 'bf',
+    });
+    await vi.waitFor(() => expect(workbench.queue.blocked).toBe(true));
+    workbench.releaseStagedAssets();
+    expect(workbench.assets.get(images[0].assetId)).toBeDefined();
+    workbench.retry();
+    await opening;
+    expect(dispatch.mock.calls[1][0]).toBe(dispatch.mock.calls[0][0]);
+    session.release();
+    workbench.releaseStagedAssets();
+    expect(workbench.active!.images[0].assetId).toBe(images[0].assetId);
+    expect(workbench.assets.get(images[0].assetId)).toBeDefined();
+  });
+
+  it('does not claim an imported image removed from the committed proposal by a hook', async () => {
+    const { workbench, transport, dispatch, acknowledge, remote } = await setup();
+    vi.mocked(transport.probeImage).mockResolvedValue(probe);
+    const session = workbench.beginImportSession();
+    const images = await session.import(pickedImages('filtered.png'));
+    workbench.mutations.intercept = async () => [];
+    const defaultDispatch = dispatch.getMockImplementation()!;
+    dispatch.mockImplementation(async (envelope) =>
+      envelope.command.type === 'batch'
+        ? acknowledge(envelope, remote.current)
+        : defaultDispatch(envelope),
+    );
+    await workbench.addImages(images);
+    session.release();
+    expect(workbench.assets.get(images[0].assetId)).toBeUndefined();
+    expect(workbench.active!.images).toEqual([]);
+    expect(workbench.value.imageId).toBeNull();
+  });
+
+  it('closes live import sessions when the Workbench is disposed', async () => {
+    const { workbench, transport } = await setup();
+    vi.mocked(transport.probeImage).mockResolvedValue(probe);
+    const session = workbench.beginImportSession();
+    const [image] = await session.import(pickedImages('cancelled.png'));
+    const revoked = vi.spyOn(URL, 'revokeObjectURL');
+    workbench.dispose();
+    expect(workbench.assets.get(image.assetId)).toBeUndefined();
+    expect(revoked).toHaveBeenCalledTimes(1);
+    await expect(session.import(pickedImages('closed.png'))).rejects.toThrow('会话已关闭');
+    expect(() => workbench.beginImportSession()).toThrow('会话已关闭');
   });
 });
 

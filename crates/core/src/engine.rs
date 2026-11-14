@@ -559,8 +559,15 @@ fn validate_order(current: &[String], requested: &[String]) -> Result<(), CoreEr
 #[derive(Default)]
 pub struct Engine {
     projects: HashMap<String, Project>,
-    replies: HashMap<(String, String), Reply>,
+    replies: HashMap<(String, String), CachedReply>,
     revision: u64,
+}
+
+enum CachedReply {
+    Pending(Box<Reply>),
+    // Keep duplicate detection after dropping the potentially large patch. An
+    // acknowledged command must never execute again, even if its project reopens.
+    Acknowledged { event_revision: u64 },
 }
 
 impl Engine {
@@ -633,8 +640,21 @@ impl Engine {
 
     pub fn dispatch(&mut self, envelope: Envelope) -> Reply {
         let key = (envelope.session_id.clone(), envelope.command_id.clone());
-        if let Some(reply) = self.replies.get(&key) {
-            return reply.clone();
+        if let Some(cached) = self.replies.get(&key) {
+            return match cached {
+                CachedReply::Pending(reply) => reply.as_ref().clone(),
+                CachedReply::Acknowledged { event_revision } => Reply {
+                    command_id: envelope.command_id,
+                    event_revision: *event_revision,
+                    project_id: None,
+                    patch: None,
+                    closed_project_id: None,
+                    error: Some(CoreError::new(
+                        "alreadyAcknowledged",
+                        "The command reply has already been acknowledged",
+                    )),
+                },
+            };
         }
         self.revision += 1;
         let mut reply = Reply {
@@ -656,8 +676,22 @@ impl Engine {
                 Err(error) => reply.error = Some(error),
             }
         }
-        self.replies.insert(key, reply.clone());
+        self.replies
+            .insert(key, CachedReply::Pending(Box::new(reply.clone())));
         reply
+    }
+
+    /// Release a reply's document payload after the caller has consumed it.
+    /// Before this receipt, retries return the exact original reply. Receipts
+    /// are idempotent, and unknown IDs do not reserve a future command ID.
+    pub fn acknowledge(&mut self, session_id: &str, command_id: &str) {
+        let key = (session_id.to_owned(), command_id.to_owned());
+        if let Some(cached) = self.replies.get_mut(&key) {
+            if let CachedReply::Pending(reply) = cached {
+                let event_revision = reply.event_revision;
+                *cached = CachedReply::Acknowledged { event_revision };
+            }
+        }
     }
 
     fn execute(&mut self, envelope: Envelope, reply: &mut Reply) -> Result<(), CoreError> {

@@ -18,6 +18,7 @@ export function createTransport(): CoreTransport {
   return {
     ready: async () => (await use()).ready(),
     dispatch: async (e) => (await use()).dispatch(e),
+    acknowledge: async (sessionId, commandId) => (await use()).acknowledge(sessionId, commandId),
     importProject: async (bytes, format, id) => (await use()).importProject(bytes, format, id),
     exportProject: async (id, format) => (await use()).exportProject(id, format),
     probeImage: async (bytes) => (await use()).probeImage(bytes),

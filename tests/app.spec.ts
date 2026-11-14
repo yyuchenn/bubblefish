@@ -121,12 +121,17 @@ test('WASM matches the native golden command trajectory and final documents', as
       });
       const encoded = core.encodeProject(exportedCopy, 'bf');
       const reopened: ProjectDocument = core.importProject(encoded, 'bf', 'export-copy').document;
+      const consumed = trace.envelopes[3] as { sessionId: string; commandId: string };
+      core.acknowledge(consumed.sessionId, consumed.commandId);
+      core.acknowledge(consumed.sessionId, consumed.commandId);
+      const acknowledgedReplay = core.dispatch(consumed);
       return {
         replies,
         documents,
         histories,
         previewName: preview.name,
         stalePreviewRejected,
+        acknowledgedReplay,
         historyPage: core.history(captured.id, { offset: 1, limit: 1 }),
         afterQueries: core.document(captured.id),
         afterHistory: core.history(captured.id, {}),
@@ -145,6 +150,14 @@ test('WASM matches the native golden command trajectory and final documents', as
   expect(result.histories).toEqual(fixture.histories);
   expect(result.previewName).toBe('validated export preview');
   expect(result.stalePreviewRejected).toBe(true);
+  expect(result.acknowledgedReplay).toEqual({
+    commandId: (fixture.envelopes[3] as { commandId: string }).commandId,
+    eventRevision: (fixture.replies[3] as { eventRevision: number }).eventRevision,
+    error: {
+      code: 'alreadyAcknowledged',
+      message: 'The command reply has already been acknowledged',
+    },
+  });
   expect(result.historyPage.undo).toEqual(fixture.histories[0].undo.slice(1, 2));
   expect(result.historyPage.redo).toEqual(fixture.histories[0].redo.slice(1, 2));
   expect(result.afterQueries).toEqual(fixture.documents[0]);
@@ -485,6 +498,72 @@ test('automatic timed snapshots can be downloaded, restored with matching images
   await page.getByRole('button', { name: '快照', exact: true }).click();
   await snapshots.getByRole('button', { name: '删除快照' }).click();
   await expect(snapshots).toContainText('还没有快照');
+});
+
+test('matching releases cancelled and unused imports while keeping committed images available', async ({
+  page,
+}) => {
+  await ready(page);
+  await createProject(page, '导入会话', imagePaths.slice(0, 1));
+  const download = page.waitForEvent('download');
+  await saveFromMenu(page);
+  const projectPath = test.info().outputPath('import-session.bf');
+  await (await download).saveAs(projectPath);
+  await page.evaluate(() => {
+    const urls = { created: [] as { url: string; name: string }[], revoked: [] as string[] };
+    (window as unknown as { importUrls: typeof urls }).importUrls = urls;
+    const create = URL.createObjectURL;
+    const revoke = URL.revokeObjectURL;
+    URL.createObjectURL = (blob) => {
+      const url = create(blob);
+      if (blob instanceof File) urls.created.push({ url, name: blob.name });
+      return url;
+    };
+    URL.revokeObjectURL = (url) => {
+      urls.revoked.push(url);
+      revoke(url);
+    };
+  });
+  const urls = () =>
+    page.evaluate(
+      () =>
+        (
+          window as unknown as {
+            importUrls: { created: { url: string; name: string }[]; revoked: string[] };
+          }
+        ).importUrls,
+    );
+  const openMatching = async () => {
+    const chooser = page.waitForEvent('filechooser');
+    await page.keyboard.press(`${mod}+o`);
+    await (await chooser).setFiles(projectPath);
+    const dialog = page.getByRole('dialog', { name: '匹配项目图片' });
+    await dialog.getByLabel('匹配图片', { exact: true }).setInputFiles(imagePaths.slice(0, 2));
+    await expect(dialog.getByRole('button', { name: '打开项目', exact: true })).toBeEnabled();
+    return dialog;
+  };
+  const cancelled = await openMatching();
+  const cancelledUrls = (await urls()).created.map(({ url }) => url);
+  expect(cancelledUrls).toHaveLength(2);
+  await cancelled.getByRole('button', { name: '关闭弹窗' }).click();
+  await expect(cancelled).not.toBeVisible();
+  await expect
+    .poll(async () => (await urls()).revoked)
+    .toEqual(expect.arrayContaining(cancelledUrls));
+
+  const committing = await openMatching();
+  const imported = (await urls()).created.slice(2);
+  const selected = imported.find(({ name }) => name === 'page-1.png')!.url;
+  const unused = imported.find(({ name }) => name === 'page-2.png')!.url;
+  await committing.getByRole('button', { name: '打开项目', exact: true }).click();
+  await expect(committing).not.toBeVisible();
+  const canvasImage = page.getByRole('application', { name: '图片标注画布' }).locator('img');
+  await expect(canvasImage).toHaveAttribute('src', selected);
+  await expect
+    .poll(() => canvasImage.evaluate((image: HTMLImageElement) => image.naturalWidth))
+    .toBeGreaterThan(0);
+  await expect.poll(async () => (await urls()).revoked).toContain(unused);
+  expect((await urls()).revoked).not.toContain(selected);
 });
 
 test('legacy MD5-prefixed checksums match renamed images and reject same-name changed content', async ({
