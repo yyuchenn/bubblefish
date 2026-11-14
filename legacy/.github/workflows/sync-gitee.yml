@@ -1,0 +1,59 @@
+name: Sync to Gitee (For Updater)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    name: Sync Updater Branch to Gitee
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository (updater branch)
+        uses: actions/checkout@v4
+        with:
+          ref: updater
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Pull latest changes
+        run: |
+          git pull origin updater
+      
+      - name: Update latest.json URLs for Gitee
+        run: |
+          # Configure git first
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          if [ -f latest.json ]; then
+            echo "Updating latest.json URLs from GitHub to Gitee..."
+            
+            # Replace GitHub URLs with Gitee URLs
+            sed -i 's|https://github.com/yyuchenn/bubblefish|https://gitee.com/yyuchenn/bubblefish|g' latest.json
+            
+            echo "Updated latest.json:"
+            cat latest.json
+            
+            # Commit the changes
+            git add latest.json
+            git commit -m "Update URLs for Gitee mirror" || echo "No changes to commit"
+          else
+            echo "latest.json not found, skipping URL update"
+          fi
+      
+      - name: Push updater branch to Gitee
+        run: |
+          
+          # Add Gitee remote
+          git remote add gitee https://oauth2:${{ secrets.GITEE_TOKEN }}@gitee.com/yyuchenn/bubblefish.git || true
+          
+          # Force push updater branch to Gitee
+          git push gitee updater --force
+          
+          echo "✅ Updater branch synced to Gitee"
+
+     

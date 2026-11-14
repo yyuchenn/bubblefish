@@ -1,0 +1,27 @@
+{
+  "id": "test.command-feedback",
+  "name": "命令反馈测试",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "entrypoints": { "web": "web.js" },
+  "permissions": [],
+  "contributes": {
+    "commands": [
+      { "id": "status", "title": "查询测试状态" },
+      { "id": "empty", "title": "返回空值" },
+      { "id": "false", "title": "返回布尔值" },
+      { "id": "zero", "title": "返回零" },
+      { "id": "text", "title": "返回文本" },
+      { "id": "failed-result", "title": "返回未通过数据" },
+      { "id": "delayed", "title": "执行等待测试" },
+      { "id": "indeterminate", "title": "执行未知进度测试" },
+      { "id": "ignore-cancel", "title": "执行不合作取消测试" },
+      { "id": "error", "title": "触发测试错误" },
+      { "id": "summary-error", "title": "摘要后触发错误" }
+    ],
+    "panels": [{ "id": "internal", "title": "内部命令测试面板", "entry": "panel.html" }],
+    "configuration": [
+      { "key": "delayMs", "label": "命令测试等待毫秒", "type": "number", "default": 1500 }
+    ]
+  }
+}

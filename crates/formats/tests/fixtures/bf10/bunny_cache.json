@@ -1,0 +1,10 @@
+[
+  {
+    "pageIndex": 0,
+    "markerIndex": 1,
+    "originalText": "原文",
+    "machineTranslation": "机翻",
+    "lastOcrModel": "fixture",
+    "customField": { "preserved": true }
+  }
+]

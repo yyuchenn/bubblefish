@@ -1,11 +1,14 @@
 {
-    "eslint.workingDirectories": [
-        "frontend"
-    ],
-    "eslint.validate": [
-        "javascript",
-        "typescriptreact",
-        "svelte",
-    ],
-    "rust-analyzer.cargo.features": ["wasm"]
+  "rust-analyzer.linkedProjects": ["Cargo.toml"],
+  "files.watcherExclude": {
+    "**/.cache/**": true,
+    "**/target/**": true,
+    "**/legacy/**": true
+  },
+  "search.exclude": {
+    "legacy": true,
+    ".cache": true,
+    "target": true,
+    "dist": true
+  }
 }

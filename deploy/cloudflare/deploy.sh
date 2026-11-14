@@ -1,14 +1,15 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Build
-cd ../..
-python build.py web-build
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+repo_dir=$(cd -- "$script_dir/../.." && pwd)
+branch=${1:-preview}
+if [[ ! "$branch" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo 'Deployment branch must contain only letters, digits, dots, underscores or hyphens.' >&2
+  exit 1
+fi
 
-# Copy headers
-cp deploy/cloudflare/_headers frontend/build/
-
-# Deploy
-wrangler pages deploy frontend/build \
-  --project-name=bubblefish \
-  --branch=${1:-preview}
+cd -- "$repo_dir"
+npm run build:web
+cp deploy/cloudflare/_headers dist/web/_headers
+npx wrangler pages deploy dist/web --project-name=bubblefish --branch="$branch"

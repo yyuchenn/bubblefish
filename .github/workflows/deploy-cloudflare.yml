@@ -1,120 +1,102 @@
-name: Deploy to Cloudflare Pages
+name: Verify and deploy Bubblefish web
 
 on:
   push:
-    branches:
-      - main
-      - 'preview_*'
+    branches: [main, 'preview_*']
+    paths-ignore: ['legacy/**']
   pull_request:
-    branches:
-      - main
+    branches: [main]
+    paths-ignore: ['legacy/**']
   release:
-    types: [published, prereleased]
+    types: [published]
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Deployment environment'
+        description: Deployment environment
+        default: preview
         required: true
-        default: 'preview'
         type: choice
-        options:
-          - preview
-          - production
+        options: [preview, production]
+
+permissions:
+  contents: read
 
 env:
-  NODE_VERSION: '20'
-  PYTHON_VERSION: '3.11'
-  RUST_VERSION: 'stable'
+  BUBBLEFISH_RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
 
 jobs:
-  build-and-deploy:
+  verify:
+    name: Verify core, plugins and browser workflows
     runs-on: ubuntu-latest
-    
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - name: Install test browsers
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: .cache/ms-playwright
+        run: npx playwright install --with-deps chromium webkit
+      - name: Verify application
+        run: npm run verify
+      - name: Check WASM and production plugin types
+        run: |
+          npm run check:wasm
+          npm run plugin:deepseek:check
+          npm run plugin:kha-white:check
+      - name: Add hosting headers
+        run: cp deploy/cloudflare/_headers dist/web/_headers
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bubblefish-web
+          path: dist/web/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bubblefish-browser-failures
+          path: |
+            .cache/playwright-report/
+            .cache/playwright-results/
+          include-hidden-files: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+  deploy:
+    name: Deploy verified web artifact
+    needs: verify
+    if: github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       deployments: write
-      
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+          rust: 'false'
+          dependencies: 'false'
+      - uses: actions/download-artifact@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: ${{ env.RUST_VERSION }}
-          targets: wasm32-unknown-unknown
-
-      - name: Install Rust nightly for WASM threads
+          name: bubblefish-web
+          path: dist/web/
+      - name: Select deployment branch
+        id: destination
+        env:
+          DEPLOY_EVENT: ${{ github.event_name }}
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
+          DEPLOY_REF: ${{ github.head_ref || github.ref_name }}
         run: |
-          rustup toolchain install nightly
-          rustup component add rust-src --toolchain nightly
-          rustup target add wasm32-unknown-unknown --toolchain nightly
-
-      - name: Cache Rust dependencies
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
-
-      - name: Install build dependencies
-        run: |
-          # Install wasm-pack if not present
-          if ! command -v wasm-pack &> /dev/null; then
-            curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
-          fi
-          # Install Yarn
-          npm install -g yarn
-
-      - name: Cache Node modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            frontend/node_modules
-            ~/.cache/yarn
-          key: ${{ runner.os }}-node-${{ hashFiles('frontend/yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
-
-      - name: Build web application with plugins
-        run: python build.py web-build-all
-
-      - name: Copy deployment headers
-        run: cp deploy/cloudflare/_headers frontend/build/_headers
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+          const production = process.env.DEPLOY_EVENT === 'release' || process.env.DEPLOY_ENVIRONMENT === 'production';
+          const branch = production ? 'main' : process.env.DEPLOY_REF === 'main' ? 'preview' : process.env.DEPLOY_REF.replace(/[^A-Za-z0-9._-]/g, '-');
+          if (!branch) throw new Error('Empty deployment branch');
+          appendFileSync(process.env.GITHUB_OUTPUT, `branch=${branch}\n`);
+          NODE
+      - uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          command: pages deploy frontend/build --project-name=bubblefish --branch=${{ github.event_name == 'release' && 'main' || (github.ref == 'refs/heads/main' && 'preview' || github.head_ref || github.ref_name) }} --commit-dirty=true
-
-      - name: Comment PR with deployment URL
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const deploymentUrl = process.env.CF_PAGES_URL;
-            if (deploymentUrl) {
-              github.rest.issues.createComment({
-                issue_number: context.issue.number,
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                body: `🚀 Preview deployment ready at: ${deploymentUrl}`
-              });
-            }
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist/web --project-name=bubblefish --branch=${{ steps.destination.outputs.branch }} --commit-dirty=true

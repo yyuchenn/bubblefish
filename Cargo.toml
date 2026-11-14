@@ -1,25 +1,23 @@
 [workspace]
-members = [
-    "core", 
-    "desktop",
-    "plugins/plugin-sdk",
-    "plugins/marker-logger-plugin",
-    "plugins/md5-calculator-plugin",
-    "plugins/dummy-ocr-plugin",
-    "plugins/dummy-translation-plugin",
-    "plugins/kha-white-ocr-plugin",
-    "plugins/doubao-translation-plugin"
-]
+members = ["crates/core", "crates/formats", "crates/wasm", "crates/plugin-protocol", "crates/plugin-sdk", "src-tauri", "tools/typegen", "plugins/kha-white-ocr/rust"]
+default-members = ["crates/core", "crates/formats", "crates/plugin-protocol", "crates/plugin-sdk"]
+exclude = ["legacy"]
 resolver = "2"
 
+[workspace.package]
+version = "0.4.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.90"
+
+[workspace.dependencies]
+serde = { version = "1.0.229", features = ["derive", "rc"] }
+serde_json = "1.0.151"
+# Custom serde deserializers preserve missing vs. null; their TS types are explicit.
+# Keep serde compatibility while silencing ts-rs's unsupported-attribute notices.
+ts-rs = { version = "12.0.1", features = ["serde-json-impl", "no-serde-warnings"] }
 
 [profile.release]
-# WASM优化配置
-opt-level = "s"     # 优化大小（s = size, z = 最小体积）
-lto = true          # 链接时优化
-codegen-units = 1   # 单代码生成单元，更好的优化
-strip = true        # 移除调试符号，减小体积
-
-[profile.release.package.bubblefish-core]
-# 特别为core包启用更多优化
-opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

@@ -1,0 +1,4 @@
+[
+  { "id": "0", "overlayText": false, "horizontal": false },
+  { "id": "overlay-h", "overlayText": true, "horizontal": true }
+]

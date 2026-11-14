@@ -1,0 +1,34 @@
+{
+  "id": "example.edit-guard",
+  "name": "编辑检查插件",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "独立 hooks 实例按顺序规范化文本并拒绝规则冲突；主实例同时提供翻译服务。",
+  "entrypoints": { "web": "web.js" },
+  "permissions": ["document.read", "document.write", "document.intercept"],
+  "contributes": {
+    "translation": [{ "id": "guard-echo", "name": "编辑检查：主实例示例翻译" }],
+    "commands": [{ "id": "probe-main", "title": "检查编辑插件主实例" }],
+    "panels": [{ "id": "guard", "title": "编辑检查示例", "entry": "panel.html" }],
+    "beforeCommitHooks": [
+      {
+        "id": "normalize",
+        "priority": -10,
+        "operations": ["translation.set", "marker.create", "marker.update", "assistance.update"]
+      },
+      {
+        "id": "reject-block",
+        "priority": 10,
+        "operations": ["translation.set", "marker.create", "marker.update", "assistance.update"]
+      }
+    ],
+    "configuration": [
+      {
+        "key": "delayMs",
+        "label": "规范化钩子延迟（毫秒，超过 250 模拟超时）",
+        "type": "number",
+        "default": 0
+      }
+    ]
+  }
+}

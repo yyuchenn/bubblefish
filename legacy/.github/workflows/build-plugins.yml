@@ -1,0 +1,318 @@
+name: Build Native Plugins
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'plugins/**'
+      - '.github/workflows/build-plugins.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'plugins/**'
+  workflow_dispatch:
+    inputs:
+      plugin_name:
+        description: 'Specific plugin to build (leave empty for all)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  RUST_VERSION: 'stable'
+
+jobs:
+  build-windows-plugins:
+    name: Build Plugins for Windows
+    runs-on: windows-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-plugins-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-plugins-
+
+      - name: Build all plugins
+        if: github.event.inputs.plugin_name == '' || github.event.inputs.plugin_name == null
+        shell: pwsh
+        run: |
+          Write-Host "Building all native plugins for Windows..."
+          
+          # Get all plugin directories
+          $plugins = Get-ChildItem -Path "plugins" -Directory | Where-Object {
+            $_.Name -ne "plugin-sdk" -and (Test-Path "$($_.FullName)/Cargo.toml")
+          }
+          
+          $builtPlugins = @()
+          
+          foreach ($plugin in $plugins) {
+            Write-Host "Building plugin: $($plugin.Name)"
+            
+            # Build the plugin as a dynamic library
+            cargo build --manifest-path "$($plugin.FullName)/Cargo.toml" --lib --release --features native
+            
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "✓ Successfully built $($plugin.Name)"
+              $builtPlugins += $plugin.Name
+            } else {
+              Write-Host "✗ Failed to build $($plugin.Name)"
+            }
+          }
+          
+          Write-Host "`nBuilt plugins: $($builtPlugins -join ', ')"
+          
+      - name: Build specific plugin
+        if: github.event.inputs.plugin_name != '' && github.event.inputs.plugin_name != null
+        shell: pwsh
+        run: |
+          $pluginName = "${{ github.event.inputs.plugin_name }}"
+          Write-Host "Building plugin: $pluginName"
+          
+          $pluginPath = "plugins/$pluginName"
+          if (Test-Path "$pluginPath/Cargo.toml") {
+            cargo build --manifest-path "$pluginPath/Cargo.toml" --lib --release --features native
+            
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "✓ Successfully built $pluginName"
+            } else {
+              Write-Host "✗ Failed to build $pluginName"
+              exit 1
+            }
+          } else {
+            Write-Host "Plugin $pluginName not found"
+            exit 1
+          }
+
+      - name: Collect plugin artifacts
+        shell: pwsh
+        run: |
+          # Create artifacts directory
+          New-Item -ItemType Directory -Force -Path "plugin-artifacts/windows"
+          
+          # Find all built .dll files
+          $dlls = Get-ChildItem -Path "target/release" -Filter "*.dll" -File
+          
+          foreach ($dll in $dlls) {
+            # Skip non-plugin DLLs
+            if ($dll.Name -match "plugin") {
+              Write-Host "Collecting: $($dll.Name)"
+              Copy-Item $dll.FullName "plugin-artifacts/windows/"
+            }
+          }
+          
+          # List collected artifacts
+          Write-Host "`nCollected artifacts:"
+          Get-ChildItem -Path "plugin-artifacts/windows" | ForEach-Object { Write-Host "  - $($_.Name)" }
+
+      - name: Upload Windows plugin artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-plugins
+          path: plugin-artifacts/windows/
+          retention-days: 7
+
+  build-macos-plugins:
+    name: Build Plugins for macOS
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-plugins-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-plugins-
+
+      - name: Build all plugins
+        if: github.event.inputs.plugin_name == '' || github.event.inputs.plugin_name == null
+        run: |
+          echo "Building all native plugins for macOS..."
+          
+          # Get all plugin directories
+          for plugin_dir in plugins/*/; do
+            plugin_name=$(basename "$plugin_dir")
+            
+            # Skip plugin-sdk
+            if [ "$plugin_name" = "plugin-sdk" ]; then
+              continue
+            fi
+            
+            # Check if Cargo.toml exists
+            if [ -f "$plugin_dir/Cargo.toml" ]; then
+              echo "Building plugin: $plugin_name"
+              
+              # Build the plugin as a dynamic library
+              cargo build --manifest-path "$plugin_dir/Cargo.toml" --lib --release --features native
+              
+              if [ $? -eq 0 ]; then
+                echo "✓ Successfully built $plugin_name"
+              else
+                echo "✗ Failed to build $plugin_name"
+              fi
+            fi
+          done
+
+      - name: Build specific plugin
+        if: github.event.inputs.plugin_name != '' && github.event.inputs.plugin_name != null
+        run: |
+          plugin_name="${{ github.event.inputs.plugin_name }}"
+          echo "Building plugin: $plugin_name"
+          
+          plugin_path="plugins/$plugin_name"
+          if [ -f "$plugin_path/Cargo.toml" ]; then
+            cargo build --manifest-path "$plugin_path/Cargo.toml" --lib --release --features native
+            
+            if [ $? -eq 0 ]; then
+              echo "✓ Successfully built $plugin_name"
+            else
+              echo "✗ Failed to build $plugin_name"
+              exit 1
+            fi
+          else
+            echo "Plugin $plugin_name not found"
+            exit 1
+          fi
+
+      - name: Collect plugin artifacts
+        run: |
+          # Create artifacts directory
+          mkdir -p plugin-artifacts/macos
+          
+          # Find all built .dylib files
+          find target/release -name "*.dylib" -type f | while read dylib; do
+            filename=$(basename "$dylib")
+            # Only collect plugin libraries
+            if [[ "$filename" == *"plugin"* ]]; then
+              echo "Collecting: $filename"
+              cp "$dylib" "plugin-artifacts/macos/"
+            fi
+          done
+          
+          # List collected artifacts
+          echo -e "\nCollected artifacts:"
+          ls -la plugin-artifacts/macos/
+
+      - name: Upload macOS plugin artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-plugins
+          path: plugin-artifacts/macos/
+          retention-days: 7
+
+  create-plugin-bundle:
+    name: Create Plugin Bundle
+    runs-on: ubuntu-latest
+    needs: [build-windows-plugins, build-macos-plugins]
+    if: always() && (needs.build-windows-plugins.result == 'success' || needs.build-macos-plugins.result == 'success')
+    
+    steps:
+      - name: Download all plugin artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: plugins-bundle/
+
+      - name: Create combined archive
+        run: |
+          echo "Creating plugin bundle..."
+          
+          # Check what we have
+          echo "Contents of plugins-bundle:"
+          ls -la plugins-bundle/
+          
+          # Create a structured bundle
+          mkdir -p final-bundle/plugins
+          
+          # Copy Windows plugins if they exist
+          if [ -d "plugins-bundle/windows-plugins" ]; then
+            mkdir -p final-bundle/plugins/windows
+            cp -r plugins-bundle/windows-plugins/* final-bundle/plugins/windows/ 2>/dev/null || true
+            echo "Added Windows plugins to bundle"
+          fi
+          
+          # Copy macOS plugins if they exist
+          if [ -d "plugins-bundle/macos-plugins" ]; then
+            mkdir -p final-bundle/plugins/macos
+            cp -r plugins-bundle/macos-plugins/* final-bundle/plugins/macos/ 2>/dev/null || true
+            echo "Added macOS plugins to bundle"
+          fi
+          
+          # Create README for the bundle
+          cat > final-bundle/README.md << EOF
+          # Bubblefish Native Plugins
+          
+          This bundle contains native plugin libraries for Bubblefish.
+          
+          ## Directory Structure
+          - \`plugins/windows/\` - Windows DLL files
+          - \`plugins/macos/\` - macOS dylib files
+          
+          ## Installation
+          Copy the appropriate plugin files to your Bubblefish desktop application's plugins directory.
+          
+          ## Platform Compatibility
+          - Windows: .dll files (x64)
+          - macOS: .dylib files (Apple Silicon & Intel)
+          
+          ## Build Information
+          - Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          - Commit: ${{ github.sha }}
+          - Branch: ${{ github.ref_name }}
+          EOF
+          
+          # Create archive
+          cd final-bundle
+          tar -czf ../bubblefish-plugins.tar.gz *
+          cd ..
+          
+          echo "Plugin bundle created: bubblefish-plugins.tar.gz"
+          echo "Bundle size: $(du -h bubblefish-plugins.tar.gz | cut -f1)"
+
+      - name: Upload plugin bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: plugin-bundle
+          path: bubblefish-plugins.tar.gz
+          retention-days: 30
+
+      - name: Upload to Release (if release)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bubblefish-plugins.tar.gz
+          fail_on_unmatched_files: false
+          token: ${{ secrets.GITHUB_TOKEN }}
