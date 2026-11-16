@@ -78,6 +78,87 @@ test('web and Linux retain the 49px header without custom native window controls
   }
 });
 
+for (const platform of ['web', 'windows', 'linux'] as const) {
+  test(`${platform} main menus switch on mouse hover only while a main menu is open`, async ({
+    page,
+  }) => {
+    await fixture(page, platform);
+    const openMenus = header(page).locator('.app-menu[open]');
+    const file = summary(page, '文件');
+    const edit = summary(page, '编辑');
+    const view = summary(page, '视图');
+    const more = summary(page, '更多');
+    const main = page.getByRole('main', { name: '标题栏夹具', exact: true });
+
+    await file.hover();
+    await expect(openMenus).toHaveCount(0);
+    await file.click();
+    await edit.hover();
+    await expect(openMenus.locator('summary')).toHaveText(['编辑']);
+    await expect(edit).toBeFocused();
+    await main.hover();
+    await expect(openMenus.locator('summary')).toHaveText(['编辑']);
+
+    await header(page)
+      .getByRole('button', { name: /^查找替换/ })
+      .focus();
+    await view.hover();
+    await expect(openMenus.locator('summary')).toHaveText(['视图']);
+    await expect(view).toBeFocused();
+
+    await main.hover();
+    const fit = header(page).getByRole('button', { name: '适合屏幕', exact: true });
+    await fit.focus();
+    await view.hover();
+    await expect(fit).toBeFocused();
+    await expect(openMenus.locator('summary')).toHaveText(['视图']);
+    await view.click();
+    await expect(openMenus).toHaveCount(0);
+    await more.hover();
+    await expect(openMenus).toHaveCount(0);
+
+    await more.focus();
+    await page.keyboard.press('Enter');
+    await expect(openMenus.locator('summary')).toHaveText(['更多']);
+    await file.hover();
+    await expect(openMenus.locator('summary')).toHaveText(['文件']);
+    await page.keyboard.press('Escape');
+    await expect(openMenus).toHaveCount(0);
+    await expect(file).toBeFocused();
+  });
+}
+
+test('main menus ignore touch, pen, and held-button hover and leave the project chooser open', async ({
+  page,
+}) => {
+  await fixture(page, 'web');
+  const openMenus = header(page).locator('.app-menu[open]');
+  const file = summary(page, '文件');
+  const edit = summary(page, '编辑');
+  await file.click();
+  for (const pointerType of ['touch', 'pen']) {
+    await edit.dispatchEvent('pointerenter', { pointerType, buttons: 0 });
+    await expect(openMenus.locator('summary')).toHaveText(['文件']);
+    await expect(file).toBeFocused();
+  }
+  await page.mouse.down();
+  try {
+    await edit.hover();
+    await expect(openMenus.locator('summary')).toHaveText(['文件']);
+  } finally {
+    await page.mouse.up();
+  }
+
+  const projects = header(page).locator('.project-switcher');
+  await projects.locator('summary').click();
+  await summary(page, '更多').hover();
+  await expect(projects).toHaveAttribute('open', '');
+  await expect(openMenus).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await edit.hover();
+  await expect(header(page).locator('details[open]')).toHaveCount(0);
+});
+
 test('every platform exposes the same three panel toggles with synchronized state and callbacks', async ({
   page,
 }) => {
@@ -236,7 +317,7 @@ test('Windows native menus remain mutually exclusive and interactive descendants
   await clearNativeCalls(page);
   await summary(page, '文件').click();
   await expect(header(page).locator('details[open]')).toHaveCount(1);
-  await summary(page, '视图').click();
+  await summary(page, '视图').hover();
   await expect(header(page).locator('details[open]')).toHaveCount(1);
   await expect(header(page).locator('details[open] > summary')).toHaveText('视图');
   await header(page).getByRole('button', { name: '适合屏幕', exact: true }).click();

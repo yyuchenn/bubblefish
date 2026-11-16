@@ -34,16 +34,20 @@ test('disclosures are mutually exclusive, outside buttons still act, and modal/e
   page,
 }) => {
   await create(page);
-  for (const name of ['文件', '编辑', '视图', '更多']) {
-    await page.locator('.menu-bar summary').filter({ hasText: name }).click();
+  await page.locator('.menu-bar summary').filter({ hasText: '文件' }).click();
+  for (const name of ['编辑', '视图', '更多']) {
+    await page.locator('.menu-bar summary').filter({ hasText: name }).hover();
     await expect(menus(page)).toHaveCount(1);
     await expect(menus(page).locator('summary')).toHaveText(name);
   }
   await page.locator('.project-switcher > summary').click();
+  await page.locator('.menu-bar summary').filter({ hasText: '文件' }).hover();
   await expect(menus(page)).toHaveCount(1);
   await expect(page.locator('.project-switcher')).toHaveAttribute('open', '');
   await page.locator('.zoom-menu > summary').click();
+  await page.locator('.menu-bar summary').filter({ hasText: '编辑' }).hover();
   await expect(menus(page)).toHaveCount(1);
+  await expect(page.locator('.zoom-menu')).toHaveAttribute('open', '');
   const slider = page.getByRole('slider', { name: '缩放比例' });
   await slider.click();
   await expect(page.locator('.zoom-menu')).toHaveAttribute('open', '');
@@ -77,6 +81,9 @@ test('canvas and translation context menus replace each other; the first blank c
   await page.getByRole('button', { name: '翻译项 1', exact: true }).click({ button: 'right' });
   await expect(page.locator('.context-menu')).toHaveCount(1);
   await expect(page.locator('.context-menu.floating')).toBeVisible();
+  await page.locator('.menu-bar summary').filter({ hasText: '编辑' }).hover();
+  await expect(page.locator('.context-menu.floating')).toBeVisible();
+  await expect(menus(page)).toHaveCount(0);
   await page.locator('.menu-bar summary').filter({ hasText: '编辑' }).click();
   await expect(page.locator('.context-menu')).toHaveCount(0);
   await expect(menus(page)).toHaveCount(1);

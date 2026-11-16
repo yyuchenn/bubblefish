@@ -632,7 +632,6 @@
         onclick={() => format(mark)}>{['B', 'I', 'S', 'Ȧ'][index]}</button
       >
     {/each}
-    <span class="muted text-xs ml-auto">自动记录编辑</span>
   </div>
   {#if marker.translation.raw}<div class="raw-notice">
       此译文保留了旧格式原文；编辑后将按当前内容重新编码。

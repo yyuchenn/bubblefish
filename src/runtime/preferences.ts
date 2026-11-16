@@ -1,3 +1,5 @@
+export type Theme = 'ocean' | 'fruit' | 'dark';
+
 export interface LayoutPreferences {
   leftOpen: boolean;
   rightOpen: boolean;
@@ -41,6 +43,10 @@ export function writePreference(key: string, value: string) {
   } catch {
     /* Preferences are optional. */
   }
+}
+export function readThemePreference(): Theme | null {
+  const value = readPreference('theme');
+  return value === 'ocean' || value === 'fruit' || value === 'dark' ? value : null;
 }
 export function readEditorPreferences(): EditorPreferences {
   const defaults: EditorPreferences = { hoverPreview: true, autoLocateMarker: false };

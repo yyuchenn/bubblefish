@@ -79,8 +79,9 @@
     ASSISTANCE_TAB_ID,
     clampBottomHeight,
     readEditorPreferences,
-    readPreference,
+    readThemePreference,
     writePreference,
+    type Theme,
   } from './runtime/preferences';
   import { providePopups } from './runtime/popups';
 
@@ -141,7 +142,19 @@
     bottomHeight = $state(layout.bottomHeight),
     viewportHeight = $state(window.innerHeight);
   const actualBottomHeight = $derived(clampBottomHeight(bottomHeight, viewportHeight));
-  let theme = $state(readPreference('theme') ?? 'ocean');
+  let preferredTheme = $state<Theme | null>(readThemePreference());
+  const systemColorScheme = window.matchMedia?.('(prefers-color-scheme: dark)');
+  let systemDark = $state(systemColorScheme?.matches ?? false);
+  const theme = $derived(preferredTheme ?? (systemDark ? 'dark' : 'ocean'));
+  const themeOptions = [
+    ['ocean', '海洋', '清爽的蓝色工作台'],
+    ['fruit', '果实', '温暖的橙色调'],
+    ['dark', '夜间', '适合低亮度环境'],
+  ] as const;
+  function chooseTheme(value: Theme) {
+    preferredTheme = value;
+    writePreference('theme', value);
+  }
   let editorPreferences = $state(readEditorPreferences());
   let leftWidth = $state(layout.leftWidth),
     rightWidth = $state(layout.rightWidth),
@@ -747,7 +760,6 @@
   }
   $effect(() => {
     document.documentElement.dataset.theme = theme;
-    writePreference('theme', theme);
   });
   $effect(() => {
     writePreference('editor', JSON.stringify(editorPreferences));
@@ -853,6 +865,14 @@
     void updater.initialize();
     let disposed = false;
     const cleanups: (() => void)[] = [popups.mount()];
+    if (systemColorScheme) {
+      const updateSystemColorScheme = () => {
+        systemDark = systemColorScheme.matches;
+      };
+      systemColorScheme.addEventListener('change', updateSystemColorScheme);
+      updateSystemColorScheme();
+      cleanups.push(() => systemColorScheme.removeEventListener('change', updateSystemColorScheme));
+    }
     if (platform.desktop)
       cleanups.push(
         observeWindowChrome(
@@ -1557,10 +1577,10 @@
       {:else if modal === 'settings'}
         <p class="modal-description">工作台外观</p>
         <div class="theme-options">
-          {#each [['ocean', '海洋', '清爽的蓝色工作台'], ['fruit', '果实', '温暖的橙色调'], ['dark', '夜间', '适合低亮度环境']] as [value, label, description]}<button
+          {#each themeOptions as [value, label, description]}<button
               class:chosen={theme === value}
               class={`theme-card ${value}`}
-              onclick={() => (theme = value)}
+              onclick={() => chooseTheme(value)}
               ><span class="theme-preview"><i></i><i></i><i></i></span><strong>{label}</strong
               ><small>{description}</small></button
             >{/each}
@@ -1592,10 +1612,7 @@
           {updater}
           oninstall={() => run(() => exit.request('install-restart'))}
         />
-        <p class="settings-note">
-          {APP_NAME}
-          {APP_VERSION} · 本地优先的漫画汉化辅助工具<br />项目格式兼容 BF 1.0 与 LabelPlus。
-        </p>
+        <p class="settings-note">{APP_NAME} {APP_VERSION}</p>
       {/if}
     </div>
   </div>

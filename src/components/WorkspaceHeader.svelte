@@ -67,6 +67,20 @@
     event.preventDefault();
     popups.toggle({ id, trigger: event.currentTarget as HTMLElement });
   }
+  function hoverMenu(event: PointerEvent, id: 'file' | 'edit' | 'view' | 'more') {
+    const active = popups.active;
+    if (
+      event.pointerType !== 'mouse' ||
+      event.buttons ||
+      !active ||
+      !['file', 'edit', 'view', 'more'].includes(active.id) ||
+      active.id === id
+    )
+      return;
+    const trigger = event.currentTarget as HTMLElement;
+    popups.open({ id, trigger });
+    trigger.focus({ preventScroll: true });
+  }
   function choose(operation: () => void) {
     popups.close('action');
     operation();
@@ -122,7 +136,11 @@
   {#if !macChrome}
     <nav class="menu-bar" aria-label="主菜单" data-tauri-drag-region={chrome ? 'false' : undefined}>
       <details class="app-menu" open={$popups?.id === 'file'} use:popups.boundary={{ id: 'file' }}>
-        <summary data-popup-trigger onclick={(event) => disclose(event, 'file')}>文件</summary>
+        <summary
+          data-popup-trigger
+          onpointerenter={(event) => hoverMenu(event, 'file')}
+          onclick={(event) => disclose(event, 'file')}>文件</summary
+        >
         <div class="menu-popover">
           <button onclick={() => choose(onnew)}>新建项目 <kbd>{newShortcut}</kbd></button>
           <button onclick={() => choose(onopen)}>打开项目 <kbd>{mod}O</kbd></button>
@@ -156,7 +174,11 @@
         </div>
       </details>
       <details class="app-menu" open={$popups?.id === 'edit'} use:popups.boundary={{ id: 'edit' }}>
-        <summary data-popup-trigger onclick={(event) => disclose(event, 'edit')}>编辑</summary>
+        <summary
+          data-popup-trigger
+          onpointerenter={(event) => hoverMenu(event, 'edit')}
+          onclick={(event) => disclose(event, 'edit')}>编辑</summary
+        >
         <div class="menu-popover">
           <button onclick={() => choose(() => onaction('app.find'))}
             >查找替换<kbd>{mod}F</kbd></button
@@ -171,7 +193,11 @@
         </div>
       </details>
       <details class="app-menu" open={$popups?.id === 'view'} use:popups.boundary={{ id: 'view' }}>
-        <summary data-popup-trigger onclick={(event) => disclose(event, 'view')}>视图</summary>
+        <summary
+          data-popup-trigger
+          onpointerenter={(event) => hoverMenu(event, 'view')}
+          onclick={(event) => disclose(event, 'view')}>视图</summary
+        >
         <div class="menu-popover">
           <button onclick={() => choose(onlefttoggle)}>{leftOpen ? '隐藏' : '显示'}左侧面板</button>
           <button onclick={() => choose(onrighttoggle)}
@@ -187,7 +213,11 @@
         </div>
       </details>
       <details class="app-menu" open={$popups?.id === 'more'} use:popups.boundary={{ id: 'more' }}>
-        <summary data-popup-trigger onclick={(event) => disclose(event, 'more')}>更多</summary>
+        <summary
+          data-popup-trigger
+          onpointerenter={(event) => hoverMenu(event, 'more')}
+          onclick={(event) => disclose(event, 'more')}>更多</summary
+        >
         <div class="menu-popover">
           <button onclick={() => choose(() => onaction('app.snapshots'))}>快照</button>
           <button onclick={() => choose(onsettings)}>设置与外观</button>

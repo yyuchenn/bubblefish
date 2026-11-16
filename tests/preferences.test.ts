@@ -7,6 +7,7 @@ import {
   readEditorPreferences,
   readLayout,
   readPreference,
+  readThemePreference,
   writePreference,
 } from '../src/runtime/preferences';
 
@@ -24,6 +25,42 @@ it('starts with fresh Bubblefish preferences without migrating or deleting next 
   writePreference('editor', '{}');
   expect(values.get('bubblefish.editor')).toBe('{}');
   expect(values.get('bubblefish-next.editor')).toBe(oldValue);
+});
+
+describe('theme preferences', () => {
+  it.each(['ocean', 'fruit', 'dark'] as const)('restores an explicit %s choice', (theme) => {
+    const values = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    writePreference('theme', theme);
+    expect(values.get('bubblefish.theme')).toBe(theme);
+    expect(readThemePreference()).toBe(theme);
+  });
+
+  it.each([null, '', 'system', 'DARK', '"dark"'])(
+    'leaves missing or invalid choices unset without saving a default: %s',
+    (stored) => {
+      const setItem = vi.fn();
+      vi.stubGlobal('localStorage', { getItem: () => stored, setItem });
+      expect(readThemePreference()).toBeNull();
+      expect(setItem).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps theme choices optional when storage is unavailable', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    });
+    expect(readThemePreference()).toBeNull();
+    expect(() => writePreference('theme', 'dark')).not.toThrow();
+  });
 });
 
 describe('assistance provider preferences', () => {
