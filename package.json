@@ -14,7 +14,7 @@
     "build:desktop": "node scripts/run.mjs build:desktop",
     "types:generate": "node scripts/run.mjs types:generate",
     "types:check": "node scripts/run.mjs types:check",
-    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-check --tsconfig ./tsconfig.json --config ./svelte.config.js",
     "test:core": "node scripts/run.mjs test:core",
     "test:host": "node scripts/run.mjs test:host",
     "test:plugins": "node scripts/run.mjs test:plugins",

@@ -164,6 +164,32 @@ test('short vertical and horizontal rich-text previews contain their full conten
       horizontal ? 'horizontal-tb' : 'vertical-rl',
     );
     await expect(tooltip(page).locator('span.bold').first()).toHaveCSS('font-weight', '700');
+    if (!horizontal) {
+      const glyphs = await tooltip(page)
+        .locator('span.bold')
+        .first()
+        .evaluate((span) => {
+          const text = span.firstChild!;
+          const range = document.createRange();
+          const boxes = [0, 1].map((index) => {
+            range.setStart(text, index);
+            range.setEnd(text, index + 1);
+            return range.getBoundingClientRect();
+          });
+          return {
+            height: Math.min(...boxes.map((box) => box.height)),
+            advance: boxes[1].top - boxes[0].top,
+            fontSize: parseFloat(getComputedStyle(span).fontSize),
+          };
+        });
+      // Broken font metrics can stack Han glyphs without reporting any overflow.
+      expect(glyphs.height, 'Han glyphs have vertical height').toBeGreaterThanOrEqual(
+        glyphs.fontSize / 2,
+      );
+      expect(glyphs.advance, 'Han glyphs advance down the column').toBeGreaterThanOrEqual(
+        glyphs.fontSize / 2,
+      );
+    }
     // Text presence alone passes even when WebKit collapses the outer box to its padding.
     await expect.poll(async () => (await previewLayout(page)).clipped).toBeLessThanOrEqual(1);
     expect((await previewLayout(page)).overflow).toBeLessThanOrEqual(1);

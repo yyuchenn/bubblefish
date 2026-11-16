@@ -3,7 +3,7 @@
 @source './';
 
 :root {
-  font-family: Inter, 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  font-family: Inter, 'Segoe UI', 'Microsoft YaHei', 'Noto Sans CJK SC', system-ui, sans-serif;
   color-scheme: light;
   --bg: #f1f4f8;
   --surface: #fff;
