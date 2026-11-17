@@ -192,7 +192,6 @@
       </article>
     {:else}<div class="panel-empty">
         <p>还没有安装插件</p>
-        <small>示例插件与打包说明位于 examples/plugins。</small>
       </div>{/each}
   </div>
   {#if $plugins.tasks.some((task) => task.state === 'running')}
