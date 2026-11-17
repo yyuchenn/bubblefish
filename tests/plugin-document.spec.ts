@@ -1,4 +1,5 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { canvasSheetBounds } from './canvas-actions';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile } from 'node:fs/promises';
@@ -292,9 +293,7 @@ test('the docked toolbox follows host targets while preserving scoped drafts acr
   page,
 }) => {
   const frame = await setup(page, 'document-toolbox', toolboxTitle, ['page-1.png', 'page-2.png']);
-  const sheet = page.getByRole('application', { name: '图片标注画布', exact: true }).locator('img');
-  await expect(sheet).toBeVisible();
-  const bounds = (await sheet.boundingBox())!;
+  const bounds = await canvasSheetBounds(page);
   await page.mouse.click(bounds.x + bounds.width * 0.25, bounds.y + bounds.height * 0.25);
   await page.mouse.click(bounds.x + bounds.width * 0.6, bounds.y + bounds.height * 0.45);
   await expect(frame.locator('#target')).toContainText('page-1.png');

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
-import { addFirstCanvasPoint } from './canvas-actions';
+import { addFirstCanvasPoint, canvasSheetBounds } from './canvas-actions';
 import { execFile } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -74,10 +74,7 @@ async function createProjectMarker(page: Page) {
   await create.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(create).not.toBeVisible();
   await addFirstCanvasPoint(page);
-  const sheet = page
-    .getByRole('application', { name: '图片标注画布', exact: true })
-    .locator('.canvas-sheet');
-  return (await sheet.boundingBox())!;
+  return canvasSheetBounds(page);
 }
 
 async function expectProviders(page: Page, ocr: string, translator: string) {

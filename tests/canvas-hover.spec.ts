@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { canvasSheetBounds } from './canvas-actions';
 import { resolve } from 'node:path';
 
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -31,7 +32,7 @@ async function project(page: Page, x = 0.3473, y = 0.4187) {
     .setInputFiles(resolve('tests/fixtures/images/page-1.png'));
   await dialog.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  const image = await bounds(canvas(page).locator('img'));
+  const image = await canvasSheetBounds(page);
   await page.mouse.click(image.x + image.width * x, image.y + image.height * y);
   await expect(marker(page)).toBeVisible();
   await expect(page.locator('.editor-heading strong')).toHaveText('#1');

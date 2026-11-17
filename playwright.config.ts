@@ -28,7 +28,7 @@ export default defineConfig({
     },
     {
       name: 'webkit',
-      testMatch: '**/canvas-hover.spec.ts',
+      testMatch: ['**/canvas-hover.spec.ts', '**/canvas-actions.spec.ts'],
       use: {
         ...devices['Desktop Safari'],
         viewport: { width: 1440, height: 1000 },

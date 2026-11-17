@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { canvasSheetBounds as sheetBounds } from './canvas-actions';
 import { historyFromMenu } from './history-actions';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -33,12 +34,6 @@ async function createProject(page: Page, name: string, images = imagePaths.slice
   await dialog.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(dialog).not.toBeVisible();
   await expect(page.getByRole('application', { name: '图片标注画布' })).toBeVisible();
-}
-
-async function sheetBounds(page: Page) {
-  const image = page.getByRole('application', { name: '图片标注画布' }).locator('img');
-  await expect.poll(async () => (await image.boundingBox())?.width ?? 0).toBeGreaterThan(20);
-  return (await image.boundingBox())!;
 }
 
 async function point(page: Page, x = 0.3, y = 0.3) {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { addFirstCanvasPoint } from './canvas-actions';
+import { addFirstCanvasPoint, canvasSheetBounds } from './canvas-actions';
 import { resolve } from 'node:path';
 
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -20,9 +20,7 @@ async function create(page: Page) {
   await expect(page.getByRole('application', { name: '图片标注画布' })).toBeVisible();
 }
 async function location(page: Page, x = 0.35, y = 0.35) {
-  const image = page.locator('.canvas-image');
-  await expect.poll(async () => (await image.boundingBox())?.width ?? 0).toBeGreaterThan(20);
-  const bounds = (await image.boundingBox())!;
+  const bounds = await canvasSheetBounds(page);
   return { x: bounds.x + bounds.width * x, y: bounds.y + bounds.height * y };
 }
 async function addPoint(page: Page) {

@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { canvasSheetBounds } from './canvas-actions';
 import { historyFromMenu } from './history-actions';
 import { resolve } from 'node:path';
 
@@ -32,14 +33,14 @@ async function bounds(locator: Locator) {
 }
 async function addPoint(page: Page, x: number, y: number) {
   const count = await canvas(page).locator('.canvas-marker').count();
-  const image = await bounds(canvas(page).locator('img'));
+  const image = await canvasSheetBounds(page);
   await page.mouse.click(image.x + image.width * x, image.y + image.height * y);
   await expect(canvas(page).locator('.canvas-marker')).toHaveCount(count + 1);
   await expect(page.locator('.editor-heading strong')).toHaveText(`#${count + 1}`);
 }
 async function addRectangle(page: Page) {
   const count = await canvas(page).locator('.canvas-marker').count();
-  const image = await bounds(canvas(page).locator('img'));
+  const image = await canvasSheetBounds(page);
   await page.mouse.move(image.x + image.width * 0.6, image.y + image.height * 0.55);
   await page.mouse.down();
   await page.mouse.move(image.x + image.width * 0.8, image.y + image.height * 0.75, { steps: 5 });

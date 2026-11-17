@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { canvasSheetBounds } from './canvas-actions';
 import { historyFromMenu } from './history-actions';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -154,7 +155,7 @@ async function project(page: Page, count = 1) {
   await expect(canvas(page).locator('img')).toBeVisible();
 }
 async function addPoint(page: Page, x = 0.35, y = 0.4) {
-  const image = await bounds(canvas(page).locator('img'));
+  const image = await canvasSheetBounds(page);
   await page.mouse.click(image.x + image.width * x, image.y + image.height * y);
   await expect(marker(page)).toBeVisible();
   return { x, y };
@@ -278,7 +279,7 @@ test('rectangle resize is stable while dispatch is delayed; immediate save and u
   page,
 }) => {
   await project(page);
-  const image = await bounds(canvas(page).locator('img'));
+  const image = await canvasSheetBounds(page);
   await page.mouse.move(image.x + image.width * 0.2, image.y + image.height * 0.2);
   await page.mouse.down();
   await page.mouse.move(image.x + image.width * 0.45, image.y + image.height * 0.4, { steps: 5 });
