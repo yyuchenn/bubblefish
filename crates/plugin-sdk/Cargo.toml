@@ -1,0 +1,25 @@
+[package]
+name = "bubblefish-plugin-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bubblefish-plugin-protocol = { path = "../plugin-protocol" }
+serde.workspace = true
+serde_json.workspace = true
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:serde-wasm-bindgen"]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2.100", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+serde-wasm-bindgen = { version = "0.6.5", optional = true }
+
+[[example]]
+name = "wasm_echo"
+crate-type = ["cdylib"]
+required-features = ["wasm"]

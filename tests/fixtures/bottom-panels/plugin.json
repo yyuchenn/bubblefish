@@ -1,0 +1,26 @@
+{
+  "id": "test.bottom-panels",
+  "name": "底部页面测试",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "entrypoints": { "web": "web.js" },
+  "permissions": [],
+  "contributes": {
+    "ocr": [{ "id": "ocr", "name": "底部测试 OCR" }],
+    "translation": [{ "id": "translator", "name": "底部测试翻译" }],
+    "commands": [
+      { "id": "identity", "title": "查询底部测试身份" },
+      { "id": "open-notes", "title": "从命令打开底部笔记" }
+    ],
+    "panels": [
+      { "id": "notes", "title": "底部笔记", "entry": "panel.html", "location": "bottom" },
+      { "id": "events", "title": "底部事件", "entry": "panel.html", "location": "bottom" },
+      { "id": "settings", "title": "底部测试设置", "entry": "panel.html" }
+    ],
+    "configuration": [
+      { "key": "openOnActivate", "label": "激活时打开笔记", "type": "boolean", "default": false },
+      { "key": "failActivation", "label": "模拟激活失败", "type": "boolean", "default": false },
+      { "key": "holdTranslation", "label": "等待释放译文", "type": "boolean", "default": false }
+    ]
+  }
+}

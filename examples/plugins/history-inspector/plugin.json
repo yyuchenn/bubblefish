@@ -1,0 +1,12 @@
+{
+  "id": "example.history-inspector",
+  "name": "历史与事件检查器",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "分页查看撤销重做栈、提交事务、校验栈顶并观察实际文档变更事件。",
+  "entrypoints": { "web": "web.js" },
+  "permissions": ["document.read", "document.write", "history.read", "history.control"],
+  "contributes": {
+    "panels": [{ "id": "inspector", "title": "历史与事件检查器", "entry": "panel.html" }]
+  }
+}

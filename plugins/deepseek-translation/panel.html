@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DeepSeek 翻译设置</title>
+    <style>
+      :root {
+        font-family: var(--bf-panel-font-family, system-ui);
+        font-size: var(--bf-panel-font-size, 13px);
+      }
+      body {
+        background: var(--bf-panel-background);
+        color: var(--bf-panel-text);
+        margin: 24px;
+        max-width: 820px;
+      }
+      h1 {
+        color: var(--bf-panel-strong);
+        font-size: 21px;
+      }
+      h2 {
+        color: var(--bf-panel-strong);
+        font-size: 17px;
+      }
+      p {
+        line-height: 1.7;
+      }
+      fieldset {
+        border: 0;
+        padding: 0;
+        margin: 0;
+        min-width: 0;
+      }
+      label {
+        display: block;
+        margin: 16px 0 6px;
+        font-weight: 600;
+      }
+      button,
+      input,
+      textarea,
+      select {
+        font: inherit;
+        padding: 8px;
+      }
+      input,
+      textarea,
+      select {
+        box-sizing: border-box;
+        width: 100%;
+      }
+      textarea {
+        resize: vertical;
+        line-height: 1.6;
+      }
+      button {
+        margin: 12px 8px 0 0;
+        cursor: pointer;
+      }
+      button:disabled {
+        cursor: default;
+      }
+      .muted {
+        color: var(--bf-panel-muted);
+        margin-top: 6px;
+        font-size: 13px;
+      }
+      .languages {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        max-height: 300px;
+        overflow: auto;
+        padding: 12px;
+        background: var(--bf-panel-surface);
+        line-height: 1.6;
+      }
+      [data-error='true'] {
+        color: var(--bf-panel-danger);
+      }
+      #status {
+        min-height: 1.7em;
+      }
+      hr {
+        border: 0;
+        border-top: 1px solid var(--bf-panel-border);
+        margin: 24px 0;
+      }
+      @media (max-width: 440px) {
+        body {
+          margin: 16px;
+        }
+        .languages {
+          grid-template-columns: 1fr;
+          gap: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>DeepSeek 翻译设置</h1>
+    <p>配置后，在翻译服务中选择 DeepSeek 翻译。保存的设置从下一次翻译请求开始生效。</p>
+    <form id="settings-form">
+      <fieldset id="config-fields" disabled>
+        <label for="api-key">API Key</label>
+        <input
+          id="api-key"
+          type="password"
+          autocomplete="off"
+          spellcheck="false"
+          aria-describedby="key-help"
+        />
+        <p id="key-help" class="muted">
+          保存在当前站点或桌面应用的本地配置中，未接入系统密钥链。翻译时通过 HTTPS 发往所配置的 API
+          地址。
+        </p>
+
+        <label for="endpoint">API 地址</label>
+        <input
+          id="endpoint"
+          type="url"
+          autocomplete="off"
+          spellcheck="false"
+          aria-describedby="endpoint-help"
+        />
+        <p id="endpoint-help" class="muted">
+          填写完整 HTTPS Chat Completions 地址，包含
+          /chat/completions；兼容网关需要允许浏览器跨域访问。
+        </p>
+
+        <label for="request-mode">请求模式</label>
+        <select id="request-mode" aria-describedby="mode-help">
+          <option value="deepseek">DeepSeek</option>
+          <option value="openai">OpenAI 兼容</option>
+        </select>
+        <p id="mode-help" class="muted">
+          DeepSeek 模式显式关闭思考；OpenAI 兼容模式不发送 DeepSeek 专用的 thinking 参数。
+        </p>
+
+        <label for="model">模型</label>
+        <input id="model" list="models" autocomplete="off" spellcheck="false" />
+        <datalist id="models">
+          <option value="deepseek-flash"></option>
+          <option value="deepseek-v4-pro"></option>
+        </datalist>
+        <p class="muted">可以从预设中选择，也可以填写兼容服务使用的模型名称。</p>
+
+        <label for="system-prompt">系统提示词</label>
+        <textarea id="system-prompt" rows="5" aria-describedby="prompt-help"></textarea>
+
+        <label for="user-prompt">用户提示词</label>
+        <textarea id="user-prompt" rows="5" aria-describedby="prompt-help"></textarea>
+        <p id="prompt-help" class="muted">
+          支持 {source_lang}、{target_lang} 和 {text}。用户提示词必须包含
+          {text}。留空时使用默认提示词。
+        </p>
+
+        <button id="save" type="button">保存配置</button>
+        <button id="restore-prompts" type="button">恢复默认提示词</button>
+      </fieldset>
+    </form>
+    <p id="status" role="status" aria-live="polite">正在连接插件配置…</p>
+
+    <hr />
+    <h2>消息预览</h2>
+    <p class="muted">使用当前表单预览最终消息，不调用 API，也不会产生翻译费用。</p>
+    <div class="languages">
+      <div>
+        <label for="source-language">示例源语言</label>
+        <select id="source-language">
+          <option value="japanese">日本語</option>
+          <option value="english">英语</option>
+          <option value="simplifiedChinese">简体中文</option>
+          <option value="traditionalChinese">繁体中文</option>
+          <option value="auto">自动检测</option>
+        </select>
+      </div>
+      <div>
+        <label for="target-language">示例目标语言</label>
+        <select id="target-language">
+          <option value="simplifiedChinese">简体中文</option>
+          <option value="traditionalChinese">繁体中文</option>
+          <option value="japanese">日本語</option>
+          <option value="english">英语</option>
+        </select>
+      </div>
+    </div>
+    <label for="sample-text">示例原文</label>
+    <textarea id="sample-text" rows="3">今日はいい天気ですね。</textarea>
+    <p id="preview-error" role="alert" data-error="true" hidden></p>
+    <h2>System</h2>
+    <pre id="system-preview" aria-label="系统消息预览"></pre>
+    <h2>User</h2>
+    <pre id="user-preview" aria-label="用户消息预览"></pre>
+    <!-- plugin:script -->
+  </body>
+</html>

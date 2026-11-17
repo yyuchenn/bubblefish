@@ -1,0 +1,19 @@
+{
+  "id": "example.document-toolbox",
+  "name": "图片与标记工具箱",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "演示原图和裁剪读取、图片与标记 CRUD、富文本译文、辅助字段和原子事务。",
+  "entrypoints": { "web": "web.js" },
+  "permissions": ["document.read", "document.write", "images.read", "images.write"],
+  "contributes": {
+    "panels": [
+      {
+        "id": "toolbox",
+        "title": "图片与标记工具箱",
+        "entry": "panel.html",
+        "location": "bottom"
+      }
+    ]
+  }
+}

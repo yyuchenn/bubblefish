@@ -1,0 +1,14 @@
+{
+  "id": "test.legacy-theme",
+  "name": "旧面板主题测试",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "entrypoints": { "web": "web.js" },
+  "permissions": [],
+  "contributes": {
+    "panels": [{ "id": "settings", "title": "旧面板设置", "entry": "panel.html" }],
+    "configuration": [
+      { "key": "text", "label": "保留文本", "type": "string", "default": "初始配置" }
+    ]
+  }
+}

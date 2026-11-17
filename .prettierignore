@@ -1,0 +1,10 @@
+node_modules/
+.cache/
+target/
+dist/
+src/generated/
+src/wasm/
+src-tauri/gen/
+Cargo.lock
+package-lock.json
+legacy/

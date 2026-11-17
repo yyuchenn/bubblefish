@@ -1,0 +1,42 @@
+[package]
+name = "bubblefish-kha-white-ocr"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[lib]
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "kha-white-ocr"
+path = "src/main.rs"
+required-features = ["native"]
+
+[[example]]
+name = "probe"
+path = "examples/probe.rs"
+required-features = ["native"]
+
+[features]
+default = []
+wasm = ["dep:wasm-bindgen"]
+native = ["dep:bubblefish-plugin-sdk", "dep:ort", "dep:sha2", "dep:libloading"]
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+regex = "1.12"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2.100", optional = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bubblefish-plugin-sdk = { path = "../../../crates/plugin-sdk", optional = true }
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "load-dynamic"], optional = true }
+sha2 = { version = "0.10", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+libloading = { version = "0.8.9", optional = true }
+

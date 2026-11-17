@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>旧面板设置</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font: 14px system-ui;
+      }
+      body {
+        margin: 24px;
+        color: #243247;
+        background: #eee;
+      }
+      label {
+        display: block;
+        margin: 16px 0;
+      }
+      input,
+      textarea,
+      select,
+      button {
+        font: inherit;
+        padding: 8px;
+      }
+      textarea {
+        width: 100%;
+        height: 140px;
+      }
+      pre {
+        white-space: pre-wrap;
+      }
+      .hint {
+        color: #777;
+      }
+      [data-error='true'] {
+        color: #d33;
+      }
+      .space {
+        height: 1200px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>旧面板设置</h1>
+    <p class="hint">这份旧面板不读取主题，也不使用宿主主题变量。</p>
+    <label>旧面板文本 <textarea id="text" aria-label="旧面板文本"></textarea></label>
+    <label
+      >旧面板下拉框
+      <select aria-label="旧面板下拉框">
+        <option>选项</option>
+      </select></label
+    >
+    <button id="save">保存旧面板配置</button>
+    <button id="start">开始面板后台计数</button>
+    <p id="status" role="status">等待连接…</p>
+    <p id="operation" aria-label="面板后台计数">尚未开始</p>
+    <p data-error="true">错误样式示例</p>
+    <div class="space"></div>
+    <pre id="result">完整返回数据</pre>
+    <script>
+      // Intentionally mirrors an old panel bundle: only API port[0] is consumed.
+      window.legacyPanelInstance = String(Math.random());
+      window.legacyOperationCounter = 0;
+      window.addEventListener(
+        'message',
+        function connect(event) {
+          if (
+            event.source !== window.parent ||
+            event.data?.type !== 'bubblefish:connect' ||
+            !event.ports[0]
+          )
+            return;
+          window.removeEventListener('message', connect);
+          window.legacyApiPortCount = event.ports.length;
+          const port = event.ports[0];
+          let sequence = 0;
+          const pending = new Map();
+          port.onmessage = ({ data }) => {
+            const message = data.message;
+            if (message?.kind !== 'response') return;
+            const item = pending.get(message.id);
+            if (!item) return;
+            pending.delete(message.id);
+            message.error
+              ? item.reject(new Error(message.error.message))
+              : item.resolve(message.result);
+          };
+          port.start();
+          function call(method, params = null) {
+            const id = 'legacy:' + ++sequence;
+            const result = new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
+            port.postMessage({ message: { kind: 'request', apiVersion: 1, id, method, params } });
+            return result;
+          }
+          const output = document.getElementById('status');
+          const text = document.getElementById('text');
+          call('config.get').then((config) => {
+            text.value = config.text;
+            output.textContent = '旧 API 已连接';
+          });
+          document.getElementById('save').onclick = () => {
+            call('config.update', { text: text.value }).then(
+              () => (output.textContent = '旧 API 已保存'),
+            );
+          };
+          let interval;
+          document.getElementById('start').onclick = () => {
+            if (interval) return;
+            interval = setInterval(() => {
+              window.legacyOperationCounter++;
+              document.getElementById('operation').textContent = String(
+                window.legacyOperationCounter,
+              );
+            }, 30);
+          };
+        },
+        { once: true },
+      );
+    </script>
+  </body>
+</html>

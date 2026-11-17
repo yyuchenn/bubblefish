@@ -1,0 +1,139 @@
+.software-update {
+  border-top: 1px solid var(--line);
+  margin-top: 22px;
+  padding-top: 20px;
+}
+.software-update h3 {
+  color: var(--strong);
+  font-size: 14px;
+  margin: 0 0 10px;
+}
+.software-update p {
+  margin: 7px 0;
+  font-size: 12px;
+}
+.update-version,
+.update-note {
+  color: var(--muted);
+}
+.update-state {
+  color: var(--strong);
+}
+.update-error {
+  color: var(--danger);
+}
+.update-notes {
+  white-space: pre-wrap;
+  max-height: 150px;
+  overflow: auto;
+}
+.update-actions,
+.update-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 13px 0;
+}
+.update-actions a,
+.software-update > a {
+  color: var(--accent-deep);
+  font-size: 12px;
+}
+.update-progress progress {
+  flex: 1;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.update-progress span {
+  font-size: 11px;
+  color: var(--muted);
+}
+.update-preferences {
+  border: 0;
+  margin: 18px 0 0;
+  padding: 0;
+}
+.update-preferences legend {
+  font-size: 12px;
+  color: var(--strong);
+  margin-bottom: 10px;
+}
+.update-preferences label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 11px 0;
+  font-size: 12px;
+}
+.update-preferences small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+  margin-top: 3px;
+}
+.update-preferences select {
+  margin-left: auto;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+}
+.update-preferences input {
+  accent-color: var(--accent);
+}
+.software-update-notice {
+  position: fixed;
+  right: 18px;
+  bottom: 45px;
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 15px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font-size: 12px;
+}
+.software-update-notice button {
+  color: var(--accent-deep);
+}
+.app-exit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  background: #172b4326;
+}
+.app-exit-overlay > p {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 18px 24px;
+  background: var(--surface);
+  color: var(--strong);
+  box-shadow: var(--shadow);
+}
+.app-exit-error {
+  position: fixed;
+  right: 18px;
+  bottom: 45px;
+  max-width: 480px;
+  z-index: 410;
+  padding: 15px;
+  border: 1px solid var(--danger);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.app-exit-error p {
+  color: var(--danger);
+  margin: 0 0 10px;
+  font-size: 12px;
+}
+.app-exit-error > div {
+  display: flex;
+  gap: 10px;
+}

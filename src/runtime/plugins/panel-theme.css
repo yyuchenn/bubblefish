@@ -1,0 +1,95 @@
+/* Host foundation only: plugin layout, sizing and image/chart colors stay local. */
+html[data-bf-theme] {
+  background-color: var(--bf-panel-background);
+  color: var(--bf-panel-text);
+  font-family: var(--bf-panel-font-family);
+  font-size: var(--bf-panel-font-size);
+}
+html[data-bf-theme] body {
+  background-color: var(--bf-panel-background);
+  color: var(--bf-panel-text);
+  font-family: var(--bf-panel-font-family);
+  font-size: var(--bf-panel-font-size);
+}
+html[data-bf-theme] :is(h1, h2, h3, h4, h5, h6, strong, legend) {
+  color: var(--bf-panel-strong);
+}
+html[data-bf-theme] :is(button, input, select, textarea, summary) {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--bf-panel-text);
+}
+html[data-bf-theme] :is(button, input, select, textarea) {
+  background-color: var(--bf-panel-surface);
+  border: 1px solid var(--bf-panel-border);
+  border-radius: var(--bf-panel-radius);
+}
+html[data-bf-theme] button {
+  cursor: pointer;
+}
+html[data-bf-theme] :is(option, optgroup) {
+  color: var(--bf-panel-text);
+  background-color: var(--bf-panel-surface);
+}
+html[data-bf-theme] input::file-selector-button {
+  font: inherit;
+  color: var(--bf-panel-text);
+  background-color: var(--bf-panel-surface);
+  border: 1px solid var(--bf-panel-border);
+  border-radius: var(--bf-panel-radius);
+}
+html[data-bf-theme] button:hover:not(:disabled) {
+  background-color: var(--bf-panel-surface-hover);
+  color: var(--bf-panel-strong);
+}
+html[data-bf-theme] :is(button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--bf-panel-accent);
+  outline-offset: 2px;
+}
+html[data-bf-theme] :is(input, select, textarea):focus {
+  border-color: var(--bf-panel-accent);
+  box-shadow: 0 0 0 3px var(--bf-panel-accent-soft);
+}
+html[data-bf-theme] :is(input, textarea)::placeholder {
+  color: var(--bf-panel-muted);
+  opacity: 1;
+}
+html[data-bf-theme] :is(button, input, select, textarea):disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+html[data-bf-theme]
+  :is(input[type='checkbox'], input[type='radio'], input[type='range'], progress) {
+  accent-color: var(--bf-panel-accent);
+}
+html[data-bf-theme] :is(pre, fieldset) {
+  border-color: var(--bf-panel-border);
+}
+html[data-bf-theme] pre {
+  color: var(--bf-panel-text);
+  background-color: var(--bf-panel-surface);
+  border-radius: var(--bf-panel-radius);
+}
+html[data-bf-theme] :is(.muted, .hint) {
+  color: var(--bf-panel-muted);
+  opacity: 1;
+}
+html[data-bf-theme] :is([data-error='true'], [role='alert']) {
+  color: var(--bf-panel-danger);
+}
+html[data-bf-theme] hr {
+  border: 0;
+  border-top: 1px solid var(--bf-panel-border);
+}
+html[data-bf-theme] a {
+  color: var(--bf-panel-accent);
+}
+html[data-bf-theme] progress::-webkit-progress-bar {
+  background-color: var(--bf-panel-surface);
+}
+html[data-bf-theme] progress::-webkit-progress-value {
+  background-color: var(--bf-panel-accent);
+}
+html[data-bf-theme] progress::-moz-progress-bar {
+  background-color: var(--bf-panel-accent);
+}

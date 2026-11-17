@@ -1,0 +1,12 @@
+[package]
+name = "bubblefish-typegen"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+bubblefish-core = { path = "../../crates/core" }
+bubblefish-plugin-protocol = { path = "../../crates/plugin-protocol" }
+serde_json.workspace = true
+ts-rs.workspace = true
+

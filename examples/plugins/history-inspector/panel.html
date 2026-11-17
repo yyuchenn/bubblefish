@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>历史与事件检查器</title>
+  <style>
+    :root {
+      font-family: var(--bf-panel-font-family, system-ui);
+      font-size: var(--bf-panel-font-size, 13px);
+    }
+    body {
+      background: var(--bf-panel-background);
+      color: var(--bf-panel-text);
+      margin: 20px;
+    }
+    h1 {
+      color: var(--bf-panel-strong);
+      font-size: 20px;
+    }
+    h2 {
+      color: var(--bf-panel-strong);
+      font-size: 16px;
+    }
+    button,
+    input {
+      font: inherit;
+      padding: 6px;
+    }
+    button {
+      margin: 3px;
+    }
+    input[type='number'] {
+      width: 65px;
+    }
+    label {
+      margin-right: 12px;
+    }
+    .stacks {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+    }
+    ol {
+      padding-left: 24px;
+    }
+    li {
+      padding: 8px;
+      margin: 6px 0;
+      border: 1px solid var(--bf-panel-border);
+      border-radius: var(--bf-panel-radius, 6px);
+    }
+    code {
+      overflow-wrap: anywhere;
+    }
+    small {
+      display: block;
+      margin-top: 4px;
+      color: var(--bf-panel-muted);
+    }
+    pre {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-height: 360px;
+      overflow: auto;
+    }
+    [data-error='true'] {
+      color: var(--bf-panel-danger);
+    }
+    .hint {
+      color: var(--bf-panel-muted);
+    }
+  </style>
+  <h1>历史与事件检查器</h1>
+  <p id="project">等待连接…</p>
+  <label>偏移 <input id="offset" type="number" min="0" value="0" /></label>
+  <label>每栈条数 <input id="limit" type="number" min="1" max="1000" value="20" /></label>
+  <button id="refresh">读取历史</button>
+  <p id="revision" aria-live="polite"></p>
+  <div>
+    <button id="push">压入事务：新增示例标记</button>
+    <button id="pop-undo">弹出 undo 栈顶</button><button id="pop-redo">弹出 redo 栈顶</button>
+    <button id="undo">撤销</button><button id="redo">重做</button>
+  </div>
+  <p class="hint">
+    栈顶优先。所有弹出、撤销与重做使用本面板最近读取的 entryId 和
+    historyRevision；冲突会拒绝操作，点击“读取历史”后可重试。
+  </p>
+  <div class="stacks">
+    <section>
+      <h2>Undo</h2>
+      <ol id="undo-list"></ol>
+    </section>
+    <section>
+      <h2>Redo</h2>
+      <ol id="redo-list"></ol>
+    </section>
+  </div>
+  <h2>事件日志</h2>
+  <label><input id="include-self" type="checkbox" /> 包含本插件发起的变更</label>
+  <button id="clear">清空日志</button>
+  <p class="hint">
+    每种事件携带完整事务标识、来源、状态和相关变更。取消勾选时，自身事件由宿主过滤。
+  </p>
+  <pre id="events" aria-label="插件事件日志">尚无事件</pre>
+  <pre id="result" role="status" aria-live="polite">等待连接…</pre>
+  <!-- plugin:script -->
+</html>

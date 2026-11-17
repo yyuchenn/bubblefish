@@ -1,0 +1,18 @@
+{
+  "id": "kha-white-ocr-plugin",
+  "name": "Kha White OCR",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "description": "本地日文漫画 OCR。先在模型管理中导入离线 FP32 模型包，网页使用 WASM，桌面优先使用原生推理。",
+  "entrypoints": { "web": "web.js" },
+  "permissions": ["resources.local.read", "resources.local.write"],
+  "contributes": {
+    "ocr": [{ "id": "kha-white-ocr", "name": "Kha White OCR（日文）", "languages": ["ja"] }],
+    "commands": [
+      { "id": "model-status", "title": "查询 Kha White OCR 状态" },
+      { "id": "self-test", "title": "运行 Kha White OCR 自检" },
+      { "id": "reset-model", "title": "释放 Kha White OCR 会话" }
+    ],
+    "panels": [{ "id": "models", "title": "Kha White OCR 模型管理", "entry": "panel.html" }]
+  }
+}
