@@ -223,9 +223,12 @@ test.describe('real Kha White ONNX OCR', () => {
       .setInputFiles(resolve('tests/fixtures/kha-white/japanese-smoke.png'));
     await create.getByRole('button', { name: '创建项目', exact: true }).click();
     await expect(create).not.toBeVisible();
-    const image = page.getByRole('application', { name: '图片标注画布' }).locator('img');
-    await expect(image).toBeVisible();
-    const bounds = (await image.boundingBox())!;
+    const sheet = page
+      .getByRole('application', { name: '图片标注画布', exact: true })
+      .locator('.canvas-sheet');
+    // Wait for the initial fit before measuring the full-image rectangle.
+    await sheet.click({ trial: true });
+    const bounds = (await sheet.boundingBox())!;
     await page.mouse.move(bounds.x + 1, bounds.y + 1);
     await page.mouse.down();
     await page.mouse.move(bounds.x + bounds.width - 1, bounds.y + bounds.height - 1, { steps: 10 });

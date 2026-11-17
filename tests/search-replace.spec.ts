@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { addFirstCanvasPoint } from './canvas-actions';
 import { historyFromMenu } from './history-actions';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -29,10 +30,7 @@ async function createProject(page: Page, pages = 2) {
 }
 
 async function addPoint(page: Page) {
-  const image = page.getByRole('application', { name: '图片标注画布' }).locator('img');
-  await expect(image).toBeVisible();
-  const bounds = (await image.boundingBox())!;
-  await page.mouse.click(bounds.x + bounds.width * 0.3, bounds.y + bounds.height * 0.3);
+  await addFirstCanvasPoint(page);
   await expect(editor(page)).toBeVisible();
 }
 

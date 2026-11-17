@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { addFirstCanvasPoint } from './canvas-actions';
 import { resolve } from 'node:path';
 
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -135,10 +136,7 @@ async function startProject(page: Page) {
     .setInputFiles(resolve('tests/fixtures/images/page-1.png'));
   await dialog.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  const image = page.getByRole('application', { name: '图片标注画布' }).locator('img');
-  await expect(image).toBeVisible();
-  const bounds = (await image.boundingBox())!;
-  await page.mouse.click(bounds.x + bounds.width * 0.3, bounds.y + bounds.height * 0.3);
+  await addFirstCanvasPoint(page);
   await expect(editor(page)).toBeVisible();
   await idle(page);
   await page.clock.pauseAt((await page.evaluate(() => Date.now())) + 1000);

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { addFirstCanvasPoint } from './canvas-actions';
 import { resolve } from 'node:path';
 
 const mod = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -25,9 +26,7 @@ async function location(page: Page, x = 0.35, y = 0.35) {
   return { x: bounds.x + bounds.width * x, y: bounds.y + bounds.height * y };
 }
 async function addPoint(page: Page) {
-  const point = await location(page);
-  await page.mouse.click(point.x, point.y);
-  await expect(page.locator('.canvas-marker')).toHaveCount(1);
+  await addFirstCanvasPoint(page);
 }
 
 test('disclosures are mutually exclusive, outside buttons still act, and modal/escape clean up', async ({

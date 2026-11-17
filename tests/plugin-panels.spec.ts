@@ -1,4 +1,5 @@
 import { expect, test, type FrameLocator, type Page } from '@playwright/test';
+import { addFirstCanvasPoint } from './canvas-actions';
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -88,10 +89,7 @@ async function project(page: Page) {
     .setInputFiles(resolve('tests/fixtures/images/page-1.png'));
   await dialog.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(dialog).not.toBeVisible();
-  const image = page.getByRole('application', { name: '图片标注画布' }).locator('img');
-  await expect(image).toBeVisible();
-  const bounds = (await image.boundingBox())!;
-  await page.mouse.click(bounds.x + bounds.width * 0.4, bounds.y + bounds.height * 0.4);
+  await addFirstCanvasPoint(page);
   await expect(page.getByRole('textbox', { name: '翻译内容', exact: true })).toBeVisible();
 }
 

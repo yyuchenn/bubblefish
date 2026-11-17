@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { addFirstCanvasPoint } from './canvas-actions';
 import { resolve } from 'node:path';
 import type { Marker, ProjectDocument, TextRun } from '../src/generated/core';
 
@@ -25,10 +26,7 @@ async function createProject(page: Page, name = '项目统计回归') {
 }
 
 async function addPoint(page: Page) {
-  const image = page.getByRole('application', { name: '图片标注画布' }).locator('img');
-  await expect(image).toBeVisible();
-  const box = (await image.boundingBox())!;
-  await page.mouse.click(box.x + box.width * 0.3, box.y + box.height * 0.3);
+  await addFirstCanvasPoint(page);
   await expect(editor(page)).toBeVisible();
 }
 

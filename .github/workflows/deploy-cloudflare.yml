@@ -29,7 +29,7 @@ jobs:
     name: Verify core, plugins and browser workflows
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Install CJK fonts for browser tests
         run: |
@@ -48,7 +48,7 @@ jobs:
           npm run plugin:kha-white:check
       - name: Add hosting headers
         run: cp deploy/cloudflare/_headers dist/web/_headers
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bubblefish-web
           path: dist/web/
@@ -57,7 +57,7 @@ jobs:
           retention-days: 14
       - name: Upload browser failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bubblefish-browser-failures
           path: |
@@ -76,12 +76,12 @@ jobs:
       contents: read
       deployments: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
         with:
           rust: 'false'
           dependencies: 'false'
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: bubblefish-web
           path: dist/web/
@@ -99,8 +99,9 @@ jobs:
           if (!branch) throw new Error('Empty deployment branch');
           appendFileSync(process.env.GITHUB_OUTPUT, `branch=${branch}\n`);
           NODE
-      - uses: cloudflare/wrangler-action@v3
+      - uses: cloudflare/wrangler-action@v4
         with:
+          wranglerVersion: '3.90.0'
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID || secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist/web --project-name=bubblefish --branch=${{ steps.destination.outputs.branch }} --commit-dirty=true

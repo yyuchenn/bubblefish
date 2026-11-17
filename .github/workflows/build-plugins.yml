@@ -22,7 +22,7 @@ jobs:
     name: Web and example plugin packages
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Check product identity and plugin types
         run: |
@@ -38,7 +38,7 @@ jobs:
           npm run plugin:pack -- examples/plugins/history-inspector
           npm run plugin:pack -- examples/plugins/edit-guard
           npm run plugin:kha-white:build -- --web-only
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bubblefish-web-plugins
           path: dist/plugins/*.bfplugin
@@ -59,7 +59,7 @@ jobs:
             runtime: onnxruntime-osx-arm64-1.22.0.tgz
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - name: Install native target
         run: rustup target add ${{ matrix.target }}
@@ -94,7 +94,7 @@ jobs:
           echo "BUBBLEFISH_ORT_RUNTIME=$runtime" >> "$GITHUB_ENV"
       - name: Build native plugin package
         run: npm run plugin:kha-white:build -- --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bubblefish-plugins-${{ matrix.target }}
           path: dist/plugins/kha-white-ocr-plugin-${{ matrix.target }}.bfplugin
@@ -109,15 +109,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: bubblefish-*-plugins
           path: plugin-artifacts/
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: bubblefish-plugins-*
           path: plugin-artifacts/
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           files: plugin-artifacts/**/*.bfplugin
           fail_on_unmatched_files: true

@@ -35,7 +35,7 @@ jobs:
       group: bubblefish-stable-updater
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
@@ -46,13 +46,13 @@ jobs:
           dependencies: 'false'
       - name: Download signed Windows artifacts
         if: inputs.staged
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bubblefish-windows-x64
           path: .cache/updater-staging/windows/
       - name: Download signed macOS artifacts
         if: inputs.staged
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: bubblefish-macos-arm64
           path: .cache/updater-staging/macos/

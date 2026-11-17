@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { addFirstCanvasPoint } from './canvas-actions';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { readFile } from 'node:fs/promises';
@@ -25,10 +26,7 @@ async function setup(page: Page, delay = 160) {
     .setInputFiles(resolve('tests/fixtures/images/page-1.png'));
   await create.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(create).not.toBeVisible();
-  const canvas = page.getByRole('application', { name: '图片标注画布' }).locator('img');
-  await expect(canvas).toBeVisible();
-  const bounds = (await canvas.boundingBox())!;
-  await page.mouse.click(bounds.x + bounds.width * 0.3, bounds.y + bounds.height * 0.3);
+  await addFirstCanvasPoint(page);
   const editor = page.getByRole('textbox', { name: '翻译内容', exact: true });
   await expect(editor).toBeVisible();
   await page.getByRole('button', { name: '插件管理', exact: true }).click();
