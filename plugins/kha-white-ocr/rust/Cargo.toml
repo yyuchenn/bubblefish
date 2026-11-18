@@ -18,6 +18,11 @@ name = "probe"
 path = "examples/probe.rs"
 required-features = ["native"]
 
+[[example]]
+name = "runtime-check"
+path = "examples/runtime-check.rs"
+required-features = ["native"]
+
 [features]
 default = []
 wasm = ["dep:wasm-bindgen"]

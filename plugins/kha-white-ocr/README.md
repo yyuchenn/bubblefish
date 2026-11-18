@@ -1,6 +1,6 @@
 # Kha White OCR for Bubblefish
 
-真实的本地日文漫画 OCR 插件。网页在插件 Worker 中使用 ONNX Runtime Web 1.22.0 的单线程 WASM，桌面优先使用新 SDK 的 Rust 原生 stdio 进程。两端共用 Rust 图像处理、token 选择和文本解码代码，不需要 Python、OCR 服务或 CDN。
+真实的本地日文漫画 OCR 插件。网页在插件 Worker 中使用 ONNX Runtime Web 1.31.1 的单线程 WASM，桌面优先使用新 SDK 的 Rust 原生 stdio 进程。两端共用 Rust 图像处理、token 选择和文本解码代码，不需要 Python、OCR 服务或 CDN。
 
 ## 构建和安装
 
@@ -35,12 +35,17 @@ npm run plugin:kha-white:models -- --model-dir /path/to/verified/onnx_model
 
 ## macOS ARM64 原生包
 
-原生包必须携带 ONNX Runtime 1.22.0 动态库。当前已验证转换环境的 Python wheel 内包含可复用的 macOS 运行库，构建脚本会自动发现；也可显式指定：
+官方 ONNX Runtime 1.31.1 ARM64 动态库要求 macOS 14.0 或更高版本。
+
+原生包必须携带 ONNX Runtime 1.31.1 动态库。下载脚本从微软官方 [Microsoft.ML.OnnxRuntime NuGet CPU 包](https://www.nuget.org/packages/Microsoft.ML.OnnxRuntime/1.31.1)提取目标平台的运行库，版本读取根 `package.json` 的精确 `onnxruntime-web` 依赖。下载结果保存在 `.cache/ort/1.31.1/<target>/lib/`，构建脚本自动发现该缓存：
 
 ```sh
-npm run plugin:kha-white:build -- --ort-runtime /path/to/libonnxruntime.1.22.0.dylib
+node plugins/kha-white-ocr/fetch-runtime.mjs --target aarch64-apple-darwin
+npm run plugin:kha-white:build -- --target aarch64-apple-darwin
 npm run plugin:kha-white:smoke
 ```
+
+也可用 `--ort-runtime /path/to/libonnxruntime.1.31.1.dylib` 或 `BUBBLEFISH_ORT_RUNTIME` 显式指定同版运行库。NuGet 内的 `libonnxruntime.dylib` 在提取时保存为 `libonnxruntime.1.31.1.dylib`；构建不再自动使用旧转换环境中的 Python 运行库。Rust 绑定保持锁定的 `ort 2.0.0-rc.10`，通过 ONNX Runtime 向后兼容的 C API22 加载新版运行库，不启用 GPU。
 
 生成 `dist/plugins/kha-white-ocr-plugin-aarch64-apple-darwin.bfplugin`。包内同时保留 Web 后端。原生程序根据自身安装位置定位运行库，不依赖 `ORT_DYLIB_PATH` 或开发目录。第一次识别读取本地模型并创建两份 Session；后续复用，释放会话后再按需加载。
 
@@ -48,15 +53,16 @@ npm run plugin:kha-white:smoke
 
 ## Windows x64 构建
 
-在安装 Rust MSVC 工具链与 Visual Studio C++ Build Tools 的 Windows x64 环境中运行，准备官方 **CPU 版 ONNX Runtime 1.22.0** 的 `onnxruntime.dll`：
+在安装 Rust MSVC 工具链与 Visual Studio C++ Build Tools 的 Windows x64 环境中运行，下载官方 **CPU 版 ONNX Runtime 1.31.1**：
 
 ```powershell
 npm ci
 rustup target add wasm32-unknown-unknown
-npm run plugin:kha-white:build -- --target x86_64-pc-windows-msvc --ort-runtime C:\onnxruntime-1.22.0\lib\onnxruntime.dll
+node plugins/kha-white-ocr/fetch-runtime.mjs --target x86_64-pc-windows-msvc
+npm run plugin:kha-white:build -- --target x86_64-pc-windows-msvc
 ```
 
-生成对应 `kha-white-ocr-plugin-x86_64-pc-windows-msvc.bfplugin`。构建不需要模型，因为权重通过独立 `.bfmodel` 导入。Windows 本轮仅提供构建／打包／smoke 脚本，未进行 Windows 实机推理验收；不能以 macOS 或 Web 结果替代。macOS Intel、Linux 原生包不在本轮交付范围，没有匹配 native 入口的桌面仍可使用 Web 后端。
+生成对应 `kha-white-ocr-plugin-x86_64-pc-windows-msvc.bfplugin`。也可显式传入 `--ort-runtime C:\onnxruntime-1.31.1\lib\onnxruntime.dll`，其同目录必须包含 `onnxruntime_providers_shared.dll`；构建会一并打包同目录所有 DLL。构建不需要模型，因为权重通过独立 `.bfmodel` 导入。CI 会在 Windows 上检查构建、打包和真实运行库初始化／退出，但不下载完整模型；这些检查不能替代 Windows 实机的完整 OCR 推理验收。macOS Intel、Linux 原生包不在本轮交付范围，没有匹配 native 入口的桌面仍可使用 Web 后端。
 
 已在当前主机通过 `cargo check --target x86_64-pc-windows-msvc --features native -p bubblefish-kha-white-ocr --bin kha-white-ocr` 交叉检查 Windows 专用源码；它不能替代 Windows 上的链接和推理验收。
 
@@ -75,11 +81,12 @@ npm run plugin:kha-white:build -- --target x86_64-pc-windows-msvc --ort-runtime 
 ```sh
 cargo test -p bubblefish-kha-white-ocr
 npm run plugin:kha-white:check
+cargo run --locked -p bubblefish-kha-white-ocr --features native --example runtime-check -- .cache/kha-white-ocr/aarch64-apple-darwin
 npm run plugin:kha-white:smoke
 node plugins/kha-white-ocr/verify-numerics.mjs
 npx playwright test tests/local-resources.spec.ts tests/kha-white.spec.ts
 ```
 
-真实 OCR 浏览器用例需要本地已验证模型或生成后的模型包；缺失时明确跳过，不用 mock 或 echo 冒充成功。测试实际安装 `.bfplugin`、取消和重新导入完整模型、原文写回／保存／撤销、取消／过期结果、刷新后的模型持久化和断网识别。数值检查使用相同 Rust tensor 比较 native ORT 与同版 ORT Web WASM 的 encoder 和多种 decoder 序列长度，证据输出到忽略的 `.cache/`。
+`runtime-check` 接受解压后插件的根目录，不需要模型，使用与插件相同的运行库定位和初始化／退出逻辑。Windows 将示例路径中的 target 替换为 `x86_64-pc-windows-msvc`。真实 OCR 浏览器用例需要本地已验证模型或生成后的模型包；缺失时明确跳过，不用 mock 或 echo 冒充成功。测试实际安装 `.bfplugin`、取消和重新导入完整模型、原文写回／保存／撤销、取消／过期结果、刷新后的模型持久化和断网识别。数值检查使用相同 Rust tensor 比较 native ORT 与同版 ORT Web WASM 的 encoder 和多种 decoder 序列长度，证据输出到忽略的 `.cache/`。
 
 模型、运行库、生成 WASM 和构建产物不提交到 Git；模型包携带完整模型来源与 Apache-2.0 许可证，插件包携带 ONNX Runtime MIT 许可证及归属说明。

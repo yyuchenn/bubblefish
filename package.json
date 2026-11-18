@@ -43,7 +43,7 @@
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.6.0",
     "fflate": "^0.8.3",
-    "onnxruntime-web": "1.22.0",
+    "onnxruntime-web": "1.31.1",
     "prosemirror-commands": "^1.7.1",
     "prosemirror-keymap": "^1.2.3",
     "prosemirror-model": "^1.25.4",
