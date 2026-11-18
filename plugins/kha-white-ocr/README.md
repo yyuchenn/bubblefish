@@ -4,11 +4,12 @@
 
 ## 构建和安装
 
-从仓库根目录执行。需要项目要求的 Node.js、Rust、`wasm32-unknown-unknown` target，以及与 Cargo.lock 匹配的 wasm-bindgen CLI。`npm run build:web` 可生成项目已有的 wasm-bindgen CLI 缓存；也可通过 `BUBBLEFISH_WASM_BINDGEN` 指定 CLI。
+从仓库根目录执行。需要项目要求的 Node.js、Rust、`wasm32-unknown-unknown` target，以及与 Cargo.lock 匹配的 wasm-bindgen CLI。先运行 `npm run build:wasm`，由项目锁定的 wasm-pack 准备对应 CLI。构建脚本兼容预编译工具和源码安装缓存，并校验精确版本；也可通过 `BUBBLEFISH_WASM_BINDGEN` 显式指定匹配的 CLI。
 
 ```sh
 npm ci
 rustup target add wasm32-unknown-unknown
+npm run build:wasm
 npm run plugin:kha-white:check
 npm run plugin:kha-white:build -- --web-only
 npm run plugin:kha-white:models
@@ -58,6 +59,7 @@ npm run plugin:kha-white:smoke
 ```powershell
 npm ci
 rustup target add wasm32-unknown-unknown
+npm run build:wasm
 node plugins/kha-white-ocr/fetch-runtime.mjs --target x86_64-pc-windows-msvc
 npm run plugin:kha-white:build -- --target x86_64-pc-windows-msvc
 ```

@@ -1,10 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rolldown } from 'rolldown';
 import { zipSync } from 'fflate';
+import { resolveWasmBindgen } from '../../../scripts/wasm-bindgen.mjs';
 
 const examples = dirname(fileURLToPath(import.meta.url));
 const root = resolve(examples, '../../..');
@@ -15,6 +15,7 @@ function run(command, args) {
   execFileSync(command, args, { cwd: root, stdio: 'inherit' });
 }
 
+const bindgen = await resolveWasmBindgen({ root });
 await mkdir(output, { recursive: true });
 run('cargo', [
   'build',
@@ -30,23 +31,6 @@ run('cargo', [
   '--target-dir',
   target,
 ]);
-const lockfile = await readFile(join(root, 'Cargo.lock'), 'utf8');
-const version = lockfile.match(
-  /\[\[package\]\]\s+name = "wasm-bindgen"\s+version = "([^"]+)"/,
-)?.[1];
-const cachedBindgen = join(
-  root,
-  `.cache/wasm-pack/wasm-bindgen-cargo-install-${version}/wasm-bindgen${process.platform === 'win32' ? '.exe' : ''}`,
-);
-const bindgen =
-  process.env.BUBBLEFISH_WASM_BINDGEN ??
-  (existsSync(cachedBindgen) ? cachedBindgen : 'wasm-bindgen');
-const installed = execFileSync(bindgen, ['--version'], { encoding: 'utf8' }).trim();
-if (installed !== `wasm-bindgen ${version}`) {
-  throw new Error(
-    `Expected wasm-bindgen ${version}, found ${installed}. Run npm run build:web to populate the project CLI cache, or set BUBBLEFISH_WASM_BINDGEN to the matching CLI.`,
-  );
-}
 run(bindgen, [
   join(target, 'wasm32-unknown-unknown/debug/examples/wasm_echo.wasm'),
   '--target',

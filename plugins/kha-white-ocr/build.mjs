@@ -5,6 +5,7 @@ import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import { zipSync, unzipSync, strToU8 } from 'fflate';
+import { resolveWasmBindgen } from '../../scripts/wasm-bindgen.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url)),
   root = resolve(directory, '../..');
@@ -30,6 +31,7 @@ await mkdir(generated, { recursive: true });
 function run(command, values, env = {}) {
   execFileSync(command, values, { cwd: root, stdio: 'inherit', env: { ...process.env, ...env } });
 }
+const bindgen = await resolveWasmBindgen({ root });
 const cargoOptions = ['--locked', ...(args.includes('--offline') ? ['--offline'] : [])];
 run('cargo', [
   'build',
@@ -43,16 +45,6 @@ run('cargo', [
   '--features',
   'wasm',
 ]);
-const lock = await readFile(join(root, 'Cargo.lock'), 'utf8');
-const version = lock.match(/\[\[package\]\]\s+name = "wasm-bindgen"\s+version = "([^"]+)"/)?.[1];
-const cached = join(
-  root,
-  `.cache/wasm-pack/wasm-bindgen-cargo-install-${version}/wasm-bindgen${process.platform === 'win32' ? '.exe' : ''}`,
-);
-const bindgen =
-  process.env.BUBBLEFISH_WASM_BINDGEN ?? (existsSync(cached) ? cached : 'wasm-bindgen');
-if (execFileSync(bindgen, ['--version'], { encoding: 'utf8' }).trim() !== `wasm-bindgen ${version}`)
-  throw new Error(`Install wasm-bindgen-cli ${version}, or run npm run build:web first`);
 run(bindgen, [
   join(root, 'target/wasm32-unknown-unknown/release/bubblefish_kha_white_ocr.wasm'),
   '--target',

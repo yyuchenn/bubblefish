@@ -126,15 +126,18 @@ to arrive, then check its token; synchronous WASM cannot be interrupted.
 Build and package the working echo example from the repository root:
 
 ```sh
+npm run build:wasm
 node crates/plugin-sdk/examples/build-example.mjs
 node crates/plugin-sdk/examples/smoke-example.mjs
 ```
 
 This produces `.cache/plugin-sdk-example/example.echo.bfplugin`, containing
 browser WASM plus the native executable for the current Rust host target. Add
-`--web-only` to omit the native executable. The script uses the wasm-bindgen CLI
-cached by the application's normal WASM build; `BUBBLEFISH_WASM_BINDGEN` can point
-to another matching CLI. Build `npm run build:web` once if that cache is absent.
+`--web-only` to omit the native executable. Run `npm run build:wasm` first so the
+locked wasm-pack prepares the CLI version required by Cargo.lock. The shared CLI
+resolver supports both prebuilt downloads and Cargo installation caches, then
+checks PATH for a matching version. `BUBBLEFISH_WASM_BINDGEN` explicitly selects
+another CLI and must match the locked version.
 
 The example registers `echo-ocr` and `prefix-translation`. OCR returns the number
 of received image bytes, and translation prefixes the supplied text. These verify
