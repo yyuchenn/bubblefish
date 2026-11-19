@@ -7,6 +7,36 @@ import {
 } from './updater-artifacts.mjs';
 
 export const giteeAttachmentLimit = 100_000_000;
+const requestTimeoutMs = 120_000;
+const attachmentUploadTimeoutMs = 900_000;
+
+function errorCauses(error) {
+  const pending = [{ error, depth: 0 }],
+    visited = new Set(),
+    causes = [];
+  // Error messages can echo authorization or signed URLs. Only summarize
+  // bounded type names and system codes, including IPv4/IPv6 aggregate errors.
+  while (pending.length && causes.length < 8) {
+    const { error: current, depth } = pending.shift();
+    if (!current || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+    const name =
+      typeof current.name === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,47}$/.test(current.name)
+        ? current.name
+        : 'Error';
+    const code =
+      typeof current.code === 'string' && /^[A-Z][A-Z0-9_]{0,47}$/.test(current.code)
+        ? current.code
+        : undefined;
+    causes.push({ name, ...(code === undefined ? {} : { code }) });
+    if (depth >= 4) continue;
+    pending.push({ error: current.cause, depth: depth + 1 });
+    if (Array.isArray(current.errors))
+      for (const nested of current.errors.slice(0, 3))
+        pending.push({ error: nested, depth: depth + 1 });
+  }
+  return causes;
+}
 
 export function repositoryPath(value) {
   assert.match(value ?? '', /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'Expected owner/repository');
@@ -27,26 +57,71 @@ export class ReleaseHttp {
   constructor({
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = () => performance.now(),
+    timeoutSignal = (ms) => AbortSignal.timeout(ms),
   } = {}) {
     this.fetch = fetchImpl;
     this.sleep = sleep;
+    this.now = now;
+    this.timeoutSignal = timeoutSignal;
+    this.contexts = new WeakMap();
   }
 
-  async response(url, options = {}, { missing = false } = {}) {
+  failure(message, context, phase, cause) {
+    const details = {
+      phase,
+      method: context.method,
+      url: context.url,
+      ...(context.attachmentName === undefined
+        ? {}
+        : { attachmentName: String(context.attachmentName).slice(0, 256) }),
+      ...(context.attachmentSize === undefined ? {} : { attachmentSize: context.attachmentSize }),
+      elapsedMs: Math.max(0, Math.round(this.now() - context.startedAt)),
+      timeoutMs: context.timeoutMs,
+      attempt: context.attempt,
+      maxAttempts: context.maxAttempts,
+      ...(context.status === undefined ? {} : { status: context.status }),
+      causes: errorCauses(cause),
+    };
+    // The CLI prints only error.message. Keep all printable diagnostics here,
+    // while preserving the original cause for callers without serializing it.
+    return new Error(
+      `${context.method} ${context.url}: ${message} ${JSON.stringify(details)}`,
+      cause === undefined ? undefined : { cause },
+    );
+  }
+
+  async response(
+    url,
+    options = {},
+    { missing = false, timeoutMs = requestTimeoutMs, attachmentName, attachmentSize } = {},
+  ) {
     const method = options.method ?? 'GET';
+    const parsedUrl = new URL(url);
     for (let attempt = 0; ; attempt++) {
+      const context = {
+        method,
+        // Omit URL credentials, query parameters and fragments from diagnostics.
+        url: `${parsedUrl.host}${parsedUrl.pathname}`.slice(0, 512),
+        attachmentName,
+        attachmentSize,
+        timeoutMs,
+        startedAt: this.now(),
+        attempt: attempt + 1,
+        maxAttempts: method === 'GET' ? 4 : 1,
+      };
       let response;
       try {
-        response = await this.fetch(url, { ...options, signal: AbortSignal.timeout(120_000) });
-      } catch {
+        response = await this.fetch(url, { ...options, signal: this.timeoutSignal(timeoutMs) });
+      } catch (error) {
         if (method === 'GET' && attempt < 3) {
           await this.sleep(500 * 2 ** attempt);
           continue;
         }
-        throw new Error(
-          `${method} ${new URL(url).hostname}${new URL(url).pathname}: network request failed`,
-        );
+        throw this.failure('network request failed', context, 'request', error);
       }
+      context.status = response.status;
+      this.contexts.set(response, context);
       if (missing && response.status === 404) return null;
       if (response.ok) return response;
       // Retrying writes after an ambiguous response can create duplicate assets.
@@ -55,36 +130,46 @@ export class ReleaseHttp {
         await this.sleep(500 * 2 ** attempt);
         continue;
       }
-      throw new Error(
-        `${method} ${new URL(url).hostname}${new URL(url).pathname}: HTTP ${response.status}`,
-      );
+      throw this.failure(`HTTP ${response.status}`, context, 'http');
     }
   }
 
   async json(url, options, flags) {
     const response = await this.response(url, options, flags);
-    return response ? response.json() : null;
+    if (!response) return null;
+    try {
+      return await response.json();
+    } catch (error) {
+      throw this.failure('JSON response failed', this.contexts.get(response), 'json', error);
+    }
   }
 
   async download(url) {
     // Deliberately omit API authorization, including when the server redirects.
     const response = await this.response(publicUrl(url));
-    const contentLength = Number(response.headers.get('content-length'));
-    assert.ok(
-      !contentLength || contentLength <= giteeAttachmentLimit,
-      'Release attachment exceeds Gitee limit',
-    );
-    const chunks = [];
-    let size = 0;
-    for await (const chunk of response.body) {
-      size += chunk.length;
-      if (size > giteeAttachmentLimit) {
-        await response.body.cancel().catch(() => {});
-        throw new Error('Release attachment exceeds Gitee limit');
+    const limitMessage = 'Release attachment exceeds Gitee limit';
+    try {
+      const contentLength = Number(response.headers.get('content-length'));
+      assert.ok(!contentLength || contentLength <= giteeAttachmentLimit, limitMessage);
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of response.body) {
+        size += chunk.length;
+        if (size > giteeAttachmentLimit) {
+          await response.body.cancel().catch(() => {});
+          throw new Error(limitMessage);
+        }
+        chunks.push(Buffer.from(chunk));
       }
-      chunks.push(Buffer.from(chunk));
+      return Buffer.concat(chunks);
+    } catch (error) {
+      throw this.failure(
+        error?.message === limitMessage ? limitMessage : 'download body failed',
+        this.contexts.get(response),
+        'download-body',
+        error,
+      );
     }
-    return Buffer.concat(chunks);
   }
 }
 
@@ -171,11 +256,19 @@ export class GithubReleaseApi extends ReleaseApi {
         const url = new URL(release.upload_url.replace(/\{.*$/, ''));
         assert.equal(url.origin, 'https://uploads.github.com', 'Unexpected GitHub upload origin');
         url.searchParams.set('name', name);
-        asset = await this.http.json(url.href, {
-          method: 'POST',
-          headers: { ...this.headers, 'Content-Type': 'application/octet-stream' },
-          body: bytes,
-        });
+        asset = await this.http.json(
+          url.href,
+          {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/octet-stream' },
+            body: bytes,
+          },
+          {
+            timeoutMs: attachmentUploadTimeoutMs,
+            attachmentName: name,
+            attachmentSize: bytes.length,
+          },
+        );
         assert.equal(asset.name, name, 'GitHub changed attachment name');
         assets.push(asset);
         await this.existingBytes(asset, bytes);
@@ -250,11 +343,19 @@ export class GiteeReleaseApi extends ReleaseApi {
         if (!asset) {
           const body = new FormData();
           body.append('file', new Blob([bytes], { type: 'application/octet-stream' }), name);
-          asset = await this.http.json(`${this.base}${path}`, {
-            method: 'POST',
-            headers: this.headers,
-            body,
-          });
+          asset = await this.http.json(
+            `${this.base}${path}`,
+            {
+              method: 'POST',
+              headers: this.headers,
+              body,
+            },
+            {
+              timeoutMs: attachmentUploadTimeoutMs,
+              attachmentName: name,
+              attachmentSize: bytes.length,
+            },
+          );
           assert.equal(asset.name, name, 'Gitee changed attachment name');
           assets.push(asset);
         }
