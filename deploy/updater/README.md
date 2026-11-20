@@ -13,9 +13,13 @@
 
 Gitee 仓库只作为下载和更新镜像，不保存 GitHub 源码，也不要求两站同名 tag 指向相同 commit。流水线先在 Gitee 的 `updater` 分支归档签名，再镜像安装器至 Gitee Release；归档中的 `releaseCommit` 始终表示 GitHub 源码来源，不要求对应 Git 对象存在于 Gitee。新建 Gitee Release 时以 `updater` 为 `target_commitish`，已有同名 Release 和 tag 直接复用，不推送源码或改写 tag。Gitee 自动提供的 Source code 归档因此只包含该镜像 tag 对应的内容，不代表应用源码。
 
-两站只新增安装器附件，不新增 `.sig` 附件。下载地址取自 Gitee API 返回的 `browser_download_url`，不靠替换域名猜测；流水线不带凭据下载公开附件并校验完整内容。Gitee 的单个附件上限按普通仓库 100 MB 检查；权限、容量或公开下载失败会阻止更新清单发布。
+桌面流程在两站只新增安装器附件，不新增 `.sig` 附件。下载地址取自 Gitee API 返回的 `browser_download_url`，不靠替换域名猜测；流水线不带凭据下载公开附件并校验完整内容。Gitee 的单个附件上限按普通仓库 100 MB 检查；权限、容量或公开下载失败会阻止更新清单发布。
 
-插件由独立的 `Build Bubblefish plugins` 工作流构建和发布：下载本次构建的五个 Web／示例插件包与两个原生插件包，再调用 `scripts/publish-plugins.mjs`，将七个 `.bfplugin` 附加到同一 tag 的 GitHub 和 Gitee Release。包含 DeepSeek、document-toolbox、history-inspector、edit-guard、Kha Web、Kha Windows x64 和 Kha macOS ARM64；不附加独立 `.bfmodel`。插件发布与桌面发布共用发布锁，避免竞争创建 Gitee Release，但不互相依赖。Gitee 仓库需预先有 `updater` 分支，插件流程不创建源码分支或推送源码 tag。插件失败不会阻止桌面安装器和自动更新发布；重跑插件任务可补齐，已有同名插件必须内容一致才会复用，不覆盖冲突文件。插件脚本不写签名归档或更新清单。
+插件由独立的 `Build Bubblefish plugins` 工作流构建和发布，只将四类正式 `.bfplugin` 附加到同一 tag 的 GitHub 和 Gitee Release：`deepseek-translation-plugin.bfplugin`、`kha-white-ocr-plugin-web.bfplugin`、`kha-white-ocr-plugin-x86_64-pc-windows-msvc.bfplugin` 和 `kha-white-ocr-plugin-aarch64-apple-darwin.bfplugin`。OCR 沿用 Web、Windows x64、macOS ARM64 三个变体；示例插件独立构建和检查，不进入 Release，也不附加独立 `.bfmodel`。
+
+DeepSeek、Kha Web 和双平台原生插件分别构建、检查和上传 CI Artifact，发布任务收集本次运行实际存在的正式包。某个包构建失败不会阻止其他成功包上传，失败的构建任务仍显示失败；运行取消后不发布。`scripts/publish-plugins.mjs` 接受四类正式包中的任意子集，按固定顺序上传，结果列出本次输入的 `packages` 和未包含的 `missingPackages`；缺少暂存目录或没有正式包时返回 `status: "skipped"`，不创建 Release 或上传附件。本地扫描忽略三个已知示例包及非插件文件，重复、未知、空文件或超限的插件包仍会报错。
+
+插件发布与桌面发布共用发布锁，并使用 `queue: max` 排队，避免竞争创建 Gitee Release 或替换等待中的发布任务，但不互相依赖。Gitee 仓库需预先有 `updater` 分支，插件流程不创建源码分支或推送源码 tag。插件失败不会阻止桌面安装器和自动更新发布；重跑插件任务可补齐，已有同名插件必须内容一致才会复用，不覆盖冲突文件。插件脚本不写签名归档或更新清单；真实上传或校验失败仍会让发布任务失败。
 
 GitHub 和 Gitee 的每次安装器或插件附件上传最多等待 15 分钟；普通 API 查询、创建 Release 和下载仍为每次请求 2 分钟。GET 沿用现有重试策略，上传 POST 不自动重放，以免响应丢失后重复创建附件。15 分钟是脚本设置的总时限；Node HTTP 客户端自身的连接、响应头或响应体超时仍可能更早中断请求，日志中的原因码可区分这些情况。延长总时限不会消除 DNS、连接或 TLS 等底层故障。
 
@@ -26,6 +30,8 @@ GitHub 和 Gitee 的每次安装器或插件附件上传最多等待 15 分钟�
 默认源只推进稳定版，预发布版可以签名、归档和镜像，但不覆盖稳定清单。PR、push 和普通手动构建不发布更新源。共享发布锁与远端版本比较阻止旧任务回退新版。跨 GitHub/Gitee 无法同时提交：若第二站清单提交失败，第一站保持完整可用的新版、第二站保持原有版本，重试补齐即可。
 
 手动修复时，在 Actions 运行 `Publish Bubblefish updater manifests` 并填写已发布 tag；它优先读取 GitHub 的版本签名归档，再下载并验证已有安装器，不重新签名。无归档的旧 Release 仍兼容读取 `.sig` 附件，已有历史 `.sig` 不删除。只修复 Gitee 时运行 `Repair Bubblefish Gitee mirror`，同样填写 tag；此模式不会补写 GitHub 归档或改动其更新清单。若 GitHub 安装器已完整上传，即使 Gitee 发布中断，也可只凭 GitHub 安装器和签名归档恢复；若 GitHub 安装器尚未上传完整，仍需复用保留期内的 CI 暂存产物，签名归档不能还原安装器字节。重新构建同一版本若产生不同安装器字节会被拒绝，应复用已签名资产或发布新的版本。
+
+上述更新／镜像工作流在桌面步骤成功后，也会读取 GitHub Release 中已有的正式插件并补齐 Gitee，允许部分或零个插件；晚完成的独立插件任务仍自行发布。单独修复插件可在对应 tag 的检出目录执行 `node scripts/publish-plugins.mjs --tag <tag> --mirror-only`，沿用 `GITHUB_REPOSITORY`、`GITHUB_TOKEN`、`GITEE_REPOSITORY` 和 `GITEE_TOKEN`。省略 `--artifacts` 时下载 GitHub 已有的正式插件内容；`--mirror-only` 不上传或修改 GitHub 附件。保有本次 CI 产物时，用 `--artifacts <directory>` 指定暂存目录，将成功包发布至两站，无需重新编译；若同时指定 `--mirror-only`，每个本地包必须与 GitHub 已发布的同名附件字节一致才会上传至 Gitee。
 
 发布工作流检出填写的 tag，因此镜像逻辑、签名归档、附件调整、超时和日志改进只对包含相应脚本修改的 tag 生效；重跑旧 tag 仍使用该 tag 中的旧逻辑。删除并重新创建 Release 不会清除两站 `updater/releases/<tag>.json` 的历史归档；同名安装器若重建为不同字节，归档校验仍会拒绝。复用原安装器或发布新版本可以保留既有发布记录；若手工重置未完成的同版本发布，需要另外处理两站该版本的归档和同名附件，不能只删除 Release 页面。
 

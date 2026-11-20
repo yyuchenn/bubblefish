@@ -266,6 +266,42 @@ test('Gitee uses returned numeric attachment URLs, verifies anonymous bytes and 
   await assert.rejects(server.gt.mirror(release, artifacts), /Published attachment differs/);
 });
 
+test('reads only requested existing GitHub assets in order using anonymous downloads', async () => {
+  const release = testRelease(),
+    server = fakeServer(release),
+    plugins = [
+      { name: 'deepseek-translation-plugin.bfplugin', bytes: Buffer.from('plugin one') },
+      { name: 'kha-white-ocr-plugin-web.bfplugin', bytes: Buffer.from('plugin two') },
+    ];
+  for (const { name, bytes } of [...plugins].reverse()) server.add('github', name, bytes);
+  server.add('github', 'example.edit-guard.bfplugin', Buffer.from('example plugin'));
+  server.add('github', 'installer.exe', Buffer.from('installer'));
+  assert.deepEqual(
+    await server.gh.readAssets(release, [
+      plugins[0].name,
+      'kha-white-ocr-plugin-aarch64-apple-darwin.bfplugin',
+      plugins[1].name,
+    ]),
+    plugins,
+  );
+  const downloads = server.calls.filter(({ url }) => new URL(url).hostname === 'github.com');
+  assert.equal(downloads.length, 2);
+  assert.ok(downloads.every(({ authorization }) => authorization === null));
+  assert.ok(server.calls.every(({ method }) => method === 'GET'));
+  assert.deepEqual(await server.gh.readAssets(release, ['absent.bfplugin']), []);
+});
+
+test('duplicate GitHub repair assets fail before any attachment downloads', async () => {
+  const release = testRelease(),
+    server = fakeServer(release),
+    name = 'deepseek-translation-plugin.bfplugin';
+  const asset = server.add('github', name, Buffer.from('plugin bytes'));
+  server.github.push({ ...asset, id: 9999 });
+  await assert.rejects(server.gh.readAssets(release, [name]), /Duplicate GitHub attachment/);
+  assert.equal(server.calls.length, 1);
+  assert.equal(new URL(server.calls[0].url).hostname, 'api.github.com');
+});
+
 test('unsigned plugin packages publish to both hosts and resume without duplicate attachments', async () => {
   const release = testRelease(),
     server = fakeServer(release),

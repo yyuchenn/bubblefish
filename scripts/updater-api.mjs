@@ -257,6 +257,17 @@ export class GithubReleaseApi extends ReleaseApi {
     return this.list(`/releases/${release.id}/assets`);
   }
 
+  async readAssets(release, names) {
+    const assets = await this.assets(release);
+    const selected = names.map((name) => attachmentByName(assets, name, 'GitHub')).filter(Boolean);
+    return Promise.all(
+      selected.map(async ({ name, browser_download_url }) => ({
+        name,
+        bytes: await this.http.download(browser_download_url),
+      })),
+    );
+  }
+
   async readArtifacts(release, version, publicKey, metadata) {
     const assets = await this.assets(release);
     const selected = selectArtifacts(assets, version);
