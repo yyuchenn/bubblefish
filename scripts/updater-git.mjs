@@ -196,41 +196,4 @@ export class GitUpdaterStore {
       throw new Error('Updater publication retry limit reached');
     });
   }
-
-  async ensureTag(sourceDirectory, tag, commit) {
-    releaseVersion(tag);
-    assert.match(commit, /^[a-f0-9]{40,64}$/, 'Expected a release commit hash');
-    const { stdout } = await this.git(sourceDirectory, [
-      'ls-remote',
-      this.remote,
-      `refs/tags/${tag}`,
-      `refs/tags/${tag}^{}`,
-    ]);
-    const refs = new Map(
-      stdout
-        .trim()
-        .split('\n')
-        .filter(Boolean)
-        .map((line) => {
-          const [sha, ref] = line.split(/\s+/);
-          return [ref, sha];
-        }),
-    );
-    const existing = refs.get(`refs/tags/${tag}^{}`) ?? refs.get(`refs/tags/${tag}`);
-    if (existing) {
-      assert.equal(existing, commit, 'Gitee release tag points to a different commit');
-      return;
-    }
-    const { stdout: local } = await this.git(sourceDirectory, [
-      'rev-parse',
-      `refs/tags/${tag}^{commit}`,
-    ]);
-    assert.equal(local.trim(), commit, 'Local release tag commit differs');
-    await this.git(sourceDirectory, [
-      'push',
-      '--quiet',
-      this.remote,
-      `refs/tags/${tag}:refs/tags/${tag}`,
-    ]);
-  }
 }

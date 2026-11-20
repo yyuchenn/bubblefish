@@ -9,13 +9,16 @@ import {
 import { releaseMetadata, updateManifest } from './updater-artifacts.mjs';
 import { testArtifacts, testRelease, testSigner } from './updater-test-helpers.mjs';
 
-function fakeServer(release = testRelease(), { onRequest = () => {}, ...httpOptions } = {}) {
+function fakeServer(
+  release = testRelease(),
+  { onRequest = () => {}, giteeRelease: existingGiteeRelease, ...httpOptions } = {},
+) {
   const github = [],
     gitee = [],
     downloads = new Map(),
     calls = [],
     signalTimeouts = new WeakMap();
-  let giteeRelease;
+  let giteeRelease = existingGiteeRelease;
   const json = (value, status = 200) =>
     new Response(JSON.stringify(value), {
       status,
@@ -97,6 +100,31 @@ function fakeServer(release = testRelease(), { onRequest = () => {}, ...httpOpti
 function diagnostics(error) {
   return JSON.parse(error.message.slice(error.message.indexOf('{')));
 }
+
+test('Gitee release tags use the updater branch instead of GitHub source history', async () => {
+  const release = testRelease();
+  const server = fakeServer(release);
+  const mirrored = await server.gt.ensureRelease(release);
+  assert.equal(mirrored.tag_name, release.tag_name);
+  assert.equal(mirrored.target_commitish, 'updater');
+  assert.equal(mirrored.name, release.name);
+  assert.equal(mirrored.body, release.body);
+  assert.equal(mirrored.prerelease, release.prerelease);
+});
+
+test('Gitee reuses existing release tags without changing their unrelated source commit', async () => {
+  const release = testRelease();
+  const existing = { id: 93, tag_name: release.tag_name, target_commitish: 'unrelated-history' };
+  const server = fakeServer(release, { giteeRelease: existing });
+  await server.gt.mirror(release, testArtifacts(testSigner()));
+  assert.deepEqual(await server.gt.ensureRelease(release), existing);
+  assert.ok(
+    server.calls.every(
+      ({ method, url }) => method === 'GET' || new URL(url).pathname.endsWith('/attach_files'),
+    ),
+    'Only missing attachments may be written; existing releases and tags must stay unchanged',
+  );
+});
 
 test('GitHub publishes only installers and resumes without replacing existing bytes', async () => {
   const signer = testSigner(),
@@ -236,6 +264,42 @@ test('Gitee uses returned numeric attachment URLs, verifies anonymous bytes and 
     Buffer.from('<html>Login required</html>'),
   );
   await assert.rejects(server.gt.mirror(release, artifacts), /Published attachment differs/);
+});
+
+test('reads only requested existing GitHub assets in order using anonymous downloads', async () => {
+  const release = testRelease(),
+    server = fakeServer(release),
+    plugins = [
+      { name: 'deepseek-translation-plugin.bfplugin', bytes: Buffer.from('plugin one') },
+      { name: 'kha-white-ocr-plugin-web.bfplugin', bytes: Buffer.from('plugin two') },
+    ];
+  for (const { name, bytes } of [...plugins].reverse()) server.add('github', name, bytes);
+  server.add('github', 'example.edit-guard.bfplugin', Buffer.from('example plugin'));
+  server.add('github', 'installer.exe', Buffer.from('installer'));
+  assert.deepEqual(
+    await server.gh.readAssets(release, [
+      plugins[0].name,
+      'kha-white-ocr-plugin-aarch64-apple-darwin.bfplugin',
+      plugins[1].name,
+    ]),
+    plugins,
+  );
+  const downloads = server.calls.filter(({ url }) => new URL(url).hostname === 'github.com');
+  assert.equal(downloads.length, 2);
+  assert.ok(downloads.every(({ authorization }) => authorization === null));
+  assert.ok(server.calls.every(({ method }) => method === 'GET'));
+  assert.deepEqual(await server.gh.readAssets(release, ['absent.bfplugin']), []);
+});
+
+test('duplicate GitHub repair assets fail before any attachment downloads', async () => {
+  const release = testRelease(),
+    server = fakeServer(release),
+    name = 'deepseek-translation-plugin.bfplugin';
+  const asset = server.add('github', name, Buffer.from('plugin bytes'));
+  server.github.push({ ...asset, id: 9999 });
+  await assert.rejects(server.gh.readAssets(release, [name]), /Duplicate GitHub attachment/);
+  assert.equal(server.calls.length, 1);
+  assert.equal(new URL(server.calls[0].url).hostname, 'api.github.com');
 });
 
 test('unsigned plugin packages publish to both hosts and resume without duplicate attachments', async () => {

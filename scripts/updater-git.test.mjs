@@ -239,21 +239,23 @@ test('invalid historical manifest is preserved instead of overwritten', async ()
   });
 });
 
-test('Gitee tags are immutable and never forced to another commit', async () => {
-  await fixture(async ({ remote, directory }) => {
-    const source = join(directory, 'source');
-    await run('git', ['init', '--quiet', source]);
-    await run('git', ['config', 'user.name', 'Test'], { cwd: source });
-    await run('git', ['config', 'user.email', 'test@example.invalid'], { cwd: source });
-    await writeFile(join(source, 'package.json'), '{}');
-    await run('git', ['add', 'package.json'], { cwd: source });
-    await run('git', ['commit', '--quiet', '-m', 'Release'], { cwd: source });
-    await run('git', ['tag', 'v0.4.0'], { cwd: source });
-    const { stdout: commit } = await run('git', ['rev-parse', 'HEAD'], { cwd: source });
-    const store = new GitUpdaterStore({ remote });
-    await store.ensureTag(source, 'v0.4.0', commit.trim());
-    await store.ensureTag(source, 'v0.4.0', commit.trim());
-    await assert.rejects(store.ensureTag(source, 'v0.4.0', 'f'.repeat(40)), /different commit/);
+test('a mirror stores release provenance without requiring the source commit or creating source tags', async () => {
+  await fixture(async ({ remote, store }) => {
+    const { metadata } = archiveFixture();
+    await store.archiveRelease(metadata);
+    await store.publish(manifest(metadata.version));
+    assert.deepEqual(await store.readRelease(metadata.tag), metadata);
+    const { stdout: refs } = await run('git', [
+      '--git-dir',
+      remote,
+      'for-each-ref',
+      '--format=%(refname)',
+    ]);
+    assert.equal(refs.trim(), 'refs/heads/updater');
+    await assert.rejects(
+      run('git', ['--git-dir', remote, 'cat-file', '-e', `${metadata.releaseCommit}^{commit}`]),
+      'releaseCommit records GitHub provenance and need not exist in the mirror',
+    );
   });
 });
 

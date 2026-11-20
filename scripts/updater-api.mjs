@@ -257,6 +257,17 @@ export class GithubReleaseApi extends ReleaseApi {
     return this.list(`/releases/${release.id}/assets`);
   }
 
+  async readAssets(release, names) {
+    const assets = await this.assets(release);
+    const selected = names.map((name) => attachmentByName(assets, name, 'GitHub')).filter(Boolean);
+    return Promise.all(
+      selected.map(async ({ name, browser_download_url }) => ({
+        name,
+        bytes: await this.http.download(browser_download_url),
+      })),
+    );
+  }
+
   async readArtifacts(release, version, publicKey, metadata) {
     const assets = await this.assets(release);
     const selected = selectArtifacts(assets, version);
@@ -377,7 +388,9 @@ export class GiteeReleaseApi extends ReleaseApi {
       method: 'POST',
       body: {
         tag_name: source.tag_name,
-        target_commitish: source.tag_name,
+        // This repository contains updater metadata, not the GitHub source.
+        // Existing release tags are reused without rewriting their Git history.
+        target_commitish: 'updater',
         name: source.name || source.tag_name,
         body: source.body || '',
         prerelease: Boolean(source.prerelease),

@@ -18,7 +18,6 @@ import {
 
 export async function publishUpdater({
   tag,
-  sourceDirectory,
   publicKey,
   expectedVersion,
   localArtifacts,
@@ -58,7 +57,8 @@ export async function publishUpdater({
   const published = mirrorOnly
     ? { artifacts: source }
     : await github.publish(release, source, version, publicKey);
-  await giteeStore.ensureTag(sourceDirectory, tag, releaseCommit);
+  // Gitee stores updater metadata and downloads, not the GitHub source tree.
+  // releaseCommit remains GitHub provenance inside the mirrored archive.
   const mirroredMetadata = await giteeStore.archiveRelease(canonical);
   const mirroredArtifacts = applyReleaseMetadata(
     mirroredMetadata,
@@ -127,7 +127,6 @@ async function main() {
     : undefined;
   const result = await publishUpdater({
     tag,
-    sourceDirectory: root,
     publicKey,
     expectedVersion: manifest.version,
     localArtifacts,

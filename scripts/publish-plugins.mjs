@@ -1,26 +1,25 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import {
   GithubReleaseApi,
   GiteeReleaseApi,
   giteeAttachmentLimit,
   repositoryPath,
 } from './updater-api.mjs';
-import { GitUpdaterStore } from './updater-git.mjs';
-import { releaseVersion } from './updater-artifacts.mjs';
+import { releaseVersion, sha256 } from './updater-artifacts.mjs';
 
 export const pluginPackageNames = Object.freeze([
   'deepseek-translation-plugin.bfplugin',
-  'example.document-toolbox.bfplugin',
-  'example.history-inspector.bfplugin',
-  'example.edit-guard.bfplugin',
   'kha-white-ocr-plugin-web.bfplugin',
   'kha-white-ocr-plugin-x86_64-pc-windows-msvc.bfplugin',
   'kha-white-ocr-plugin-aarch64-apple-darwin.bfplugin',
+]);
+const examplePackageNames = new Set([
+  'example.document-toolbox.bfplugin',
+  'example.history-inspector.bfplugin',
+  'example.edit-guard.bfplugin',
 ]);
 
 function validatePackageName(name) {
@@ -47,20 +46,27 @@ function validatePluginArtifacts(artifacts) {
     );
     byName.set(name, { name, bytes });
   }
-  return pluginPackageNames.map((name) => {
-    assert.ok(byName.has(name), `Missing plugin package: ${name}`);
-    return byName.get(name);
-  });
+  return pluginPackageNames.filter((name) => byName.has(name)).map((name) => byName.get(name));
 }
 
 export async function readPluginArtifacts(directory) {
   const paths = new Map();
   async function visit(current) {
-    for (const entry of await readdir(current, { withFileTypes: true })) {
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch (error) {
+      // Downloading an empty set of Actions artifacts need not create a folder.
+      // Only tolerate the missing root, not files disappearing while scanning.
+      if (current === directory && error.code === 'ENOENT') return;
+      throw error;
+    }
+    for (const entry of entries) {
       assert.ok(!entry.isSymbolicLink(), 'Symbolic links are not supported in plugin artifacts');
       const path = join(current, entry.name);
       if (entry.isDirectory()) await visit(path);
       else if (entry.isFile() && entry.name.endsWith('.bfplugin')) {
+        if (examplePackageNames.has(entry.name)) continue;
         validatePackageName(entry.name);
         assert.ok(!paths.has(entry.name), `Duplicate plugin package: ${entry.name}`);
         validatePackageSize(entry.name, (await stat(path)).size);
@@ -69,57 +75,81 @@ export async function readPluginArtifacts(directory) {
     }
   }
   await visit(directory);
-  // Check the complete build output before reading or publishing any package.
-  for (const name of pluginPackageNames)
-    assert.ok(paths.has(name), `Missing plugin package: ${name}`);
   return validatePluginArtifacts(
     await Promise.all(
-      pluginPackageNames.map(async (name) => ({ name, bytes: await readFile(paths.get(name)) })),
+      pluginPackageNames
+        .filter((name) => paths.has(name))
+        .map(async (name) => ({ name, bytes: await readFile(paths.get(name)) })),
     ),
   );
 }
 
 export async function publishPlugins({
   tag,
-  sourceDirectory,
-  releaseCommit,
   expectedVersion,
   artifacts,
   github,
   gitee,
-  giteeStore,
+  mirrorOnly = false,
 }) {
   const version = releaseVersion(tag);
   assert.equal(version, expectedVersion, 'Release tag differs from the checked-out app version');
-  assert.match(releaseCommit, /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/, 'Expected a release commit hash');
-  const packages = validatePluginArtifacts(artifacts);
+  let packages = artifacts === undefined ? undefined : validatePluginArtifacts(artifacts);
+  const summary = (status) => ({
+    status,
+    version,
+    packages: packages.map(({ name }) => name),
+    missingPackages: pluginPackageNames.filter(
+      (name) => !packages.some((entry) => entry.name === name),
+    ),
+  });
+  if (packages?.length === 0) return summary('skipped');
   const release = await github.release(tag);
   assert.equal(release.tag_name, tag, 'GitHub release tag differs');
   assert.ok(!release.draft && release.published_at, 'Plugin assets require a published release');
   assert.ok(Number.isFinite(Date.parse(release.published_at)), 'Invalid release publication date');
-  const githubUrls = await github.uploadAssets(release, packages);
-  await giteeStore.ensureTag(sourceDirectory, tag, releaseCommit);
+  packages ??= validatePluginArtifacts(await github.readAssets(release, pluginPackageNames));
+  if (packages.length === 0) return summary('skipped');
+  if (mirrorOnly && artifacts !== undefined) {
+    // A staged repair must mirror GitHub's published bytes just like a repair
+    // without staging. Never introduce a different payload only on Gitee.
+    const published = validatePluginArtifacts(
+      await github.readAssets(
+        release,
+        packages.map(({ name }) => name),
+      ),
+    );
+    for (const { name, bytes } of packages) {
+      const canonical = published.find((entry) => entry.name === name);
+      assert.ok(canonical, `Missing published GitHub plugin: ${name}`);
+      assert.equal(sha256(bytes), sha256(canonical.bytes), `Published attachment differs: ${name}`);
+    }
+  }
+  const githubUrls = mirrorOnly ? undefined : await github.uploadAssets(release, packages);
   const giteeUrls = await gitee.mirror(release, packages);
   return {
-    status: 'published',
-    version,
-    packages: packages.map(({ name }) => name),
-    github: githubUrls,
+    ...summary('published'),
+    ...(mirrorOnly ? {} : { github: githubUrls }),
     gitee: giteeUrls,
   };
 }
 
 async function main() {
   const args = process.argv.slice(2);
-  let tag, directory;
+  let tag,
+    directory,
+    mirrorOnly = false;
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--tag') tag = args[++index];
-    else if (args[index] === '--artifacts') directory = args[++index];
+    else if (args[index] === '--artifacts') {
+      directory = args[++index];
+      assert.ok(directory && !directory.startsWith('--'), '--artifacts requires a directory');
+    } else if (args[index] === '--mirror-only') mirrorOnly = true;
     else throw new Error(`Unknown argument: ${args[index]}`);
   }
   assert.ok(
-    tag && directory,
-    'Usage: publish-plugins.mjs --tag <published-tag> --artifacts <directory>',
+    tag,
+    'Usage: publish-plugins.mjs --tag <published-tag> [--artifacts <directory>] [--mirror-only]',
   );
   releaseVersion(tag);
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -133,23 +163,13 @@ async function main() {
     repository: giteeRepository,
     token: process.env.GITEE_TOKEN,
   });
-  const giteeStore = new GitUpdaterStore({
-    remote: `https://gitee.com/${giteeRepository}.git`,
-    token: process.env.GITEE_TOKEN,
-    username: 'oauth2',
-  });
-  const { stdout } = await promisify(execFile)('git', ['rev-parse', `refs/tags/${tag}^{commit}`], {
-    cwd: root,
-  });
   const result = await publishPlugins({
     tag,
-    sourceDirectory: root,
-    releaseCommit: stdout.trim(),
     expectedVersion: manifest.version,
-    artifacts: await readPluginArtifacts(resolve(directory)),
+    artifacts: directory ? await readPluginArtifacts(resolve(directory)) : undefined,
     github,
     gitee,
-    giteeStore,
+    mirrorOnly,
   });
   console.log(JSON.stringify(result));
 }

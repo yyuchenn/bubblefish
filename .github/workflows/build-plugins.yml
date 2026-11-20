@@ -18,8 +18,29 @@ env:
   BUBBLEFISH_RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
 
 jobs:
-  web:
-    name: Web and example plugin packages
+  deepseek:
+    name: DeepSeek translation plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+        with:
+          rust: 'false'
+      - name: Check product identity and plugin types
+        run: |
+          npm run check:identity
+          npm run plugin:deepseek:check
+      - name: Build DeepSeek plugin package
+        run: npm run plugin:deepseek:build
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bubblefish-plugin-deepseek
+          path: dist/plugins/deepseek-translation-plugin.bfplugin
+          if-no-files-found: error
+          retention-days: 14
+
+  kha_web:
+    name: Kha White OCR (Web)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -27,22 +48,41 @@ jobs:
       - name: Check product identity and plugin types
         run: |
           npm run check:identity
-          npm run plugin:deepseek:check
           npm run plugin:kha-white:check
-          npm run test:plugins
-          node --test scripts/ort-runtime.test.mjs scripts/wasm-bindgen.test.mjs
-      - name: Build WASM tools and plugin packages
+      - name: Build WASM tools and Kha Web plugin package
         run: |
           npm run build:wasm
-          npm run plugin:deepseek:build
-          npm run plugin:pack -- examples/plugins/document-toolbox
-          npm run plugin:pack -- examples/plugins/history-inspector
-          npm run plugin:pack -- examples/plugins/edit-guard
           npm run plugin:kha-white:build -- --web-only
       - uses: actions/upload-artifact@v7
         with:
-          name: bubblefish-web-plugins
-          path: dist/plugins/*.bfplugin
+          name: bubblefish-plugin-kha-web
+          path: dist/plugins/kha-white-ocr-plugin-web.bfplugin
+          if-no-files-found: error
+          retention-days: 14
+
+  examples:
+    name: Plugin checks and example packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup
+      - name: Check plugin protocol and build tools
+        run: |
+          npm run check:identity
+          npm run test:plugins
+          node --test scripts/ort-runtime.test.mjs scripts/wasm-bindgen.test.mjs
+      - name: Build example plugin packages
+        run: |
+          npm run plugin:pack -- examples/plugins/document-toolbox
+          npm run plugin:pack -- examples/plugins/history-inspector
+          npm run plugin:pack -- examples/plugins/edit-guard
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bubblefish-example-plugins
+          path: |
+            dist/plugins/example.document-toolbox.bfplugin
+            dist/plugins/example.history-inspector.bfplugin
+            dist/plugins/example.edit-guard.bfplugin
           if-no-files-found: error
           retention-days: 14
 
@@ -63,7 +103,9 @@ jobs:
       - name: Install native target
         run: rustup target add ${{ matrix.target }}
       - name: Check release identity
-        run: npm run check:identity
+        run: |
+          npm run check:identity
+          npm run plugin:kha-white:check
       - name: Build locked WASM tools
         run: npm run build:wasm
       - name: Fetch official ONNX Runtime CPU package
@@ -81,14 +123,15 @@ jobs:
 
   publish:
     name: Publish plugin packages to GitHub and Gitee
-    if: github.event_name == 'release'
-    needs: [web, native]
+    if: ${{ github.event_name == 'release' && !cancelled() }}
+    needs: [deepseek, kha_web, native]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
       group: bubblefish-stable-updater
       cancel-in-progress: false
+      queue: max
     steps:
       - uses: actions/checkout@v7
         with:
@@ -99,18 +142,11 @@ jobs:
         with:
           rust: 'false'
           dependencies: 'false'
-      - uses: actions/download-artifact@v8
+      - name: Download available official plugin packages
+        uses: actions/download-artifact@v8
         with:
-          name: bubblefish-web-plugins
-          path: plugin-artifacts/web/
-      - uses: actions/download-artifact@v8
-        with:
-          name: bubblefish-plugins-x86_64-pc-windows-msvc
-          path: plugin-artifacts/windows/
-      - uses: actions/download-artifact@v8
-        with:
-          name: bubblefish-plugins-aarch64-apple-darwin
-          path: plugin-artifacts/macos/
+          pattern: bubblefish-plugin*
+          path: plugin-artifacts/
       - name: Publish verified plugin packages
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
