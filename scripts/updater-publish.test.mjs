@@ -15,7 +15,6 @@ function environment({ version = '0.4.0', failMirror = false, failGiteeCommit = 
     Object.fromEntries(artifacts.map(({ name }) => [name, `https://${host}/test/${name}`]));
   const options = {
     tag: release.tag_name,
-    sourceDirectory: '/source',
     publicKey: signer.publicKey,
     expectedVersion: version,
     localArtifacts: artifacts,
@@ -67,7 +66,6 @@ function environment({ version = '0.4.0', failMirror = false, failGiteeCommit = 
       },
     },
     giteeStore: {
-      ensureTag: async () => calls.push('gitee-tag'),
       archiveRelease: async (metadata) => {
         calls.push('gitee-archive');
         archives.gitee ??= structuredClone(metadata);
@@ -93,7 +91,6 @@ test('both stores contain verified installers before either latest feed changes'
     'preflight',
     'github-archive',
     'github-assets',
-    'gitee-tag',
     'gitee-archive',
     'gitee-assets',
     'github-latest',
@@ -148,7 +145,6 @@ test('manual Gitee repair reads existing signed release assets without publishin
     'github-archive-read',
     'read-assets',
     'preflight',
-    'gitee-tag',
     'gitee-archive',
     'gitee-assets',
     'gitee-latest',

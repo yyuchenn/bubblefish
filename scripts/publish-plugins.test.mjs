@@ -45,8 +45,6 @@ function environment() {
   const options = {
     tag: release.tag_name,
     expectedVersion: '0.4.0',
-    releaseCommit: 'a'.repeat(40),
-    sourceDirectory: '/source',
     artifacts: packages(),
     github: {
       release: async (tag) => {
@@ -68,12 +66,7 @@ function environment() {
       },
     },
     giteeStore: {
-      ensureTag: async (directory, tag, commit) => {
-        assert.equal(directory, '/source');
-        assert.equal(tag, release.tag_name);
-        assert.equal(commit, 'a'.repeat(40));
-        calls.push('gitee-tag');
-      },
+      ensureTag: () => assert.fail('Plugin publication must not synchronize source tags'),
       publish: () => assert.fail('Plugin publication must not publish update feeds'),
       archiveRelease: () => assert.fail('Plugins must not change installer signature archives'),
     },
@@ -145,7 +138,7 @@ test('publishes all seven plugin packages to both hosts without touching updater
   assert.equal(githubPackages.size, 7);
   assert.equal(Object.keys(result.github).length, 7);
   assert.equal(Object.keys(result.gitee).length, 7);
-  assert.deepEqual(calls, ['release', 'github-assets', 'gitee-tag', 'gitee-assets']);
+  assert.deepEqual(calls, ['release', 'github-assets', 'gitee-assets']);
 });
 
 test('invalid packages and release identity stop publication before any attachment writes', async () => {
@@ -170,12 +163,6 @@ test('invalid packages and release identity stop publication before any attachme
     },
     (env) => {
       env.options.expectedVersion = '0.5.0';
-    },
-    (env) => {
-      env.options.releaseCommit = 'not-a-commit';
-    },
-    (env) => {
-      env.options.releaseCommit = 'a'.repeat(41);
     },
     (env) => {
       env.release.draft = true;
@@ -211,11 +198,9 @@ test('a failed mirror can be retried independently using the same seven packages
   assert.deepEqual(env.calls, [
     'release',
     'github-assets',
-    'gitee-tag',
     'gitee-failed',
     'release',
     'github-assets',
-    'gitee-tag',
     'gitee-assets',
   ]);
 });

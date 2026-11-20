@@ -9,13 +9,16 @@ import {
 import { releaseMetadata, updateManifest } from './updater-artifacts.mjs';
 import { testArtifacts, testRelease, testSigner } from './updater-test-helpers.mjs';
 
-function fakeServer(release = testRelease(), { onRequest = () => {}, ...httpOptions } = {}) {
+function fakeServer(
+  release = testRelease(),
+  { onRequest = () => {}, giteeRelease: existingGiteeRelease, ...httpOptions } = {},
+) {
   const github = [],
     gitee = [],
     downloads = new Map(),
     calls = [],
     signalTimeouts = new WeakMap();
-  let giteeRelease;
+  let giteeRelease = existingGiteeRelease;
   const json = (value, status = 200) =>
     new Response(JSON.stringify(value), {
       status,
@@ -97,6 +100,31 @@ function fakeServer(release = testRelease(), { onRequest = () => {}, ...httpOpti
 function diagnostics(error) {
   return JSON.parse(error.message.slice(error.message.indexOf('{')));
 }
+
+test('Gitee release tags use the updater branch instead of GitHub source history', async () => {
+  const release = testRelease();
+  const server = fakeServer(release);
+  const mirrored = await server.gt.ensureRelease(release);
+  assert.equal(mirrored.tag_name, release.tag_name);
+  assert.equal(mirrored.target_commitish, 'updater');
+  assert.equal(mirrored.name, release.name);
+  assert.equal(mirrored.body, release.body);
+  assert.equal(mirrored.prerelease, release.prerelease);
+});
+
+test('Gitee reuses existing release tags without changing their unrelated source commit', async () => {
+  const release = testRelease();
+  const existing = { id: 93, tag_name: release.tag_name, target_commitish: 'unrelated-history' };
+  const server = fakeServer(release, { giteeRelease: existing });
+  await server.gt.mirror(release, testArtifacts(testSigner()));
+  assert.deepEqual(await server.gt.ensureRelease(release), existing);
+  assert.ok(
+    server.calls.every(
+      ({ method, url }) => method === 'GET' || new URL(url).pathname.endsWith('/attach_files'),
+    ),
+    'Only missing attachments may be written; existing releases and tags must stay unchanged',
+  );
+});
 
 test('GitHub publishes only installers and resumes without replacing existing bytes', async () => {
   const signer = testSigner(),

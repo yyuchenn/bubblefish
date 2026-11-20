@@ -377,7 +377,9 @@ export class GiteeReleaseApi extends ReleaseApi {
       method: 'POST',
       body: {
         tag_name: source.tag_name,
-        target_commitish: source.tag_name,
+        // This repository contains updater metadata, not the GitHub source.
+        // Existing release tags are reused without rewriting their Git history.
+        target_commitish: 'updater',
         name: source.name || source.tag_name,
         body: source.body || '',
         prerelease: Boolean(source.prerelease),

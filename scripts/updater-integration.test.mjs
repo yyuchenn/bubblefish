@@ -17,7 +17,6 @@ function releaseServer(release) {
     downloads = new Map(),
     calls = [];
   const server = { assets, calls, failNextGiteeUpload: false, beforeUpload: async () => {} };
-  let giteeRelease;
   const json = (value, status = 200) => new Response(JSON.stringify(value), { status });
   const add = (host, name, bytes) => {
     const id = assets[host].length + 1;
@@ -52,10 +51,12 @@ function releaseServer(release) {
       }
       if (url.hostname === 'gitee.com') {
         if (url.pathname.endsWith(`/releases/tags/${release.tag_name}`))
-          return giteeRelease ? json(giteeRelease) : json({}, 404);
+          return server.giteeRelease ? json(server.giteeRelease) : json({}, 404);
         if (url.pathname.endsWith('/releases') && method === 'POST') {
-          giteeRelease = { ...JSON.parse(options.body), id: 93 };
-          return json(giteeRelease, 201);
+          const body = JSON.parse(options.body);
+          assert.equal(body.target_commitish, 'updater');
+          server.giteeRelease = { ...body, id: 93 };
+          return json(server.giteeRelease, 201);
         }
         if (url.pathname.endsWith('/releases/93/attach_files')) {
           if (method === 'GET') return json(assets.gitee);
@@ -82,6 +83,19 @@ async function fixture(operation) {
     const giteeRemote = join(directory, 'gitee.git');
     await run('git', ['init', '--quiet', '--bare', githubRemote]);
     await run('git', ['init', '--quiet', '--bare', giteeRemote]);
+    const giteeStore = new GitUpdaterStore({ remote: giteeRemote });
+    await giteeStore.withCheckout(async (checkout) => {
+      await writeFile(join(checkout, 'README.md'), 'Update feeds and release download mirror.');
+      await giteeStore.git(checkout, ['add', 'README.md']);
+      await giteeStore.git(checkout, ['commit', '--quiet', '-m', 'Initialize mirror']);
+      await giteeStore.git(checkout, ['push', '--quiet', 'origin', 'HEAD:refs/heads/updater']);
+    });
+    const { stdout: initialGiteeCommit } = await run('git', [
+      '--git-dir',
+      giteeRemote,
+      'rev-parse',
+      'refs/heads/updater',
+    ]);
     await run('git', ['init', '--quiet', sourceDirectory]);
     await run('git', ['config', 'user.name', 'Release Test'], { cwd: sourceDirectory });
     await run('git', ['config', 'user.email', 'test@example.invalid'], { cwd: sourceDirectory });
@@ -95,7 +109,6 @@ async function fixture(operation) {
     const server = releaseServer(release);
     const options = {
       tag: release.tag_name,
-      sourceDirectory,
       publicKey: signer.publicKey,
       expectedVersion: '0.4.0',
       localArtifacts: testArtifacts(signer),
@@ -111,9 +124,16 @@ async function fixture(operation) {
         http: server.http,
       }),
       githubStore: new GitUpdaterStore({ remote: githubRemote }),
-      giteeStore: new GitUpdaterStore({ remote: giteeRemote }),
+      giteeStore,
     };
-    await operation({ options, server, release, githubRemote });
+    await operation({
+      options,
+      server,
+      release,
+      githubRemote,
+      giteeRemote,
+      initialGiteeCommit: initialGiteeCommit.trim(),
+    });
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -129,8 +149,31 @@ function assertInstallerAssets(server, artifacts) {
   );
 }
 
+async function assertMirrorRepository(remote, sourceCommit, tags = []) {
+  const { stdout: refs } = await run('git', [
+    '--git-dir',
+    remote,
+    'for-each-ref',
+    '--format=%(refname)',
+  ]);
+  assert.deepEqual(refs.trim().split('\n').sort(), ['refs/heads/updater', ...tags].sort());
+  const { stdout: files } = await run('git', [
+    '--git-dir',
+    remote,
+    'ls-tree',
+    '-r',
+    '--name-only',
+    'refs/heads/updater',
+  ]);
+  assert.deepEqual(files.trim().split('\n'), ['README.md', 'latest.json', 'releases/v0.4.0.json']);
+  await assert.rejects(
+    run('git', ['--git-dir', remote, 'cat-file', '-e', `${sourceCommit}^{commit}`]),
+    'The mirror must not import the GitHub source commit',
+  );
+}
+
 test('staged release archives signatures before uploads and repairs from installer-only assets', async () => {
-  await fixture(async ({ options, server, release }) => {
+  await fixture(async ({ options, server, release, giteeRemote }) => {
     const checked = new Set();
     server.beforeUpload = async (host) => {
       if (checked.has(host)) return;
@@ -142,6 +185,7 @@ test('staged release archives signatures before uploads and repairs from install
       assert.equal(await store.readLatest(), null, 'Uploads must precede latest publication');
     };
     assert.equal((await publishUpdater(options)).status, 'published');
+    assert.equal(server.giteeRelease.target_commitish, 'updater');
     assert.deepEqual([...checked].sort(), ['gitee', 'github']);
     assertInstallerAssets(server, options.localArtifacts);
     const archived = await options.githubStore.readRelease(options.tag);
@@ -167,6 +211,32 @@ test('staged release archives signatures before uploads and repairs from install
     );
     assert.equal(server.calls.filter(({ method }) => method === 'POST').length, writes);
     assertInstallerAssets(server, options.localArtifacts);
+    await assertMirrorRepository(giteeRemote, options.releaseCommit);
+  });
+});
+
+test('an existing unrelated Gitee tag and release are reused without importing or replacing source', async () => {
+  await fixture(async ({ options, server, release, giteeRemote, initialGiteeCommit }) => {
+    const tagRef = `refs/tags/${release.tag_name}`;
+    await run('git', ['--git-dir', giteeRemote, 'update-ref', tagRef, initialGiteeCommit]);
+    server.giteeRelease = { ...release, id: 93, target_commitish: initialGiteeCommit };
+    assert.notEqual(initialGiteeCommit, options.releaseCommit);
+    assert.equal((await publishUpdater(options)).status, 'published');
+    const { stdout: tagCommit } = await run('git', ['--git-dir', giteeRemote, 'rev-parse', tagRef]);
+    assert.equal(tagCommit.trim(), initialGiteeCommit);
+    assert.equal(server.giteeRelease.target_commitish, initialGiteeCommit);
+    assert.ok(
+      server.calls.every(
+        ({ url, method }) => !(method === 'POST' && new URL(url).pathname.endsWith('/releases')),
+      ),
+      'The existing Gitee release must not be recreated',
+    );
+    assert.equal(
+      (await options.giteeStore.readRelease(options.tag)).releaseCommit,
+      options.releaseCommit,
+    );
+    assertInstallerAssets(server, options.localArtifacts);
+    await assertMirrorRepository(giteeRemote, options.releaseCommit, [tagRef]);
   });
 });
 

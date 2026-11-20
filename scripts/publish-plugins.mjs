@@ -1,16 +1,13 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 import {
   GithubReleaseApi,
   GiteeReleaseApi,
   giteeAttachmentLimit,
   repositoryPath,
 } from './updater-api.mjs';
-import { GitUpdaterStore } from './updater-git.mjs';
 import { releaseVersion } from './updater-artifacts.mjs';
 
 export const pluginPackageNames = Object.freeze([
@@ -79,26 +76,15 @@ export async function readPluginArtifacts(directory) {
   );
 }
 
-export async function publishPlugins({
-  tag,
-  sourceDirectory,
-  releaseCommit,
-  expectedVersion,
-  artifacts,
-  github,
-  gitee,
-  giteeStore,
-}) {
+export async function publishPlugins({ tag, expectedVersion, artifacts, github, gitee }) {
   const version = releaseVersion(tag);
   assert.equal(version, expectedVersion, 'Release tag differs from the checked-out app version');
-  assert.match(releaseCommit, /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/, 'Expected a release commit hash');
   const packages = validatePluginArtifacts(artifacts);
   const release = await github.release(tag);
   assert.equal(release.tag_name, tag, 'GitHub release tag differs');
   assert.ok(!release.draft && release.published_at, 'Plugin assets require a published release');
   assert.ok(Number.isFinite(Date.parse(release.published_at)), 'Invalid release publication date');
   const githubUrls = await github.uploadAssets(release, packages);
-  await giteeStore.ensureTag(sourceDirectory, tag, releaseCommit);
   const giteeUrls = await gitee.mirror(release, packages);
   return {
     status: 'published',
@@ -133,23 +119,12 @@ async function main() {
     repository: giteeRepository,
     token: process.env.GITEE_TOKEN,
   });
-  const giteeStore = new GitUpdaterStore({
-    remote: `https://gitee.com/${giteeRepository}.git`,
-    token: process.env.GITEE_TOKEN,
-    username: 'oauth2',
-  });
-  const { stdout } = await promisify(execFile)('git', ['rev-parse', `refs/tags/${tag}^{commit}`], {
-    cwd: root,
-  });
   const result = await publishPlugins({
     tag,
-    sourceDirectory: root,
-    releaseCommit: stdout.trim(),
     expectedVersion: manifest.version,
     artifacts: await readPluginArtifacts(resolve(directory)),
     github,
     gitee,
-    giteeStore,
   });
   console.log(JSON.stringify(result));
 }
