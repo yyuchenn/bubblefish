@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import { GitUpdaterStore, gitEnvironment } from './updater-git.mjs';
+import { releaseMetadata } from './updater-artifacts.mjs';
+import { testArtifacts, testSigner } from './updater-test-helpers.mjs';
 
 const run = promisify(execFile);
 async function fixture(operation) {
@@ -19,6 +21,165 @@ async function fixture(operation) {
   }
 }
 const manifest = (version) => ({ version, notes: `Release ${version}`, platforms: {} });
+function archiveFixture(version = '0.4.0') {
+  const signer = testSigner();
+  const artifacts = testArtifacts(signer, version);
+  return {
+    signer,
+    artifacts,
+    metadata: releaseMetadata(`v${version}`, 'a'.repeat(40), artifacts),
+  };
+}
+
+async function addRemoteFile(store, path, content) {
+  await store.withCheckout(async (directory) => {
+    await mkdir(join(directory, 'releases'), { recursive: true });
+    await writeFile(join(directory, path), content);
+    await store.git(directory, ['add', '--', path]);
+    await store.git(directory, ['commit', '--quiet', '-m', 'Add test file']);
+    await store.git(directory, ['push', '--quiet', 'origin', 'HEAD:refs/heads/updater']);
+  });
+}
+
+test('release archives create a missing branch without publishing latest and preserve original signatures', async () => {
+  await fixture(async ({ store, remote }) => {
+    const { metadata, artifacts, signer } = archiveFixture();
+    assert.equal(await store.readRelease(metadata.tag), null);
+    assert.deepEqual(await store.archiveRelease(metadata), metadata);
+    assert.deepEqual(await store.readRelease(metadata.tag), metadata);
+    assert.equal(await store.readLatest(), null);
+    const resigned = {
+      ...metadata,
+      artifacts: [...metadata.artifacts].reverse().map((entry) => {
+        const artifact = artifacts.find(({ name }) => name === entry.name);
+        return {
+          ...entry,
+          signature: signer.signature(artifact.bytes, entry.name, metadata.version, {
+            comment: `timestamp:1800000000\tfile:${entry.name}\tversion:${metadata.version}`,
+          }),
+        };
+      }),
+    };
+    assert.notEqual(resigned.artifacts[0].signature, metadata.artifacts[3].signature);
+    assert.deepEqual(await store.archiveRelease(resigned), metadata);
+    for (const conflicting of [
+      { ...metadata, releaseCommit: 'b'.repeat(40) },
+      {
+        ...metadata,
+        artifacts: metadata.artifacts.map((entry, index) =>
+          index === 0 ? { ...entry, sha256: 'f'.repeat(64) } : entry,
+        ),
+      },
+      {
+        ...metadata,
+        artifacts: metadata.artifacts.map((entry, index) =>
+          index === 0 ? { ...entry, name: entry.name.replace('en-US', 'fr-FR') } : entry,
+        ),
+      },
+    ]) {
+      await assert.rejects(store.archiveRelease(conflicting), /Release archive differs/);
+    }
+    assert.deepEqual(await store.readRelease(metadata.tag), metadata);
+    const count = await run('git', ['--git-dir', remote, 'rev-list', '--count', 'updater']);
+    assert.equal(count.stdout.trim(), '1');
+  });
+});
+
+test('old and prerelease archives coexist with latest and unrelated updater files', async () => {
+  await fixture(async ({ store, remote }) => {
+    await store.publish(manifest('0.5.0'));
+    await addRemoteFile(store, 'KEEP.txt', 'Keep updater branch content.');
+    const older = archiveFixture('0.4.0').metadata;
+    const prerelease = archiveFixture('0.6.0-beta.1').metadata;
+    await store.archiveRelease(older);
+    await store.archiveRelease(prerelease);
+    assert.equal((await store.readLatest()).version, '0.5.0');
+    assert.deepEqual(await store.readRelease(older.tag), older);
+    assert.deepEqual(await store.readRelease(prerelease.tag), prerelease);
+    await store.publish(manifest('0.7.0'));
+    assert.deepEqual(await store.readRelease(older.tag), older);
+    assert.deepEqual(await store.readRelease(prerelease.tag), prerelease);
+    const keep = await run('git', ['--git-dir', remote, 'show', 'updater:KEEP.txt']);
+    assert.equal(keep.stdout, 'Keep updater branch content.');
+  });
+});
+
+test('concurrent first archive creation adopts the winning signatures without force pushing', async () => {
+  await fixture(async ({ store, remote }) => {
+    const { metadata, artifacts, signer } = archiveFixture();
+    const winner = {
+      ...metadata,
+      artifacts: metadata.artifacts.map((entry, index) => ({
+        ...entry,
+        signature: signer.signature(artifacts[index].bytes, entry.name, metadata.version, {
+          comment: `timestamp:1800000000\tfile:${entry.name}\tversion:${metadata.version}`,
+        }),
+      })),
+    };
+    let raced = false;
+    const concurrent = new GitUpdaterStore({
+      remote,
+      run: async (binary, args, options) => {
+        assert.ok(!args.includes('--force'));
+        if (!raced && args[0] === 'push') {
+          raced = true;
+          await store.archiveRelease(winner);
+        }
+        return run(binary, args, options);
+      },
+    });
+    assert.deepEqual(await concurrent.archiveRelease(metadata), winner);
+    assert.deepEqual(await store.readRelease(metadata.tag), winner);
+    assert.equal(await store.readLatest(), null);
+    const count = await run('git', ['--git-dir', remote, 'rev-list', '--count', 'updater']);
+    assert.equal(count.stdout.trim(), '1');
+  });
+});
+
+test('archive retries preserve concurrent files, other archives and a newer current manifest', async () => {
+  await fixture(async ({ store, remote }) => {
+    await store.publish(manifest('0.3.0'));
+    const metadata = archiveFixture().metadata;
+    const other = archiveFixture('0.5.0').metadata;
+    let raced = false;
+    const concurrent = new GitUpdaterStore({
+      remote,
+      run: async (binary, args, options) => {
+        if (!raced && args[0] === 'push') {
+          raced = true;
+          await store.publish(manifest('0.5.0'));
+          await store.archiveRelease(other);
+          await addRemoteFile(store, 'KEEP.txt', 'Concurrent data.');
+        }
+        return run(binary, args, options);
+      },
+    });
+    assert.deepEqual(await concurrent.archiveRelease(metadata), metadata);
+    assert.deepEqual(await store.readRelease(other.tag), other);
+    assert.equal((await store.readLatest()).version, '0.5.0');
+    const keep = await run('git', ['--git-dir', remote, 'show', 'updater:KEEP.txt']);
+    assert.equal(keep.stdout, 'Concurrent data.');
+  });
+});
+
+test('invalid archived metadata is preserved and does not depend on latest being valid', async () => {
+  await fixture(async ({ store, remote }) => {
+    const { metadata } = archiveFixture();
+    await store.publish(manifest('0.3.0'));
+    await addRemoteFile(store, 'latest.json', 'invalid latest JSON');
+    assert.deepEqual(await store.archiveRelease(metadata), metadata);
+    await addRemoteFile(store, `releases/${metadata.tag}.json`, 'invalid archive JSON');
+    await assert.rejects(store.readRelease(metadata.tag), SyntaxError);
+    await assert.rejects(store.archiveRelease(metadata), SyntaxError);
+    const archived = await run('git', [
+      '--git-dir',
+      remote,
+      'show',
+      `updater:releases/${metadata.tag}.json`,
+    ]);
+    assert.equal(archived.stdout, 'invalid archive JSON');
+  });
+});
 
 test('creates a missing updater branch, preserves history and refuses stable downgrades', async () => {
   await fixture(async ({ store, remote, directory }) => {

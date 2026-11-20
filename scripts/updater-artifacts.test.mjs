@@ -6,11 +6,14 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { promisify } from 'node:util';
 import {
+  applyReleaseMetadata,
   compareVersions,
+  releaseMetadata,
   releaseVersion,
   selectArtifacts,
   updateManifest,
   verifyUpdaterSignature,
+  validateReleaseMetadata,
 } from './updater-artifacts.mjs';
 import { testArtifacts, testRelease, testSigner } from './updater-test-helpers.mjs';
 
@@ -156,4 +159,75 @@ test('version ordering prevents lexical and prerelease downgrades', () => {
   assert.equal(compareVersions('0.4.0-beta.11', '0.4.0-beta.2'), 1);
   for (const tag of ['main', 'v01.4.0', '0.4.0\nextra', '0.4.0-beta.01'])
     assert.throws(() => releaseVersion(tag));
+});
+
+test('release archives recover all four signatures independently of the moving update feed', () => {
+  const signer = testSigner(),
+    artifacts = testArtifacts(signer),
+    commit = 'a'.repeat(40),
+    metadata = releaseMetadata('v0.4.0', commit, artifacts);
+  assert.equal(metadata.artifacts.length, 4);
+  assert.ok(metadata.artifacts.some(({ name }) => name.endsWith('.dmg')));
+  const payloads = artifacts.map(({ name, bytes }) => ({ name, bytes }));
+  const restored = applyReleaseMetadata(metadata, payloads, 'v0.4.0', commit, signer.publicKey);
+  assert.deepEqual(
+    restored.map(({ signature }) => signature),
+    artifacts.map(({ signature }) => signature),
+  );
+  assert.deepEqual(validateReleaseMetadata(metadata, 'v0.4.0', commit), metadata);
+  assert.equal(JSON.stringify(metadata).includes('signatureBytes'), false);
+});
+
+test('release archives reject changed identity, missing installers, digest and signature corruption', () => {
+  const signer = testSigner(),
+    artifacts = testArtifacts(signer),
+    commit = 'a'.repeat(40),
+    original = releaseMetadata('v0.4.0', commit, artifacts);
+  for (const change of [
+    (record) => {
+      record.tag = 'v0.5.0';
+    },
+    (record) => {
+      record.version = '0.5.0';
+    },
+    (record) => {
+      record.releaseCommit = 'b'.repeat(40);
+    },
+    (record) => {
+      record.artifacts.pop();
+    },
+    (record) => {
+      record.artifacts[0].sha256 = '0'.repeat(64);
+    },
+    (record) => {
+      record.artifacts[0].signature = Buffer.from('invalid signature').toString('base64');
+    },
+    (record) => {
+      record.artifacts[0].name = 'Bubblefish_0.4.0_x64_zh-CN.msi';
+    },
+  ]) {
+    const changed = structuredClone(original);
+    change(changed);
+    assert.throws(() =>
+      applyReleaseMetadata(changed, artifacts, 'v0.4.0', commit, signer.publicKey),
+    );
+  }
+  assert.throws(
+    () =>
+      applyReleaseMetadata(
+        original,
+        testArtifacts(testSigner()),
+        'v0.4.0',
+        commit,
+        testSigner().publicKey,
+      ),
+    /key ID differs/,
+  );
+  const changedPayloads = artifacts.map((entry, index) =>
+    index === 0 ? { ...entry, bytes: Buffer.from('changed') } : entry,
+  );
+  assert.throws(
+    () => applyReleaseMetadata(original, changedPayloads, 'v0.4.0', commit, signer.publicKey),
+    /Archived installer differs/,
+  );
 });

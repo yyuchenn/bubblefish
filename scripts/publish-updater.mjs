@@ -7,10 +7,13 @@ import { promisify } from 'node:util';
 import { GithubReleaseApi, GiteeReleaseApi, repositoryPath } from './updater-api.mjs';
 import { GitUpdaterStore } from './updater-git.mjs';
 import {
+  applyReleaseMetadata,
   readLocalArtifacts,
+  releaseMetadata,
   releaseVersion,
   updateManifest,
   verifyArtifacts,
+  validateReleaseMetadata,
 } from './updater-artifacts.mjs';
 
 export async function publishUpdater({
@@ -32,21 +35,41 @@ export async function publishUpdater({
   assert.equal(release.tag_name, tag, 'GitHub release tag differs');
   assert.ok(!release.draft && release.published_at, 'Updater assets require a published release');
   assert.ok(Number.isFinite(Date.parse(release.published_at)), 'Invalid release publication date');
-  const loaded = localArtifacts ?? (await github.readArtifacts(release, version, publicKey));
-  const source = verifyArtifacts(
+  const archived = await githubStore.readRelease(tag);
+  if (archived) validateReleaseMetadata(archived, tag, releaseCommit);
+  const loaded =
+    localArtifacts ?? (await github.readArtifacts(release, version, publicKey, archived));
+  let source = verifyArtifacts(
     loaded.flatMap((entry) => [entry, { name: `${entry.name}.sig`, bytes: entry.signatureBytes }]),
     version,
     publicKey,
   );
-  // Verify every installer before any publication, including existing signatures
-  // on a manual repair. A single missing platform blocks both update feeds.
+  if (archived) source = applyReleaseMetadata(archived, source, tag, releaseCommit, publicKey);
+  // Preflight every existing installer before archiving immutable signatures.
+  // Legacy releases may still provide .sig attachments; new releases do not.
+  source = await github.prepareArtifacts(release, source, version, publicKey, archived);
+  const proposed = releaseMetadata(tag, releaseCommit, source);
+  const canonical = mirrorOnly
+    ? (archived ?? proposed)
+    : await githubStore.archiveRelease(proposed);
+  // Another writer may have archived an earlier valid signature for identical
+  // bytes. Always verify and use the record that actually won the Git push.
+  source = applyReleaseMetadata(canonical, source, tag, releaseCommit, publicKey);
   const published = mirrorOnly
     ? { artifacts: source }
     : await github.publish(release, source, version, publicKey);
   await giteeStore.ensureTag(sourceDirectory, tag, releaseCommit);
-  const mirroredUrls = await gitee.mirror(release, published.artifacts);
+  const mirroredMetadata = await giteeStore.archiveRelease(canonical);
+  const mirroredArtifacts = applyReleaseMetadata(
+    mirroredMetadata,
+    published.artifacts,
+    tag,
+    releaseCommit,
+    publicKey,
+  );
+  const mirroredUrls = await gitee.mirror(release, mirroredArtifacts);
   if (release.prerelease || version.includes('-')) return { status: 'prerelease', version };
-  const giteeManifest = updateManifest(release, published.artifacts, mirroredUrls);
+  const giteeManifest = updateManifest(release, mirroredArtifacts, mirroredUrls);
   let githubResult;
   if (!mirrorOnly) {
     const manifest = updateManifest(release, published.artifacts, published.urls);

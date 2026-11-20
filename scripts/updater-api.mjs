@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  applyReleaseMetadata,
   sha256,
   selectArtifacts,
   verifyArtifacts,
@@ -51,6 +52,35 @@ function publicUrl(value) {
   );
   assert.ok(!url.searchParams.has('access_token'), 'Download URLs must not contain an API token');
   return url.href;
+}
+
+function uniqueAttachments(entries, host) {
+  const names = new Set();
+  for (const { name } of entries) {
+    assert.ok(
+      typeof name === 'string' && name.length > 0 && !/[\\/]/.test(name),
+      `Invalid ${host} attachment name`,
+    );
+    assert.ok(!names.has(name), `Duplicate ${host} attachment: ${name}`);
+    names.add(name);
+  }
+}
+
+function attachmentByName(assets, name, host) {
+  const matches = assets.filter((entry) => entry.name === name);
+  assert.ok(matches.length <= 1, `Duplicate ${host} attachment: ${name}`);
+  return matches[0];
+}
+
+function verifiedInstallers(artifacts, version, publicKey) {
+  return verifyArtifacts(
+    artifacts.flatMap((entry) => [
+      entry,
+      { name: `${entry.name}.sig`, bytes: entry.signatureBytes },
+    ]),
+    version,
+    publicKey,
+  );
 }
 
 export class ReleaseHttp {
@@ -227,9 +257,26 @@ export class GithubReleaseApi extends ReleaseApi {
     return this.list(`/releases/${release.id}/assets`);
   }
 
-  async readArtifacts(release, version, publicKey) {
+  async readArtifacts(release, version, publicKey, metadata) {
     const assets = await this.assets(release);
     const selected = selectArtifacts(assets, version);
+    if (metadata) {
+      const payloads = await Promise.all(
+        selected.map(async (entry) => ({
+          ...entry,
+          bytes: await this.http.download(entry.browser_download_url),
+        })),
+      );
+      return applyReleaseMetadata(
+        metadata,
+        payloads,
+        release.tag_name,
+        metadata.releaseCommit,
+        publicKey,
+      );
+    }
+    // Older releases kept their signatures as public attachments. Keep that
+    // read path for repairs without creating any new .sig attachments.
     const names = new Set(selected.flatMap(({ name }) => [name, `${name}.sig`]));
     const entries = await Promise.all(
       assets
@@ -242,15 +289,45 @@ export class GithubReleaseApi extends ReleaseApi {
     return verifyArtifacts(entries, version, publicKey);
   }
 
-  async publish(release, artifacts, version, publicKey) {
+  async prepareArtifacts(release, artifacts, version, publicKey, metadata) {
+    const source = metadata
+      ? applyReleaseMetadata(
+          metadata,
+          artifacts,
+          release.tag_name,
+          metadata.releaseCommit,
+          publicKey,
+        )
+      : verifiedInstallers(artifacts, version, publicKey);
     const assets = await this.assets(release);
-    const byName = (name) => {
-      const matches = assets.filter((entry) => entry.name === name);
-      assert.ok(matches.length <= 1, `Duplicate GitHub attachment: ${name}`);
-      return matches[0];
-    };
-    const upload = async (name, bytes) => {
-      let asset = byName(name);
+    const canonical = [];
+    for (const artifact of source) {
+      const asset = attachmentByName(assets, artifact.name, 'GitHub');
+      if (asset) await this.existingBytes(asset, artifact.bytes);
+      // Select legacy signatures before creating the immutable archive. Once
+      // archived, metadata takes precedence over any old public signature file.
+      const legacy = metadata
+        ? undefined
+        : attachmentByName(assets, `${artifact.name}.sig`, 'GitHub');
+      const signatureBytes = legacy
+        ? await this.http.download(legacy.browser_download_url)
+        : artifact.signatureBytes;
+      const signature = signatureBytes.toString('utf8').trim();
+      verifyUpdaterSignature(artifact.bytes, signature, publicKey, {
+        version,
+        filename: artifact.name,
+      });
+      canonical.push({ ...artifact, signature, signatureBytes });
+    }
+    return canonical;
+  }
+
+  async uploadAssets(release, entries) {
+    uniqueAttachments(entries, 'GitHub');
+    const assets = await this.assets(release);
+    const urls = {};
+    for (const { name, bytes } of entries) {
+      let asset = attachmentByName(assets, name, 'GitHub');
       if (asset) await this.existingBytes(asset, bytes);
       else {
         const url = new URL(release.upload_url.replace(/\{.*$/, ''));
@@ -273,27 +350,14 @@ export class GithubReleaseApi extends ReleaseApi {
         assets.push(asset);
         await this.existingBytes(asset, bytes);
       }
-      return publicUrl(asset.browser_download_url);
-    };
-    const urls = {};
-    const canonical = [];
-    for (const artifact of artifacts) {
-      // A re-sign of identical installer bytes has a different timestamp. Reuse
-      // the already published, valid signature rather than mutate that asset.
-      const publishedSignature = byName(`${artifact.name}.sig`);
-      const signatureBytes = publishedSignature
-        ? await this.http.download(publishedSignature.browser_download_url)
-        : artifact.signatureBytes;
-      const signature = signatureBytes.toString('utf8').trim();
-      verifyUpdaterSignature(artifact.bytes, signature, publicKey, {
-        version,
-        filename: artifact.name,
-      });
-      urls[artifact.name] = await upload(artifact.name, artifact.bytes);
-      urls[`${artifact.name}.sig`] = await upload(`${artifact.name}.sig`, signatureBytes);
-      canonical.push({ ...artifact, signature, signatureBytes });
+      urls[name] = publicUrl(asset.browser_download_url);
     }
-    return { artifacts: canonical, urls };
+    return urls;
+  }
+
+  async publish(release, artifacts, version, publicKey) {
+    const verified = verifiedInstallers(artifacts, version, publicKey);
+    return { artifacts: verified, urls: await this.uploadAssets(release, verified) };
   }
 }
 
@@ -322,6 +386,7 @@ export class GiteeReleaseApi extends ReleaseApi {
   }
 
   async mirror(source, artifacts) {
+    uniqueAttachments(artifacts, 'Gitee');
     for (const artifact of artifacts)
       assert.ok(
         artifact.bytes.length <= giteeAttachmentLimit,
@@ -332,38 +397,31 @@ export class GiteeReleaseApi extends ReleaseApi {
     const path = `/releases/${release.id}/attach_files`;
     const assets = await this.list(path);
     const urls = {};
-    for (const artifact of artifacts) {
-      for (const [name, bytes] of [
-        [artifact.name, artifact.bytes],
-        [`${artifact.name}.sig`, artifact.signatureBytes],
-      ]) {
-        const matches = assets.filter((entry) => entry.name === name);
-        assert.ok(matches.length <= 1, `Duplicate Gitee attachment: ${name}`);
-        let asset = matches[0];
-        if (!asset) {
-          const body = new FormData();
-          body.append('file', new Blob([bytes], { type: 'application/octet-stream' }), name);
-          asset = await this.http.json(
-            `${this.base}${path}`,
-            {
-              method: 'POST',
-              headers: this.headers,
-              body,
-            },
-            {
-              timeoutMs: attachmentUploadTimeoutMs,
-              attachmentName: name,
-              attachmentSize: bytes.length,
-            },
-          );
-          assert.equal(asset.name, name, 'Gitee changed attachment name');
-          assets.push(asset);
-        }
-        // The API owns the URL format. Never turn a GitHub URL into a guessed
-        // Gitee /releases/download URL; attachment paths may contain numeric IDs.
-        urls[name] = publicUrl(asset.browser_download_url);
-        await this.existingBytes(asset, bytes);
+    for (const { name, bytes } of artifacts) {
+      let asset = attachmentByName(assets, name, 'Gitee');
+      if (!asset) {
+        const body = new FormData();
+        body.append('file', new Blob([bytes], { type: 'application/octet-stream' }), name);
+        asset = await this.http.json(
+          `${this.base}${path}`,
+          {
+            method: 'POST',
+            headers: this.headers,
+            body,
+          },
+          {
+            timeoutMs: attachmentUploadTimeoutMs,
+            attachmentName: name,
+            attachmentSize: bytes.length,
+          },
+        );
+        assert.equal(asset.name, name, 'Gitee changed attachment name');
+        assets.push(asset);
       }
+      // The API owns the URL format. Never turn a GitHub URL into a guessed
+      // Gitee /releases/download URL; attachment paths may contain numeric IDs.
+      urls[name] = publicUrl(asset.browser_download_url);
+      await this.existingBytes(asset, bytes);
     }
     return urls;
   }

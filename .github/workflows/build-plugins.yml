@@ -80,22 +80,41 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Attach plugin packages to release
+    name: Publish plugin packages to GitHub and Gitee
     if: github.event_name == 'release'
     needs: [web, native]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: bubblefish-stable-updater
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          rust: 'false'
+          dependencies: 'false'
       - uses: actions/download-artifact@v8
         with:
-          pattern: bubblefish-*-plugins
-          path: plugin-artifacts/
+          name: bubblefish-web-plugins
+          path: plugin-artifacts/web/
       - uses: actions/download-artifact@v8
         with:
-          pattern: bubblefish-plugins-*
-          path: plugin-artifacts/
-      - uses: softprops/action-gh-release@v3
+          name: bubblefish-plugins-x86_64-pc-windows-msvc
+          path: plugin-artifacts/windows/
+      - uses: actions/download-artifact@v8
         with:
-          files: plugin-artifacts/**/*.bfplugin
-          fail_on_unmatched_files: true
+          name: bubblefish-plugins-aarch64-apple-darwin
+          path: plugin-artifacts/macos/
+      - name: Publish verified plugin packages
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPOSITORY: yyuchenn/bubblefish
+        run: node scripts/publish-plugins.mjs --tag "$RELEASE_TAG" --artifacts plugin-artifacts

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
-import { compareVersions, releaseVersion } from './updater-artifacts.mjs';
+import { compareVersions, releaseVersion, validateReleaseMetadata } from './updater-artifacts.mjs';
 
 const execute = promisify(execFile);
 
@@ -88,6 +88,75 @@ export class GitUpdaterStore {
 
   readLatest() {
     return this.withCheckout((directory) => this.readFile(directory));
+  }
+
+  async readReleaseFile(directory, tag) {
+    releaseVersion(tag);
+    let content;
+    try {
+      content = await readFile(join(directory, 'releases', `${tag}.json`), 'utf8');
+    } catch (error) {
+      if (error.code === 'ENOENT') return null;
+      throw error;
+    }
+    return validateReleaseMetadata(JSON.parse(content), tag);
+  }
+
+  readRelease(tag) {
+    releaseVersion(tag);
+    return this.withCheckout((directory) => this.readReleaseFile(directory, tag));
+  }
+
+  archiveRelease(metadata) {
+    validateReleaseMetadata(metadata);
+    const content = `${JSON.stringify(metadata, null, 2)}\n`;
+    const identity = (value) => ({
+      tag: value.tag,
+      version: value.version,
+      releaseCommit: value.releaseCommit,
+      artifacts: value.artifacts
+        .map(({ name, sha256 }) => ({ name, sha256 }))
+        .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0)),
+    });
+    return this.withCheckout(async (directory) => {
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const existing = await this.readReleaseFile(directory, metadata.tag);
+        if (existing) {
+          assert.deepEqual(
+            identity(existing),
+            identity(metadata),
+            `Release archive differs: ${metadata.tag}`,
+          );
+          // A timestamp changes when identical bytes are re-signed. Preserve
+          // the original record; the caller re-verifies its signatures before
+          // using it, including when a concurrent publisher won this push.
+          return existing;
+        }
+        const path = `releases/${metadata.tag}.json`;
+        await mkdir(join(directory, 'releases'), { recursive: true });
+        await writeFile(join(directory, path), content);
+        await this.git(directory, ['add', '--', path]);
+        await this.git(directory, [
+          'commit',
+          '--quiet',
+          '-m',
+          `Archive Bubblefish ${metadata.tag} release signatures`,
+        ]);
+        try {
+          await this.git(directory, ['push', '--quiet', 'origin', 'HEAD:refs/heads/updater']);
+          return metadata;
+        } catch (error) {
+          const detail = `${error.stderr ?? ''}`;
+          if (
+            attempt === 3 ||
+            !/rejected|non-fast-forward|fetch first|cannot lock ref/i.test(detail)
+          )
+            throw error;
+          await this.checkout(directory);
+        }
+      }
+      throw new Error('Release archive retry limit reached');
+    });
   }
 
   publish(manifest) {

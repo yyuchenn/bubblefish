@@ -21,6 +21,11 @@ Install stable Rust and the `wasm32-unknown-unknown` target before web developme
   `node scripts/check-identity.mjs --tag v0.4.0`.
 - `npm run test:pipeline` runs signature, release asset, mirror and Git history tests
   with temporary test keys and local/mock remotes. It does not publish a release.
+- `node scripts/publish-plugins.mjs --tag <published-tag> --artifacts <directory>` publishes
+  the seven compiled `.bfplugin` packages from the current plugin workflow to GitHub
+  and Gitee. Existing matching attachments are reused; conflicting content is rejected.
+  Plugin publication runs independently of desktop updates and never changes update feeds.
+  Model packages are excluded.
 
 Desktop builds never require WASM; web builds never compile Tauri. No nightly,
 threads, SharedArrayBuffer, or special HTTP response headers are required. The

@@ -6,7 +6,7 @@ import {
   ReleaseHttp,
   giteeAttachmentLimit,
 } from './updater-api.mjs';
-import { updateManifest } from './updater-artifacts.mjs';
+import { releaseMetadata, updateManifest } from './updater-artifacts.mjs';
 import { testArtifacts, testRelease, testSigner } from './updater-test-helpers.mjs';
 
 function fakeServer(release = testRelease(), { onRequest = () => {}, ...httpOptions } = {}) {
@@ -98,23 +98,16 @@ function diagnostics(error) {
   return JSON.parse(error.message.slice(error.message.indexOf('{')));
 }
 
-test('GitHub publication resumes without replacing installers or already valid signatures', async () => {
+test('GitHub publishes only installers and resumes without replacing existing bytes', async () => {
   const signer = testSigner(),
     artifacts = testArtifacts(signer),
     release = testRelease();
   const server = fakeServer(release);
   await server.gh.publish(release, artifacts, '0.4.0', signer.publicKey);
-  assert.equal(server.github.length, 8);
+  assert.equal(server.github.length, 4);
+  assert.ok(server.github.every(({ name }) => !name.endsWith('.sig')));
   const initialUploads = server.calls.filter(({ method }) => method === 'POST').length;
-  const resigned = artifacts.map((entry) => ({
-    ...entry,
-    signatureBytes: Buffer.from(
-      signer.signature(entry.bytes, entry.name, '0.4.0', {
-        comment: `timestamp:1800000000\tfile:${entry.name}\tversion:0.4.0`,
-      }),
-    ),
-  }));
-  const resumed = await server.gh.publish(release, resigned, '0.4.0', signer.publicKey);
+  const resumed = await server.gh.publish(release, artifacts, '0.4.0', signer.publicKey);
   assert.equal(server.calls.filter(({ method }) => method === 'POST').length, initialUploads);
   assert.equal(resumed.artifacts[0].signature, artifacts[0].signature);
   server.downloads.set(
@@ -127,7 +120,89 @@ test('GitHub publication resumes without replacing installers or already valid s
   );
 });
 
-test('manual repair requires complete signed GitHub release assets', async () => {
+test('preflight verifies published bytes and reuses legacy signatures before any writes', async () => {
+  const signer = testSigner(),
+    artifacts = testArtifacts(signer),
+    release = testRelease(),
+    server = fakeServer(release);
+  for (const entry of artifacts) {
+    server.add('github', entry.name, entry.bytes);
+    server.add('github', `${entry.name}.sig`, entry.signatureBytes);
+  }
+  const resigned = artifacts.map((entry) => ({
+    ...entry,
+    signatureBytes: Buffer.from(
+      signer.signature(entry.bytes, entry.name, '0.4.0', {
+        comment: `timestamp:1800000000\tfile:${entry.name}\tversion:0.4.0`,
+      }),
+    ),
+  }));
+  const prepared = await server.gh.prepareArtifacts(release, resigned, '0.4.0', signer.publicKey);
+  assert.deepEqual(
+    prepared.map(({ signature }) => signature),
+    artifacts.map(({ signature }) => signature),
+  );
+  assert.ok(server.calls.every(({ method }) => method === 'GET'));
+  server.downloads.set(server.github[0].browser_download_url, Buffer.from('conflicting installer'));
+  await assert.rejects(
+    server.gh.prepareArtifacts(release, resigned, '0.4.0', signer.publicKey),
+    /Published attachment differs/,
+  );
+  assert.ok(server.calls.every(({ method }) => method === 'GET'));
+});
+
+test('archived signatures take precedence over legacy .sig during preflight and repair', async () => {
+  const signer = testSigner(),
+    artifacts = testArtifacts(signer),
+    release = testRelease(),
+    metadata = releaseMetadata(release.tag_name, 'a'.repeat(40), artifacts),
+    server = fakeServer(release);
+  for (const entry of artifacts) {
+    server.add('github', entry.name, entry.bytes);
+    server.add('github', `${entry.name}.sig`, Buffer.from('invalid legacy signature'));
+  }
+  const prepared = await server.gh.prepareArtifacts(
+    release,
+    artifacts,
+    '0.4.0',
+    signer.publicKey,
+    metadata,
+  );
+  const repaired = await server.gh.readArtifacts(release, '0.4.0', signer.publicKey, metadata);
+  for (const values of [prepared, repaired])
+    assert.deepEqual(
+      values.map(({ signature }) => signature),
+      artifacts.map(({ signature }) => signature),
+    );
+  assert.ok(server.calls.every(({ method, url }) => method === 'GET' && !url.endsWith('.sig')));
+});
+
+test('manual repair reads archived signatures without public .sig files and checks their digests', async () => {
+  const signer = testSigner(),
+    artifacts = testArtifacts(signer),
+    release = testRelease(),
+    metadata = releaseMetadata(release.tag_name, 'a'.repeat(40), artifacts),
+    server = fakeServer(release);
+  for (const entry of artifacts) server.add('github', entry.name, entry.bytes);
+  assert.equal(
+    (await server.gh.readArtifacts(release, '0.4.0', signer.publicKey, metadata)).length,
+    4,
+  );
+  const modified = structuredClone(metadata);
+  modified.artifacts[0].sha256 = 'f'.repeat(64);
+  await assert.rejects(
+    server.gh.readArtifacts(release, '0.4.0', signer.publicKey, modified),
+    /Archived installer differs/,
+  );
+  server.github.pop();
+  await assert.rejects(
+    server.gh.readArtifacts(release, '0.4.0', signer.publicKey, metadata),
+    /Missing app installer/,
+  );
+  assert.ok(server.calls.every(({ method, url }) => method === 'GET' && !url.endsWith('.sig')));
+});
+
+test('legacy manual repair still requires complete signed GitHub release assets', async () => {
   const signer = testSigner(),
     artifacts = testArtifacts(signer),
     release = testRelease();
@@ -147,10 +222,11 @@ test('Gitee uses returned numeric attachment URLs, verifies anonymous bytes and 
     release = testRelease();
   const server = fakeServer(release);
   const urls = await server.gt.mirror(release, artifacts);
-  assert.equal(server.gitee.length, 8);
+  assert.equal(server.gitee.length, 4);
+  assert.ok(server.gitee.every(({ name }) => !name.endsWith('.sig')));
   assert.match(urls[artifacts[0].name], /\/attach_files\/1000\/download\//);
   const manifest = updateManifest(release, artifacts, urls);
-  assert.match(manifest.platforms['windows-x86_64'].url, /\/attach_files\/1002\//);
+  assert.match(manifest.platforms['windows-x86_64'].url, /\/attach_files\/1001\//);
   const uploads = server.calls.filter(({ method }) => method === 'POST').length;
   assert.deepEqual(await server.gt.mirror(release, artifacts), urls);
   assert.equal(server.calls.filter(({ method }) => method === 'POST').length, uploads);
@@ -160,6 +236,51 @@ test('Gitee uses returned numeric attachment URLs, verifies anonymous bytes and 
     Buffer.from('<html>Login required</html>'),
   );
   await assert.rejects(server.gt.mirror(release, artifacts), /Published attachment differs/);
+});
+
+test('unsigned plugin packages publish to both hosts and resume without duplicate attachments', async () => {
+  const release = testRelease(),
+    server = fakeServer(release),
+    plugins = [
+      { name: 'deepseek-translation-plugin.bfplugin', bytes: Buffer.from('plugin one') },
+      { name: 'kha-white-ocr-plugin-web.bfplugin', bytes: Buffer.from('plugin two') },
+    ];
+  const githubUrls = await server.gh.uploadAssets(release, plugins);
+  const giteeUrls = await server.gt.mirror(release, plugins);
+  assert.equal(server.github.length, 2);
+  assert.equal(server.gitee.length, 2);
+  assert.ok([...server.github, ...server.gitee].every(({ name }) => name.endsWith('.bfplugin')));
+  const uploads = server.calls.filter(({ method }) => method === 'POST').length;
+  assert.deepEqual(await server.gh.uploadAssets(release, plugins), githubUrls);
+  assert.deepEqual(await server.gt.mirror(release, plugins), giteeUrls);
+  assert.equal(server.calls.filter(({ method }) => method === 'POST').length, uploads);
+  const attachments = server.calls.filter(
+    ({ method, url }) =>
+      method === 'POST' &&
+      (new URL(url).hostname === 'uploads.github.com' || url.endsWith('/attach_files')),
+  );
+  assert.ok(attachments.every(({ timeoutMs }) => timeoutMs === 900_000));
+  for (const [api, asset] of [
+    [(values) => server.gh.uploadAssets(release, values), server.github[0]],
+    [(values) => server.gt.mirror(release, values), server.gitee[0]],
+  ]) {
+    server.downloads.set(asset.browser_download_url, Buffer.from('different plugin bytes'));
+    await assert.rejects(api(plugins), /Published attachment differs/);
+  }
+  assert.ok(server.calls.every(({ method }) => !['PATCH', 'DELETE'].includes(method)));
+});
+
+test('duplicate requested or published attachments fail without replacing files', async () => {
+  const release = testRelease(),
+    server = fakeServer(release),
+    plugin = { name: 'test.bfplugin', bytes: Buffer.from('plugin bytes') };
+  await assert.rejects(server.gh.uploadAssets(release, [plugin, plugin]), /Duplicate GitHub/);
+  await assert.rejects(server.gt.mirror(release, [plugin, plugin]), /Duplicate Gitee/);
+  assert.equal(server.calls.length, 0);
+  const asset = server.add('github', plugin.name, plugin.bytes);
+  server.github.push({ ...asset, id: 9999 });
+  await assert.rejects(server.gh.uploadAssets(release, [plugin]), /Duplicate GitHub/);
+  assert.ok(server.calls.every(({ method }) => method === 'GET'));
 });
 
 test('Gitee rejects duplicate attachments and oversize installers instead of deleting assets', async () => {
@@ -209,7 +330,7 @@ test('network failures retry reads but never replay a possibly completed attachm
   assert.equal(calls, 1);
 });
 
-test('installer and signature uploads use fifteen minutes while metadata and downloads use two', async () => {
+test('installer uploads use fifteen minutes while metadata and downloads use two', async () => {
   const signer = testSigner(),
     artifacts = testArtifacts(signer),
     release = testRelease(),
@@ -222,7 +343,7 @@ test('installer and signature uploads use fifteen minutes while metadata and dow
       (new URL(url).hostname === 'uploads.github.com' ||
         new URL(url).pathname.endsWith('/attach_files')),
   );
-  assert.equal(uploads.length, 16);
+  assert.equal(uploads.length, 8);
   assert.ok(uploads.every(({ timeoutMs }) => timeoutMs === 900_000));
   const otherRequests = server.calls.filter((call) => !uploads.includes(call));
   assert.ok(
@@ -233,14 +354,14 @@ test('installer and signature uploads use fifteen minutes while metadata and dow
   assert.ok(otherRequests.every(({ timeoutMs }) => timeoutMs === 120_000));
 });
 
-test('both release adapters identify failed installer and signature uploads without retrying them', async () => {
+test('both release adapters identify failed installer and plugin uploads without retrying them', async () => {
   const signer = testSigner(),
     artifacts = testArtifacts(signer),
     release = testRelease();
   for (const host of ['uploads.github.com', 'gitee.com']) {
     for (const [name, bytes] of [
       [artifacts[0].name, artifacts[0].bytes],
-      [`${artifacts[0].name}.sig`, artifacts[0].signatureBytes],
+      ['deepseek-translation-plugin.bfplugin', Buffer.from('plugin bytes')],
     ]) {
       const failure = Object.assign(new Error('raw upload error must stay private'), {
         code: 'ECONNRESET',
@@ -260,8 +381,8 @@ test('both release adapters identify failed installer and signature uploads with
       });
       await assert.rejects(
         host === 'uploads.github.com'
-          ? server.gh.publish(release, artifacts, '0.4.0', signer.publicKey)
-          : server.gt.mirror(release, artifacts),
+          ? server.gh.uploadAssets(release, [{ name, bytes }])
+          : server.gt.mirror(release, [{ name, bytes }]),
         (error) => {
           const detail = diagnostics(error);
           assert.equal(error.cause, failure);
