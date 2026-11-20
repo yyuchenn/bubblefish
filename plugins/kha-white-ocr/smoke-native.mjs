@@ -10,7 +10,10 @@ import { unzipSync } from 'fflate';
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(directory, '../..');
-const appVersion = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version;
+const packageJson = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+const appVersion = packageJson.version;
+const runtimeVersion = packageJson.dependencies['onnxruntime-web'];
+assert.match(runtimeVersion, /^\d+\.\d+\.\d+$/);
 const args = process.argv.slice(2);
 function option(name, fallback) {
   const index = args.indexOf(name);
@@ -231,7 +234,7 @@ try {
     modelInstalled: true,
     modelId: model.id,
     busy: false,
-    runtimeVersion: '1.22.0',
+    runtimeVersion,
   });
   const started = performance.now();
   const first = await commands('self-test', 'self-test:cold');

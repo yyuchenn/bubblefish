@@ -30,6 +30,7 @@ jobs:
           npm run plugin:deepseek:check
           npm run plugin:kha-white:check
           npm run test:plugins
+          node --test scripts/ort-runtime.test.mjs scripts/wasm-bindgen.test.mjs
       - name: Build WASM tools and plugin packages
         run: |
           npm run build:wasm
@@ -53,10 +54,8 @@ jobs:
         include:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            runtime: onnxruntime-win-x64-1.22.0.zip
           - os: macos-15
             target: aarch64-apple-darwin
-            runtime: onnxruntime-osx-arm64-1.22.0.tgz
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
@@ -67,33 +66,12 @@ jobs:
         run: npm run check:identity
       - name: Build locked WASM tools
         run: npm run build:wasm
-      - name: Fetch official ONNX Runtime 1.22.0 (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          ORT_ARCHIVE: ${{ matrix.runtime }}
-        run: |
-          New-Item -ItemType Directory -Force -Path .cache/ort | Out-Null
-          $archive = Join-Path $PWD ".cache/ort/$env:ORT_ARCHIVE"
-          Invoke-WebRequest "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/$env:ORT_ARCHIVE" -OutFile $archive
-          Expand-Archive -Path $archive -DestinationPath .cache/ort -Force
-          $runtime = Join-Path $PWD '.cache/ort/onnxruntime-win-x64-1.22.0/lib/onnxruntime.dll'
-          if (!(Test-Path $runtime)) { throw 'ONNX Runtime library not found' }
-          "BUBBLEFISH_ORT_RUNTIME=$runtime" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-      - name: Fetch official ONNX Runtime 1.22.0 (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        env:
-          ORT_ARCHIVE: ${{ matrix.runtime }}
-        run: |
-          mkdir -p .cache/ort
-          curl --fail --location --retry 3 "https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/$ORT_ARCHIVE" -o ".cache/ort/$ORT_ARCHIVE"
-          tar -xzf ".cache/ort/$ORT_ARCHIVE" -C .cache/ort
-          runtime="$PWD/.cache/ort/onnxruntime-osx-arm64-1.22.0/lib/libonnxruntime.1.22.0.dylib"
-          test -f "$runtime"
-          echo "BUBBLEFISH_ORT_RUNTIME=$runtime" >> "$GITHUB_ENV"
+      - name: Fetch official ONNX Runtime CPU package
+        run: node plugins/kha-white-ocr/fetch-runtime.mjs --target ${{ matrix.target }}
       - name: Build native plugin package
         run: npm run plugin:kha-white:build -- --target ${{ matrix.target }}
+      - name: Check packaged ONNX Runtime loads without models
+        run: cargo run --locked --release -p bubblefish-kha-white-ocr --features native --target ${{ matrix.target }} --example runtime-check -- .cache/kha-white-ocr/${{ matrix.target }}
       - uses: actions/upload-artifact@v7
         with:
           name: bubblefish-plugins-${{ matrix.target }}
@@ -102,22 +80,41 @@ jobs:
           retention-days: 14
 
   publish:
-    name: Attach plugin packages to release
+    name: Publish plugin packages to GitHub and Gitee
     if: github.event_name == 'release'
     needs: [web, native]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    concurrency:
+      group: bubblefish-stable-updater
+      cancel-in-progress: false
     steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          rust: 'false'
+          dependencies: 'false'
       - uses: actions/download-artifact@v8
         with:
-          pattern: bubblefish-*-plugins
-          path: plugin-artifacts/
+          name: bubblefish-web-plugins
+          path: plugin-artifacts/web/
       - uses: actions/download-artifact@v8
         with:
-          pattern: bubblefish-plugins-*
-          path: plugin-artifacts/
-      - uses: softprops/action-gh-release@v3
+          name: bubblefish-plugins-x86_64-pc-windows-msvc
+          path: plugin-artifacts/windows/
+      - uses: actions/download-artifact@v8
         with:
-          files: plugin-artifacts/**/*.bfplugin
-          fail_on_unmatched_files: true
+          name: bubblefish-plugins-aarch64-apple-darwin
+          path: plugin-artifacts/macos/
+      - name: Publish verified plugin packages
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPOSITORY: yyuchenn/bubblefish
+        run: node scripts/publish-plugins.mjs --tag "$RELEASE_TAG" --artifacts plugin-artifacts

@@ -74,9 +74,9 @@ pub fn runtime_path() -> Result<PathBuf, PluginRpcError> {
     let name = if cfg!(target_os = "windows") {
         "onnxruntime.dll"
     } else if cfg!(target_os = "macos") {
-        "libonnxruntime.1.22.0.dylib"
+        "libonnxruntime.1.31.1.dylib"
     } else {
-        "libonnxruntime.so.1.22.0"
+        "libonnxruntime.so.1.31.1"
     };
     let relative = PathBuf::from("vendor")
         .join("native")
@@ -150,7 +150,7 @@ pub fn initialize_runtime_at(path: &Path) -> Result<(), PluginRpcError> {
     .map_err(|_| {
         failure(
             "runtimeInvalid",
-            "无法装载插件内 ONNX Runtime 1.22.0 运行库",
+            "无法装载插件内 ONNX Runtime 1.31.1 运行库",
         )
     })?
     .map_err(model_error)?;
@@ -465,7 +465,7 @@ impl Plugin for KhaPlugin {
                             },
                         ))?;
                         Ok(PluginOutput::json(
-                            json!({"backend":"native","ready":self.engine.is_some(),"modelInstalled":model.is_some(),"modelId":MODEL_SET_ID,"busy":false,"runtimeVersion":"1.22.0"}),
+                            json!({"backend":"native","ready":self.engine.is_some(),"modelInstalled":model.is_some(),"modelId":MODEL_SET_ID,"busy":false,"runtimeVersion":"1.31.1"}),
                         ))
                     }
                     Some("reset-model") => {

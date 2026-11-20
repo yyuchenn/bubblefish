@@ -4,10 +4,21 @@ import { readFile, writeFile, mkdir, readdir } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
-import { zipSync, strToU8 } from 'fflate';
+import { zipSync, unzipSync, strToU8 } from 'fflate';
+import { resolveWasmBindgen } from '../../scripts/wasm-bindgen.mjs';
 
 const directory = dirname(fileURLToPath(import.meta.url)),
   root = resolve(directory, '../..');
+const runtimeVersion = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).dependencies[
+  'onnxruntime-web'
+];
+if (!/^\d+\.\d+\.\d+$/.test(runtimeVersion))
+  throw new Error('onnxruntime-web must have an exact release version');
+const installedRuntimeVersion = JSON.parse(
+  await readFile(join(root, 'node_modules/onnxruntime-web/package.json'), 'utf8'),
+).version;
+if (installedRuntimeVersion !== runtimeVersion)
+  throw new Error(`Run npm ci to install ONNX Runtime Web ${runtimeVersion}`);
 const args = process.argv.slice(2),
   webOnly = args.includes('--web-only');
 const targetArg = args.indexOf('--target');
@@ -20,6 +31,7 @@ await mkdir(generated, { recursive: true });
 function run(command, values, env = {}) {
   execFileSync(command, values, { cwd: root, stdio: 'inherit', env: { ...process.env, ...env } });
 }
+const bindgen = await resolveWasmBindgen({ root });
 const cargoOptions = ['--locked', ...(args.includes('--offline') ? ['--offline'] : [])];
 run('cargo', [
   'build',
@@ -33,16 +45,6 @@ run('cargo', [
   '--features',
   'wasm',
 ]);
-const lock = await readFile(join(root, 'Cargo.lock'), 'utf8');
-const version = lock.match(/\[\[package\]\]\s+name = "wasm-bindgen"\s+version = "([^"]+)"/)?.[1];
-const cached = join(
-  root,
-  `.cache/wasm-pack/wasm-bindgen-cargo-install-${version}/wasm-bindgen${process.platform === 'win32' ? '.exe' : ''}`,
-);
-const bindgen =
-  process.env.BUBBLEFISH_WASM_BINDGEN ?? (existsSync(cached) ? cached : 'wasm-bindgen');
-if (execFileSync(bindgen, ['--version'], { encoding: 'utf8' }).trim() !== `wasm-bindgen ${version}`)
-  throw new Error(`Install wasm-bindgen-cli ${version}, or run npm run build:web first`);
 run(bindgen, [
   join(root, 'target/wasm32-unknown-unknown/release/bubblefish_kha_white_ocr.wasm'),
   '--target',
@@ -99,7 +101,7 @@ for (const name of [
     await readFile(join(root, 'node_modules/onnxruntime-web/dist', name)),
   );
 files['NOTICE.txt'] = strToU8(
-  'Kha White Manga OCR: kha-white/manga-ocr-base, revision aa6573bd10b0d446cbf622e29c3e084914df9741, Apache-2.0.\nONNX Runtime 1.22.0: Microsoft, MIT.\nRust image preprocessing preserves the original Bubblefish plugin behavior.\n',
+  `Kha White Manga OCR: kha-white/manga-ocr-base, revision aa6573bd10b0d446cbf622e29c3e084914df9741, Apache-2.0.\nONNX Runtime ${runtimeVersion}: Microsoft, MIT.\nRust image preprocessing preserves the original Bubblefish plugin behavior.\n`,
 );
 files['LICENSE-ONNXRUNTIME.txt'] = new Uint8Array(
   await readFile(join(directory, 'LICENSE-ONNXRUNTIME.md')),
@@ -114,6 +116,7 @@ async function pack(name) {
   const path = join(output, name);
   await writeFile(path, zipSync(files));
   console.log(path);
+  return path;
 }
 await pack('kha-white-ocr-plugin-web.bfplugin');
 if (!webOnly) {
@@ -139,35 +142,35 @@ if (!webOnly) {
   const library = target.includes('windows')
     ? 'onnxruntime.dll'
     : target.includes('apple')
-      ? 'libonnxruntime.1.22.0.dylib'
-      : 'libonnxruntime.so.1.22.0';
+      ? `libonnxruntime.${runtimeVersion}.dylib`
+      : `libonnxruntime.so.${runtimeVersion}`;
   const runtimeAt = args.indexOf('--ort-runtime');
   const candidates = [
     runtimeAt < 0 ? process.env.BUBBLEFISH_ORT_RUNTIME : args[runtimeAt + 1],
-    target === host && target.includes('apple')
-      ? resolve(
-          root,
-          `legacy/plugins/kha-white-ocr-plugin/target/model-conversion/venv/lib/python3.12/site-packages/onnxruntime/capi/${library}`,
-        )
-      : undefined,
+    join(root, '.cache/ort', runtimeVersion, target, 'lib', library),
   ].filter(Boolean);
   const runtime = candidates.find((path) => existsSync(path));
   if (!runtime)
     throw new Error(
-      `Supply ONNX Runtime 1.22.0 for ${target} using --ort-runtime <${library}> or BUBBLEFISH_ORT_RUNTIME`,
+      `Fetch ONNX Runtime ${runtimeVersion} using node plugins/kha-white-ocr/fetch-runtime.mjs --target ${target}, or supply --ort-runtime <${library}> or BUBBLEFISH_ORT_RUNTIME`,
     );
   files[`vendor/native/${target}/${library}`] = new Uint8Array(await readFile(runtime));
   if (target.includes('windows')) {
+    if (!existsSync(join(dirname(runtime), 'onnxruntime_providers_shared.dll')))
+      throw new Error(
+        `Windows ONNX Runtime requires onnxruntime_providers_shared.dll beside ${runtime}`,
+      );
     for (const entry of await readdir(dirname(runtime), { withFileTypes: true }))
       if (entry.isFile() && /\.dll$/i.test(entry.name))
         files[`vendor/native/${target}/${entry.name}`] = new Uint8Array(
           await readFile(join(dirname(runtime), entry.name)),
         );
   }
-  await pack(`kha-white-ocr-plugin-${target}.bfplugin`);
-  // An extracted development package is also useful to inspect runtime dependencies.
+  const packagePath = await pack(`kha-white-ocr-plugin-${target}.bfplugin`);
+  // Inspect the actual archive in development and in the CI runtime check.
+  const packagedFiles = unzipSync(new Uint8Array(await readFile(packagePath)));
   const extracted = join(work, target);
-  for (const [path, bytes] of Object.entries(files)) {
+  for (const [path, bytes] of Object.entries(packagedFiles)) {
     await mkdir(dirname(join(extracted, path)), { recursive: true });
     await writeFile(join(extracted, path), bytes);
   }

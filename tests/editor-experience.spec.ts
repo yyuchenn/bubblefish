@@ -316,13 +316,13 @@ const order = (page: Page) =>
   page.locator('.translation-list > .translation-item .translation-preview').allTextContents();
 async function holdItem(page: Page, n: number) {
   const target = item(page, n);
-  await target.hover();
   // The row can scroll after an editor acknowledgement. A clipped row's full
-  // bounding-box center may be behind the titlebar; retain Playwright's visible
-  // hover point and verify that the row has settled before pressing there.
-  await expect
-    .poll(() =>
-      target.evaluate(async (element) => {
+  // bounding-box center may be behind the titlebar; reacquire Playwright's
+  // visible hover point after each disturbance before pressing there.
+  await expect(async () => {
+    await target.hover({ timeout: 1000 });
+    expect(
+      await target.evaluate(async (element) => {
         const before = element.getBoundingClientRect();
         await new Promise(requestAnimationFrame);
         await new Promise(requestAnimationFrame);
@@ -345,8 +345,8 @@ async function holdItem(page: Page, n: number) {
           element.contains(hit)
         );
       }),
-    )
-    .toBe(true);
+    ).toBe(true);
+  }).toPass({ timeout: 7000 });
   const box = await bounds(target);
   await page.mouse.down();
   await expect(page.locator('.translation-drag-ghost')).toBeVisible({ timeout: 2500 });
@@ -443,8 +443,36 @@ test('dragging at the list edge scrolls and continues previewing while the point
   }
   await expect(item(page, 12)).toContainText('第12项');
   const list = page.locator('.translation-list');
-  await list.evaluate((element) => (element.scrollTop = 0));
+  await emptyHover(page);
+  await expect
+    .poll(() => list.evaluate((element) => element.scrollHeight - element.clientHeight))
+    .toBeGreaterThan(0);
+  await list.evaluate((element) => {
+    element.scrollTop = 0;
+    element.setAttribute('data-hold-scroll-interruptions', '0');
+  });
+  // Reproduce an acknowledgement moving the row after the initial hover.
+  await item(page, 1).evaluate((element) => {
+    const list = element.closest<HTMLElement>('.translation-list')!;
+    element.addEventListener(
+      'pointerover',
+      () => {
+        requestAnimationFrame(() => {
+          list.scrollTop = list.scrollHeight;
+          list.dataset.holdScrollInterruptions = String(
+            Number(list.dataset.holdScrollInterruptions) + 1,
+          );
+          list.dataset.holdScrollOffset = String(list.scrollTop);
+        });
+      },
+      { once: true },
+    );
+  });
   await holdItem(page, 1);
+  await expect(list).toHaveAttribute('data-hold-scroll-interruptions', '1');
+  expect(
+    await list.evaluate((element) => Number(element.getAttribute('data-hold-scroll-offset'))),
+  ).toBeGreaterThan(0);
   const area = await bounds(list);
   await page.mouse.move(area.x + area.width / 2, area.y + area.height - 5, { steps: 6 });
   await expect.poll(() => list.evaluate((element) => element.scrollTop)).toBeGreaterThan(40);

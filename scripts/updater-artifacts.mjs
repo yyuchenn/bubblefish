@@ -170,6 +170,63 @@ export function verifyArtifacts(entries, version, publicKey, kinds = artifactKin
   });
 }
 
+export function validateReleaseMetadata(
+  metadata,
+  tag = metadata?.tag,
+  releaseCommit = metadata?.releaseCommit,
+) {
+  assert.ok(metadata && typeof metadata === 'object', 'Expected release signature metadata');
+  const version = releaseVersion(tag);
+  assert.equal(metadata.tag, tag, 'Archived release tag differs');
+  assert.equal(metadata.version, version, 'Archived release version differs');
+  assert.match(
+    metadata.releaseCommit ?? '',
+    /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/,
+    'Invalid archived release commit',
+  );
+  assert.equal(metadata.releaseCommit, releaseCommit, 'Archived release commit differs');
+  assert.ok(Array.isArray(metadata.artifacts), 'Expected archived installer signatures');
+  assert.equal(
+    metadata.artifacts.length,
+    artifactKinds.length,
+    'Expected four archived installers',
+  );
+  for (const artifact of selectArtifacts(metadata.artifacts, version)) {
+    assert.match(artifact.sha256 ?? '', /^[a-f0-9]{64}$/, 'Invalid archived installer digest');
+    decodeBase64(artifact.signature, 'archived signature');
+  }
+  return metadata;
+}
+
+export function releaseMetadata(tag, releaseCommit, artifacts) {
+  const version = releaseVersion(tag);
+  return validateReleaseMetadata({
+    tag,
+    version,
+    releaseCommit,
+    artifacts: selectArtifacts(artifacts, version).map(({ name, bytes, signature }) => ({
+      name,
+      sha256: sha256(bytes),
+      signature,
+    })),
+  });
+}
+
+export function applyReleaseMetadata(metadata, artifacts, tag, releaseCommit, publicKey) {
+  validateReleaseMetadata(metadata, tag, releaseCommit);
+  const entries = selectArtifacts(artifacts, releaseVersion(tag)).flatMap((artifact) => {
+    const archived = metadata.artifacts.find(({ name }) => name === artifact.name);
+    assert.ok(archived, `Missing archived signature for ${artifact.name}`);
+    assert.equal(
+      sha256(artifact.bytes),
+      archived.sha256,
+      `Archived installer differs: ${artifact.name}`,
+    );
+    return [artifact, { name: `${artifact.name}.sig`, bytes: Buffer.from(archived.signature) }];
+  });
+  return verifyArtifacts(entries, releaseVersion(tag), publicKey);
+}
+
 export async function localEntries(directory) {
   const entries = [];
   async function visit(path) {

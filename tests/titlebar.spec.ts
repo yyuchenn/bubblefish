@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 type HeaderPlatform = 'web' | 'windows' | 'macos' | 'linux';
+const TAURI_FIXTURE_VERSION = '2.12.6';
 const header = (page: Page) => page.locator('header.titlebar');
 const callbacks = (page: Page) => page.getByRole('list', { name: '回调记录' }).locator('li');
 const summary = (page: Page, label: string) =>
@@ -21,8 +22,17 @@ async function approximateHeight(locator: Locator, height: number) {
 }
 async function nativeScript(page: Page, platform: 'windows' | 'macos') {
   const cargo = await readFile(resolve('Cargo.lock'), 'utf8');
-  expect(cargo).toMatch(/name = "tauri"\r?\nversion = "2\.12\.5"/);
-  const source = await readFile(resolve('tests/fixtures/header/tauri-2.12.5-drag.txt'), 'utf8');
+  const lockedVersion = cargo.match(
+    /^\[\[package\]\]\s+name = "tauri"\s+version = "([^"]+)"/m,
+  )?.[1];
+  expect(
+    lockedVersion,
+    'When Tauri changes, verify and update the drag fixture from the matching official crate.',
+  ).toBe(TAURI_FIXTURE_VERSION);
+  const source = await readFile(
+    resolve(`tests/fixtures/header/tauri-${TAURI_FIXTURE_VERSION}-drag.txt`),
+    'utf8',
+  );
   expect(source).toContain('SPDX-License-Identifier: Apache-2.0');
   await page.evaluate(() => {
     const calls: string[] = [];

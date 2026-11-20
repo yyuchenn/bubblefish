@@ -12,6 +12,10 @@ import { unzipSync } from 'fflate';
 const directory = dirname(fileURLToPath(import.meta.url));
 const root = resolve(directory, '../..'),
   args = process.argv.slice(2);
+const runtimeVersion = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).dependencies[
+  'onnxruntime-web'
+];
+assert.match(runtimeVersion, /^\d+\.\d+\.\d+$/);
 function option(name, fallback) {
   const index = args.indexOf(name);
   if (index < 0) return fallback;
@@ -35,10 +39,10 @@ const model = JSON.parse(new TextDecoder().decode(pkg['model-manifest.json']));
 const fixturePath = join(work, 'japanese-smoke.png');
 await writeFile(fixturePath, pkg['japanese-smoke.png']);
 const libraryName = target.includes('apple')
-  ? 'libonnxruntime.1.22.0.dylib'
+  ? `libonnxruntime.${runtimeVersion}.dylib`
   : target.includes('windows')
     ? 'onnxruntime.dll'
-    : 'libonnxruntime.so.1.22.0';
+    : `libonnxruntime.so.${runtimeVersion}`;
 const nativeLibrary = resolve(option('--ort-runtime', join(work, libraryName)));
 if (!args.includes('--ort-runtime')) {
   const library = pkg[`vendor/native/${target}/${libraryName}`];
@@ -242,7 +246,7 @@ try {
     passed: true,
     backend: 'node-onnxruntime-web-wasm',
     browserVerification: false,
-    runtimeVersion: '1.22.0',
+    runtimeVersion,
     numThreads: 1,
     models: approvedFiles,
     legacySourceSha256: createHash('sha256').update(legacySource).digest('hex'),

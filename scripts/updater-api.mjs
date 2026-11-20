@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import {
+  applyReleaseMetadata,
   sha256,
   selectArtifacts,
   verifyArtifacts,
@@ -7,6 +8,36 @@ import {
 } from './updater-artifacts.mjs';
 
 export const giteeAttachmentLimit = 100_000_000;
+const requestTimeoutMs = 120_000;
+const attachmentUploadTimeoutMs = 900_000;
+
+function errorCauses(error) {
+  const pending = [{ error, depth: 0 }],
+    visited = new Set(),
+    causes = [];
+  // Error messages can echo authorization or signed URLs. Only summarize
+  // bounded type names and system codes, including IPv4/IPv6 aggregate errors.
+  while (pending.length && causes.length < 8) {
+    const { error: current, depth } = pending.shift();
+    if (!current || typeof current !== 'object' || visited.has(current)) continue;
+    visited.add(current);
+    const name =
+      typeof current.name === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,47}$/.test(current.name)
+        ? current.name
+        : 'Error';
+    const code =
+      typeof current.code === 'string' && /^[A-Z][A-Z0-9_]{0,47}$/.test(current.code)
+        ? current.code
+        : undefined;
+    causes.push({ name, ...(code === undefined ? {} : { code }) });
+    if (depth >= 4) continue;
+    pending.push({ error: current.cause, depth: depth + 1 });
+    if (Array.isArray(current.errors))
+      for (const nested of current.errors.slice(0, 3))
+        pending.push({ error: nested, depth: depth + 1 });
+  }
+  return causes;
+}
 
 export function repositoryPath(value) {
   assert.match(value ?? '', /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'Expected owner/repository');
@@ -23,30 +54,104 @@ function publicUrl(value) {
   return url.href;
 }
 
+function uniqueAttachments(entries, host) {
+  const names = new Set();
+  for (const { name } of entries) {
+    assert.ok(
+      typeof name === 'string' && name.length > 0 && !/[\\/]/.test(name),
+      `Invalid ${host} attachment name`,
+    );
+    assert.ok(!names.has(name), `Duplicate ${host} attachment: ${name}`);
+    names.add(name);
+  }
+}
+
+function attachmentByName(assets, name, host) {
+  const matches = assets.filter((entry) => entry.name === name);
+  assert.ok(matches.length <= 1, `Duplicate ${host} attachment: ${name}`);
+  return matches[0];
+}
+
+function verifiedInstallers(artifacts, version, publicKey) {
+  return verifyArtifacts(
+    artifacts.flatMap((entry) => [
+      entry,
+      { name: `${entry.name}.sig`, bytes: entry.signatureBytes },
+    ]),
+    version,
+    publicKey,
+  );
+}
+
 export class ReleaseHttp {
   constructor({
     fetchImpl = fetch,
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    now = () => performance.now(),
+    timeoutSignal = (ms) => AbortSignal.timeout(ms),
   } = {}) {
     this.fetch = fetchImpl;
     this.sleep = sleep;
+    this.now = now;
+    this.timeoutSignal = timeoutSignal;
+    this.contexts = new WeakMap();
   }
 
-  async response(url, options = {}, { missing = false } = {}) {
+  failure(message, context, phase, cause) {
+    const details = {
+      phase,
+      method: context.method,
+      url: context.url,
+      ...(context.attachmentName === undefined
+        ? {}
+        : { attachmentName: String(context.attachmentName).slice(0, 256) }),
+      ...(context.attachmentSize === undefined ? {} : { attachmentSize: context.attachmentSize }),
+      elapsedMs: Math.max(0, Math.round(this.now() - context.startedAt)),
+      timeoutMs: context.timeoutMs,
+      attempt: context.attempt,
+      maxAttempts: context.maxAttempts,
+      ...(context.status === undefined ? {} : { status: context.status }),
+      causes: errorCauses(cause),
+    };
+    // The CLI prints only error.message. Keep all printable diagnostics here,
+    // while preserving the original cause for callers without serializing it.
+    return new Error(
+      `${context.method} ${context.url}: ${message} ${JSON.stringify(details)}`,
+      cause === undefined ? undefined : { cause },
+    );
+  }
+
+  async response(
+    url,
+    options = {},
+    { missing = false, timeoutMs = requestTimeoutMs, attachmentName, attachmentSize } = {},
+  ) {
     const method = options.method ?? 'GET';
+    const parsedUrl = new URL(url);
     for (let attempt = 0; ; attempt++) {
+      const context = {
+        method,
+        // Omit URL credentials, query parameters and fragments from diagnostics.
+        url: `${parsedUrl.host}${parsedUrl.pathname}`.slice(0, 512),
+        attachmentName,
+        attachmentSize,
+        timeoutMs,
+        startedAt: this.now(),
+        attempt: attempt + 1,
+        maxAttempts: method === 'GET' ? 4 : 1,
+      };
       let response;
       try {
-        response = await this.fetch(url, { ...options, signal: AbortSignal.timeout(120_000) });
-      } catch {
+        response = await this.fetch(url, { ...options, signal: this.timeoutSignal(timeoutMs) });
+      } catch (error) {
         if (method === 'GET' && attempt < 3) {
           await this.sleep(500 * 2 ** attempt);
           continue;
         }
-        throw new Error(
-          `${method} ${new URL(url).hostname}${new URL(url).pathname}: network request failed`,
-        );
+        throw this.failure('network request failed', context, 'request', error);
       }
+      context.status = response.status;
+      this.contexts.set(response, context);
       if (missing && response.status === 404) return null;
       if (response.ok) return response;
       // Retrying writes after an ambiguous response can create duplicate assets.
@@ -55,36 +160,46 @@ export class ReleaseHttp {
         await this.sleep(500 * 2 ** attempt);
         continue;
       }
-      throw new Error(
-        `${method} ${new URL(url).hostname}${new URL(url).pathname}: HTTP ${response.status}`,
-      );
+      throw this.failure(`HTTP ${response.status}`, context, 'http');
     }
   }
 
   async json(url, options, flags) {
     const response = await this.response(url, options, flags);
-    return response ? response.json() : null;
+    if (!response) return null;
+    try {
+      return await response.json();
+    } catch (error) {
+      throw this.failure('JSON response failed', this.contexts.get(response), 'json', error);
+    }
   }
 
   async download(url) {
     // Deliberately omit API authorization, including when the server redirects.
     const response = await this.response(publicUrl(url));
-    const contentLength = Number(response.headers.get('content-length'));
-    assert.ok(
-      !contentLength || contentLength <= giteeAttachmentLimit,
-      'Release attachment exceeds Gitee limit',
-    );
-    const chunks = [];
-    let size = 0;
-    for await (const chunk of response.body) {
-      size += chunk.length;
-      if (size > giteeAttachmentLimit) {
-        await response.body.cancel().catch(() => {});
-        throw new Error('Release attachment exceeds Gitee limit');
+    const limitMessage = 'Release attachment exceeds Gitee limit';
+    try {
+      const contentLength = Number(response.headers.get('content-length'));
+      assert.ok(!contentLength || contentLength <= giteeAttachmentLimit, limitMessage);
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of response.body) {
+        size += chunk.length;
+        if (size > giteeAttachmentLimit) {
+          await response.body.cancel().catch(() => {});
+          throw new Error(limitMessage);
+        }
+        chunks.push(Buffer.from(chunk));
       }
-      chunks.push(Buffer.from(chunk));
+      return Buffer.concat(chunks);
+    } catch (error) {
+      throw this.failure(
+        error?.message === limitMessage ? limitMessage : 'download body failed',
+        this.contexts.get(response),
+        'download-body',
+        error,
+      );
     }
-    return Buffer.concat(chunks);
   }
 }
 
@@ -142,9 +257,26 @@ export class GithubReleaseApi extends ReleaseApi {
     return this.list(`/releases/${release.id}/assets`);
   }
 
-  async readArtifacts(release, version, publicKey) {
+  async readArtifacts(release, version, publicKey, metadata) {
     const assets = await this.assets(release);
     const selected = selectArtifacts(assets, version);
+    if (metadata) {
+      const payloads = await Promise.all(
+        selected.map(async (entry) => ({
+          ...entry,
+          bytes: await this.http.download(entry.browser_download_url),
+        })),
+      );
+      return applyReleaseMetadata(
+        metadata,
+        payloads,
+        release.tag_name,
+        metadata.releaseCommit,
+        publicKey,
+      );
+    }
+    // Older releases kept their signatures as public attachments. Keep that
+    // read path for repairs without creating any new .sig attachments.
     const names = new Set(selected.flatMap(({ name }) => [name, `${name}.sig`]));
     const entries = await Promise.all(
       assets
@@ -157,50 +289,75 @@ export class GithubReleaseApi extends ReleaseApi {
     return verifyArtifacts(entries, version, publicKey);
   }
 
-  async publish(release, artifacts, version, publicKey) {
+  async prepareArtifacts(release, artifacts, version, publicKey, metadata) {
+    const source = metadata
+      ? applyReleaseMetadata(
+          metadata,
+          artifacts,
+          release.tag_name,
+          metadata.releaseCommit,
+          publicKey,
+        )
+      : verifiedInstallers(artifacts, version, publicKey);
     const assets = await this.assets(release);
-    const byName = (name) => {
-      const matches = assets.filter((entry) => entry.name === name);
-      assert.ok(matches.length <= 1, `Duplicate GitHub attachment: ${name}`);
-      return matches[0];
-    };
-    const upload = async (name, bytes) => {
-      let asset = byName(name);
-      if (asset) await this.existingBytes(asset, bytes);
-      else {
-        const url = new URL(release.upload_url.replace(/\{.*$/, ''));
-        assert.equal(url.origin, 'https://uploads.github.com', 'Unexpected GitHub upload origin');
-        url.searchParams.set('name', name);
-        asset = await this.http.json(url.href, {
-          method: 'POST',
-          headers: { ...this.headers, 'Content-Type': 'application/octet-stream' },
-          body: bytes,
-        });
-        assert.equal(asset.name, name, 'GitHub changed attachment name');
-        assets.push(asset);
-        await this.existingBytes(asset, bytes);
-      }
-      return publicUrl(asset.browser_download_url);
-    };
-    const urls = {};
     const canonical = [];
-    for (const artifact of artifacts) {
-      // A re-sign of identical installer bytes has a different timestamp. Reuse
-      // the already published, valid signature rather than mutate that asset.
-      const publishedSignature = byName(`${artifact.name}.sig`);
-      const signatureBytes = publishedSignature
-        ? await this.http.download(publishedSignature.browser_download_url)
+    for (const artifact of source) {
+      const asset = attachmentByName(assets, artifact.name, 'GitHub');
+      if (asset) await this.existingBytes(asset, artifact.bytes);
+      // Select legacy signatures before creating the immutable archive. Once
+      // archived, metadata takes precedence over any old public signature file.
+      const legacy = metadata
+        ? undefined
+        : attachmentByName(assets, `${artifact.name}.sig`, 'GitHub');
+      const signatureBytes = legacy
+        ? await this.http.download(legacy.browser_download_url)
         : artifact.signatureBytes;
       const signature = signatureBytes.toString('utf8').trim();
       verifyUpdaterSignature(artifact.bytes, signature, publicKey, {
         version,
         filename: artifact.name,
       });
-      urls[artifact.name] = await upload(artifact.name, artifact.bytes);
-      urls[`${artifact.name}.sig`] = await upload(`${artifact.name}.sig`, signatureBytes);
       canonical.push({ ...artifact, signature, signatureBytes });
     }
-    return { artifacts: canonical, urls };
+    return canonical;
+  }
+
+  async uploadAssets(release, entries) {
+    uniqueAttachments(entries, 'GitHub');
+    const assets = await this.assets(release);
+    const urls = {};
+    for (const { name, bytes } of entries) {
+      let asset = attachmentByName(assets, name, 'GitHub');
+      if (asset) await this.existingBytes(asset, bytes);
+      else {
+        const url = new URL(release.upload_url.replace(/\{.*$/, ''));
+        assert.equal(url.origin, 'https://uploads.github.com', 'Unexpected GitHub upload origin');
+        url.searchParams.set('name', name);
+        asset = await this.http.json(
+          url.href,
+          {
+            method: 'POST',
+            headers: { ...this.headers, 'Content-Type': 'application/octet-stream' },
+            body: bytes,
+          },
+          {
+            timeoutMs: attachmentUploadTimeoutMs,
+            attachmentName: name,
+            attachmentSize: bytes.length,
+          },
+        );
+        assert.equal(asset.name, name, 'GitHub changed attachment name');
+        assets.push(asset);
+        await this.existingBytes(asset, bytes);
+      }
+      urls[name] = publicUrl(asset.browser_download_url);
+    }
+    return urls;
+  }
+
+  async publish(release, artifacts, version, publicKey) {
+    const verified = verifiedInstallers(artifacts, version, publicKey);
+    return { artifacts: verified, urls: await this.uploadAssets(release, verified) };
   }
 }
 
@@ -229,6 +386,7 @@ export class GiteeReleaseApi extends ReleaseApi {
   }
 
   async mirror(source, artifacts) {
+    uniqueAttachments(artifacts, 'Gitee');
     for (const artifact of artifacts)
       assert.ok(
         artifact.bytes.length <= giteeAttachmentLimit,
@@ -239,30 +397,31 @@ export class GiteeReleaseApi extends ReleaseApi {
     const path = `/releases/${release.id}/attach_files`;
     const assets = await this.list(path);
     const urls = {};
-    for (const artifact of artifacts) {
-      for (const [name, bytes] of [
-        [artifact.name, artifact.bytes],
-        [`${artifact.name}.sig`, artifact.signatureBytes],
-      ]) {
-        const matches = assets.filter((entry) => entry.name === name);
-        assert.ok(matches.length <= 1, `Duplicate Gitee attachment: ${name}`);
-        let asset = matches[0];
-        if (!asset) {
-          const body = new FormData();
-          body.append('file', new Blob([bytes], { type: 'application/octet-stream' }), name);
-          asset = await this.http.json(`${this.base}${path}`, {
+    for (const { name, bytes } of artifacts) {
+      let asset = attachmentByName(assets, name, 'Gitee');
+      if (!asset) {
+        const body = new FormData();
+        body.append('file', new Blob([bytes], { type: 'application/octet-stream' }), name);
+        asset = await this.http.json(
+          `${this.base}${path}`,
+          {
             method: 'POST',
             headers: this.headers,
             body,
-          });
-          assert.equal(asset.name, name, 'Gitee changed attachment name');
-          assets.push(asset);
-        }
-        // The API owns the URL format. Never turn a GitHub URL into a guessed
-        // Gitee /releases/download URL; attachment paths may contain numeric IDs.
-        urls[name] = publicUrl(asset.browser_download_url);
-        await this.existingBytes(asset, bytes);
+          },
+          {
+            timeoutMs: attachmentUploadTimeoutMs,
+            attachmentName: name,
+            attachmentSize: bytes.length,
+          },
+        );
+        assert.equal(asset.name, name, 'Gitee changed attachment name');
+        assets.push(asset);
       }
+      // The API owns the URL format. Never turn a GitHub URL into a guessed
+      // Gitee /releases/download URL; attachment paths may contain numeric IDs.
+      urls[name] = publicUrl(asset.browser_download_url);
+      await this.existingBytes(asset, bytes);
     }
     return urls;
   }
