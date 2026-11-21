@@ -21,9 +21,9 @@ DeepSeek、Kha Web 和双平台原生插件分别构建、检查和上传 CI Art
 
 插件发布与桌面发布共用发布锁，并使用 `queue: max` 排队，避免竞争创建 Gitee Release 或替换等待中的发布任务，但不互相依赖。Gitee 仓库需预先有 `updater` 分支，插件流程不创建源码分支或推送源码 tag。插件失败不会阻止桌面安装器和自动更新发布；重跑插件任务可补齐，已有同名插件必须内容一致才会复用，不覆盖冲突文件。插件脚本不写签名归档或更新清单；真实上传或校验失败仍会让发布任务失败。
 
-GitHub 和 Gitee 的每次安装器或插件附件上传最多等待 15 分钟；普通 API 查询、创建 Release 和下载仍为每次请求 2 分钟。GET 沿用现有重试策略，上传 POST 不自动重放，以免响应丢失后重复创建附件。15 分钟是脚本设置的总时限；Node HTTP 客户端自身的连接、响应头或响应体超时仍可能更早中断请求，日志中的原因码可区分这些情况。延长总时限不会消除 DNS、连接或 TLS 等底层故障。
+GitHub 和 Gitee 的每次安装器或插件附件上传，其总时限、响应头超时和响应体超时都显式设置为 15 分钟；普通 API 查询、创建 Release 和下载均为 2 分钟。共享 `ReleaseHttp` 为原生 `fetch` 指定锁定版本的 Undici Agent，覆盖原有独立的 300 秒响应头／正文限制，连接超时保持 10 秒；发布任务通过锁定的 `npm ci` 安装依赖。GET 沿用现有重试策略，上传 POST 不自动重放，以免响应丢失后重复创建附件。响应头／正文超时与总时限分别计算，日志会列出实际配置；耗时包含上传和等待响应，不能用它与附件大小直接推算上传带宽。发布结束或失败后统一关闭连接池，不修改全局 dispatcher。
 
-请求失败时，日志在错误摘要后附带 JSON 诊断信息：`phase` 区分请求、HTTP 状态、JSON 解析或下载正文读取阶段；`method`、`url` 标识请求；附件上传另有 `attachmentName` 和 `attachmentSize`（原文件字节数）。`elapsedMs` 是当前尝试从发起请求到失败的耗时，`timeoutMs` 是该次请求超时，`attempt` 和 `maxAttempts` 表示当前尝试及上限，收到响应时另有 `status`。`causes` 保留异常链和聚合异常中的类型及原因码，例如 `TimeoutError`、`ECONNRESET`、`ENOTFOUND` 或 `UND_ERR_CONNECT_TIMEOUT`。日志长度有限，不输出 URL 凭据及查询参数、请求头、文件内容、原始异常消息或响应正文；CLI 仅打印安全摘要。
+请求失败时，日志在错误摘要后附带 JSON 诊断信息：`phase` 区分请求、HTTP 状态、JSON 解析或下载正文读取阶段；`method`、`url` 标识请求；附件上传另有 `attachmentName` 和 `attachmentSize`（原文件字节数）。`elapsedMs` 是当前尝试从发起请求到失败的耗时；`timeoutMs`、`headersTimeoutMs`、`bodyTimeoutMs` 和 `connectTimeoutMs` 分别表示总时限、响应头、响应体和连接超时。`attempt` 和 `maxAttempts` 表示当前尝试及上限，收到响应时另有 `status`。`causes` 保留异常链和聚合异常中的类型及原因码，例如 `TimeoutError`、`ECONNRESET`、`ENOTFOUND`、`UND_ERR_CONNECT_TIMEOUT` 或 `UND_ERR_HEADERS_TIMEOUT`。日志长度有限，不输出 URL 凭据及查询参数、请求头、文件内容、原始异常消息或响应正文；CLI 仅打印安全摘要。
 
 两站的安装器均验证成功后，才分别快进提交各自 `updater` 分支上的 `latest.json`，其平台条目继续内嵌签名，客户端更新接口不变。版本归档可以提前写入，但不会推进 `latest.json`。保留分支内其他文件，不强制推送。稳定版更新通用 Windows 键指向 NSIS，以使用 Tauri 自带的 MSI → NSIS 迁移，并兼容旧 NSIS；0.4.0 的 MSI、NSIS 客户端使用各自专用键。macOS 通用键和 app 专用键指向同一 app 压缩包。旧 MSI 迁移可能显示系统卸载确认；发布前需实机验证旧 MSI 与 NSIS 的升级、取消、文件关联和用户数据保留。
 
@@ -33,6 +33,27 @@ GitHub 和 Gitee 的每次安装器或插件附件上传最多等待 15 分钟�
 
 上述更新／镜像工作流在桌面步骤成功后，也会读取 GitHub Release 中已有的正式插件并补齐 Gitee，允许部分或零个插件；晚完成的独立插件任务仍自行发布。单独修复插件可在对应 tag 的检出目录执行 `node scripts/publish-plugins.mjs --tag <tag> --mirror-only`，沿用 `GITHUB_REPOSITORY`、`GITHUB_TOKEN`、`GITEE_REPOSITORY` 和 `GITEE_TOKEN`。省略 `--artifacts` 时下载 GitHub 已有的正式插件内容；`--mirror-only` 不上传或修改 GitHub 附件。保有本次 CI 产物时，用 `--artifacts <directory>` 指定暂存目录，将成功包发布至两站，无需重新编译；若同时指定 `--mirror-only`，每个本地包必须与 GitHub 已发布的同名附件字节一致才会上传至 Gitee。
 
-发布工作流检出填写的 tag，因此镜像逻辑、签名归档、附件调整、超时和日志改进只对包含相应脚本修改的 tag 生效；重跑旧 tag 仍使用该 tag 中的旧逻辑。删除并重新创建 Release 不会清除两站 `updater/releases/<tag>.json` 的历史归档；同名安装器若重建为不同字节，归档校验仍会拒绝。复用原安装器或发布新版本可以保留既有发布记录；若手工重置未完成的同版本发布，需要另外处理两站该版本的归档和同名附件，不能只删除 Release 页面。
+手动发布／修复工作流将工具和应用源码分开：从所选工作流 commit 检出工具并安装依赖，另将发布 tag 解析为固定 SHA 后检出到 `.cache/release-source`。两个发布 CLI 的可选 `--source <目录>` 从该目录读取应用版本、公钥及来源 commit，源码 HEAD 必须与本地和远端 tag 一致，避免主分支升版或移动 tag 导致来源混淆。桌面 Release 在双平台构建前检查两站归档身份，并将同一 SHA 传入构建及发布；发布前仍会复查。普通 push、PR 和手动平台构建保持各自行为。
 
-本地回归：`node --test scripts/*.test.mjs`。测试仅用临时密钥、本地 Git 仓库和假的 HTTP 接口，不读取真实 Secret 或写入远端。
+将修复合并到 `main` 后，在 Actions 的 `Publish Bubblefish updater manifests` 选择 `main` 分支，即可用新版工具处理既有 tag。可选 `artifact_run_id` 指定此前的桌面 Release 运行，工作流先验证仓库、工作流路径、来源 SHA、双平台成功构建和两份未过期 Artifact，再下载安装器和签名，不要求原发布任务成功，也不重新编译。未填写时仍从现有 GitHub Release 读取安装器。旧运行的直接重跑仍执行其原有工作流，不能自动获得新工具。
+
+删除并重新创建 Release 不会清除 `updater/releases/<tag>.json` 的归档。普通发布继续拒绝来源 commit、安装器哈希和签名冲突，不会自动删除归档或覆盖附件。
+
+## 恢复未完成的 v0.4.0
+
+本次恢复保持 GitHub `v0.4.0` 指向 `ea5c14d324c44e8dfae7078f94ba18197c68985b`，复用已经签名的桌面运行 `44687676350`，保留 Release 页面、tags 和内容一致的插件。将修复合并到 `main` 后，从 `main` 手动运行 `Publish Bubblefish updater manifests`，填写：
+
+```text
+tag: v0.4.0
+artifact_run_id: 44687676350
+reset_unpublished: true
+expected_archived_commit: 47adeb6ede2cb12469b8c6d5ca06f2be65197cea
+```
+
+`reset_unpublished` 默认关闭，只允许手动恢复并要求提供已签名产物的运行号与旧归档 commit。流程在共享发布锁内重新审计两站归档、附件和更新源，验签暂存产物，再将远端快照、当前附件和恢复输入保存成 `release-recovery-<tag>-<run>-<attempt>` Artifact，保留 90 天。备份上传成功后，还会下载并核验已持久保存的备份内容，才允许清理旧归档。
+
+仅当归档属于明确指定的旧 commit、更新源尚未引用冲突版本、远端状态与备份快照一致，才通过条件快进提交移除该版本旧归档；不强推、不删除或重新创建 Release、不改写 tag，也不删除插件或冲突安装器。遇到意外状态或与新产物不一致的已有安装器时停止，需重新审计。当前审计中只有 GitHub 的旧 `v0.4.0` 归档需要移除，Gitee 归档不存在；执行时以再次核验结果为准。
+
+之后仍调用正常严格发布流程，写入当前来源的新归档、补齐两站安装器并推进清单，再从 GitHub 补齐 Gitee 插件。中途失败可用同一批产物续跑；已经正确建立的新归档不再重置。若 Artifact 已过期、tag 被移动、备份未持久保存或更新源已引用旧冲突内容，流程会拒绝清理。
+
+本地回归：`node --test scripts/*.test.mjs`。测试使用临时密钥、本地 Git 仓库、模拟接口和 loopback HTTP 服务，不读取真实 Secret 或写入远端。真实传输用例需要允许监听本机地址；它们以缩短的时限验证响应头、响应体和总超时，不等待实际的 5／15 分钟。

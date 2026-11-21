@@ -133,15 +133,38 @@ jobs:
       cancel-in-progress: false
       queue: max
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout publishing tools from this build
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.event.release.tag_name }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup
         with:
           rust: 'false'
-          dependencies: 'false'
+      - name: Resolve release source commit
+        id: source
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-release.mjs --tag "$RELEASE_TAG" --resolve-only
+      - name: Verify plugin build source is still the release tag
+        env:
+          BUILD_COMMIT: ${{ github.sha }}
+          RELEASE_COMMIT: ${{ steps.source.outputs.release_commit }}
+        shell: bash
+        run: |
+          if [[ "$BUILD_COMMIT" != "$RELEASE_COMMIT" ]]; then
+            echo 'Release tag moved after the plugin build; refusing to publish different source.' >&2
+            exit 1
+          fi
+      - name: Checkout pinned release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.release_commit }}
+          path: .cache/release-source
+          fetch-depth: 0
+          persist-credentials: false
       - name: Download available official plugin packages
         uses: actions/download-artifact@v8
         with:
@@ -153,4 +176,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_REPOSITORY: yyuchenn/bubblefish
-        run: node scripts/publish-plugins.mjs --tag "$RELEASE_TAG" --artifacts plugin-artifacts
+        run: node scripts/publish-plugins.mjs --tag "$RELEASE_TAG" --source .cache/release-source --artifacts plugin-artifacts

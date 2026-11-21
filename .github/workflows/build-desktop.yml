@@ -25,14 +25,41 @@ env:
   BUBBLEFISH_RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || '' }}
 
 jobs:
+  release_identity:
+    name: Check release identity before building
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    outputs:
+      release_commit: ${{ steps.identity.outputs.release_commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+        with:
+          rust: 'false'
+      - name: Check tag and both signature archives
+        id: identity
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPOSITORY: yyuchenn/bubblefish
+        run: node scripts/check-release.mjs --tag "$RELEASE_TAG" --source .
+
   windows:
     name: Windows x64 installers
-    if: github.event_name != 'workflow_dispatch' || inputs.build_type == 'all' || inputs.build_type == 'windows-only'
+    needs: [release_identity]
+    if: ${{ !cancelled() && (github.event_name != 'release' || needs.release_identity.result == 'success') && (github.event_name != 'workflow_dispatch' || inputs.build_type == 'all' || inputs.build_type == 'windows-only') }}
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release_identity.outputs.release_commit || github.sha }}
       - uses: ./.github/actions/setup
       - name: Install Windows target
         run: rustup target add x86_64-pc-windows-msvc
@@ -92,12 +119,15 @@ jobs:
 
   macos:
     name: macOS ARM64 installer
-    if: github.event_name != 'workflow_dispatch' || inputs.build_type == 'all' || inputs.build_type == 'macos-only'
+    needs: [release_identity]
+    if: ${{ !cancelled() && (github.event_name != 'release' || needs.release_identity.result == 'success') && (github.event_name != 'workflow_dispatch' || inputs.build_type == 'all' || inputs.build_type == 'macos-only') }}
     runs-on: macos-15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release_identity.outputs.release_commit || github.sha }}
       - uses: ./.github/actions/setup
       - name: Install macOS ARM64 target
         run: rustup target add aarch64-apple-darwin
@@ -136,11 +166,13 @@ jobs:
   publish:
     name: Publish signed desktop release and update feeds
     if: github.event_name == 'release'
-    needs: [windows, macos]
+    needs: [release_identity, windows, macos]
     permissions:
       contents: write
+      actions: read
     uses: ./.github/workflows/update-manifests.yml
     with:
       tag: ${{ github.event.release.tag_name }}
       staged: true
+      release_commit: ${{ needs.release_identity.outputs.release_commit }}
     secrets: inherit

@@ -266,3 +266,69 @@ test('Git credentials stay in a host-scoped environment header, never remote URL
   assert.match(env.GIT_CONFIG_VALUE_0, /^Authorization: Basic /);
   assert.ok(!env.GIT_CONFIG_VALUE_0.includes('test-token'));
 });
+
+test('guarded archive removal preserves feeds, unrelated files and the backed-up Git history', async () => {
+  await fixture(async ({ store, remote }) => {
+    const { metadata } = archiveFixture();
+    await store.publish(manifest('0.3.0'));
+    await store.archiveRelease(metadata);
+    await addRemoteFile(store, 'KEEP.txt', 'Preserved recovery content.');
+    const snapshot = await store.snapshotRelease(metadata.tag);
+    assert.equal(snapshot.archiveContent, `${JSON.stringify(metadata, null, 2)}\n`);
+    assert.equal(snapshot.latest.version, '0.3.0');
+    assert.equal((await store.removeRelease(metadata.tag, snapshot)).status, 'removed');
+    assert.equal(await store.readRelease(metadata.tag), null);
+    assert.equal((await store.readLatest()).version, '0.3.0');
+    const keep = await run('git', ['--git-dir', remote, 'show', 'updater:KEEP.txt']);
+    assert.equal(keep.stdout, 'Preserved recovery content.');
+    const old = await run('git', [
+      '--git-dir',
+      remote,
+      'show',
+      `${snapshot.head}:releases/${metadata.tag}.json`,
+    ]);
+    assert.equal(old.stdout, snapshot.archiveContent);
+  });
+});
+
+test('a recovery snapshot records an absent updater branch without creating it remotely', async () => {
+  await fixture(async ({ store, remote }) => {
+    assert.deepEqual(await store.snapshotRelease('v0.4.0'), {
+      head: null,
+      archive: null,
+      archiveContent: null,
+      latest: null,
+      latestContent: null,
+    });
+    const result = await run('git', ['--git-dir', remote, 'for-each-ref', '--format=%(refname)']);
+    assert.equal(result.stdout, '');
+  });
+});
+
+test('archive removal rejects stale snapshots and never replays a rejected reset push', async () => {
+  await fixture(async ({ store, remote }) => {
+    const { metadata } = archiveFixture();
+    await store.archiveRelease(metadata);
+    const stale = await store.snapshotRelease(metadata.tag);
+    await addRemoteFile(store, 'NEW.txt', 'Arrived after backup.');
+    await assert.rejects(store.removeRelease(metadata.tag, stale), /Updater state changed/);
+    const current = await store.snapshotRelease(metadata.tag);
+    let pushes = 0;
+    const concurrent = new GitUpdaterStore({
+      remote,
+      run: async (binary, args, options) => {
+        assert.ok(!args.includes('--force'));
+        if (args[0] === 'push') {
+          pushes++;
+          await addRemoteFile(store, 'RACE.txt', 'Preserved concurrent update.');
+        }
+        return run(binary, args, options);
+      },
+    });
+    await assert.rejects(concurrent.removeRelease(metadata.tag, current));
+    assert.equal(pushes, 1);
+    assert.deepEqual(await store.readRelease(metadata.tag), metadata);
+    const race = await run('git', ['--git-dir', remote, 'show', 'updater:RACE.txt']);
+    assert.equal(race.stdout, 'Preserved concurrent update.');
+  });
+});
