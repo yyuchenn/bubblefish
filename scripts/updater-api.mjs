@@ -10,7 +10,7 @@ import {
 
 export const giteeAttachmentLimit = 100_000_000;
 const requestTimeoutMs = 120_000;
-const attachmentUploadTimeoutMs = 900_000;
+const attachmentUploadTimeoutMs = 7_200_000;
 const connectTimeoutMs = 10_000;
 
 function errorCauses(error) {
