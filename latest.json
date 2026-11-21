@@ -1,15 +1,27 @@
 {
-  "version": "0.3.0",
-  "notes": "更新日志：\r\n\r\n1. 添加了海兔面板，可以使用海兔面板进行OCR和机器翻译\r\n2. 改进了插件系统，允许插件添加OCR和机器翻译服务\r\n3. 添加了通知中心，允许主程序和插件触发全局的信息通知和报错\r\n4. 在设置界面添加了插件设置的页面，运行用户进行插件的配置\r\n5. 改进了插件在桌面端的存储\r\n6. 改进了翻译输入框和右键菜单相关的UI交互",
-  "pub_date": "2025-10-31T17:13:07Z",
+  "version": "0.4.0",
+  "notes": "更新日志：\r\n\r\n1. 重构（主要是vibe）的全新版本！\r\n2. 改进了UI布局和体验\r\n3. 新特性：鼠标悬浮标记时显示翻译文本的预览\r\n4. 新特性：默认跟随系统的light/dark模式\r\n5. 改进了插件SDK，网页版也支持了插件的使用\r\n",
+  "pub_date": "2026-11-21T04:18:51.000Z",
   "platforms": {
-    "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZDRlSDV6V1NrMDVZbytHYzZBL1pGRDBiKzkwVkxpWk9IYXYxa3p4RElFMzRJQ2RuMlY4bVB2MS9iZUhCWS84Zm9JcW9kKzYveVBKbXRBK0hjRDNLMVE0PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYxOTMwMzcyCWZpbGU6QnViYmxlZmlzaC5hcHAudGFyLmd6ClRZdjZjZWs3cFhDN1hkSU1FUUJPQmpwUzBWbUF5TmI0Smo2ZVB3Qk5qNDlKVTFYQW42cUs2UkZYeTBKK1lFTXRoanJUQzVwc0VabkVUNHc5VllhMURRPT0K",
-      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.3.0/Bubblefish.app.tar.gz"
-    },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZDdQUkE2TkpJMnVZSmM2c2ZERDZBU0M4YkpTZjUzUVJBcTloUTV1aWh2MUhqYmdMY3FmSE5LdWRaRmthV1h4NzhNTHlCQU15WEJrbElYbjRuZjhNOUFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzYxOTMwNzUxCWZpbGU6QnViYmxlZmlzaF8wLjMuMF94NjQubXNpCmwxeEdaMVhqNDE0ek40MnVScWJ2TjAwa09wZTMvTmREK0R4Qk9aTDJLakxIMWRYRGxlSkxHakVSZ2FmRVM0ZlpOYVZXcE1xSnJLZGRzQ1JnT3dJUkNnPT0K",
-      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.3.0/Bubblefish_0.3.0_x64.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZHgwM0dLWDVGdTNwdUc0Qzhmdmt2TUZsdm04aFFiMGNVMzd5QWh4UC82eXMrTE9uZWVMMVlHTGJUbWJ6OU0zR0ZqdEltelZEMVZjWk53aDgrL3NhaVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjM2OTQzCWZpbGU6QnViYmxlZmlzaF8wLjQuMF94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjAKSEUvN0laUjFhbFRPaFN1N28rR2svNlZMNGZudDlyN0d0cnA3RmczUFJ5c01FVWs4TDNUVXZkTkNPOVVZZ2FaWk9KV0IyRmZUaVRTRzl5ckVOSXpyRGc9PQo=",
+      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.4.0/Bubblefish_0.4.0_x64-setup.exe"
+    },
+    "windows-x86_64-msi": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZDhTd3dvWE9ScUNUOTNWSloxbHBFVkVCWnpqWVZVWDM2Vm5ZZTZra2dZbS9NcXpQUXBxRXptbXRiUGZQSUY5OWE2ZERPVnE2UTVSMW96WEJ2YVA1K3djPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjM2OTQzCWZpbGU6QnViYmxlZmlzaF8wLjQuMF94NjRfZW4tVVMubXNpCXZlcnNpb246MC40LjAKTG51S2UzQkJMbzNXZmZMOTlKajNSRmwvdG9WdFloMGw2VC9zbndPTnhUWldMM0tKcG02c0xtWnZBaDlNWjBWTitVSXgzQ083RndZQVJiRlVqVkZQRHc9PQo=",
+      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.4.0/Bubblefish_0.4.0_x64_en-US.msi"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZHgwM0dLWDVGdTNwdUc0Qzhmdmt2TUZsdm04aFFiMGNVMzd5QWh4UC82eXMrTE9uZWVMMVlHTGJUbWJ6OU0zR0ZqdEltelZEMVZjWk53aDgrL3NhaVFvPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjM2OTQzCWZpbGU6QnViYmxlZmlzaF8wLjQuMF94NjQtc2V0dXAuZXhlCXZlcnNpb246MC40LjAKSEUvN0laUjFhbFRPaFN1N28rR2svNlZMNGZudDlyN0d0cnA3RmczUFJ5c01FVWs4TDNUVXZkTkNPOVVZZ2FaWk9KV0IyRmZUaVRTRzl5ckVOSXpyRGc9PQo=",
+      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.4.0/Bubblefish_0.4.0_x64-setup.exe"
+    },
+    "darwin-aarch64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZHdHWTFZL3NabWp3VVN5MWRtZHlqMjFrOS93aEJEVFpncjE4WVFsQ0l0ZFc4WWlZSlBKUXlnM3dqQUs2S21iQjIwdGMwUU9UMUh4MlFLU0NCSUxvbmdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjM2NTU2CWZpbGU6QnViYmxlZmlzaF8wLjQuMF9hYXJjaDY0LmFwcC50YXIuZ3oJdmVyc2lvbjowLjQuMApnWktOUWVRc1hYNkxrRWl0ZzB4OGxJNFYvQ0VmR2hBeWN4MFRQVmZjbVA4cDd6ZnNtaU83bEt0cmwwK2RXYXZXVXlOUEc5VFNleXZEU1JwWFdPdEdDdz09Cg==",
+      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.4.0/Bubblefish_0.4.0_aarch64.app.tar.gz"
+    },
+    "darwin-aarch64-app": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTamdKOWVOS1YvZHdHWTFZL3NabWp3VVN5MWRtZHlqMjFrOS93aEJEVFpncjE4WVFsQ0l0ZFc4WWlZSlBKUXlnM3dqQUs2S21iQjIwdGMwUU9UMUh4MlFLU0NCSUxvbmdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MjM2NTU2CWZpbGU6QnViYmxlZmlzaF8wLjQuMF9hYXJjaDY0LmFwcC50YXIuZ3oJdmVyc2lvbjowLjQuMApnWktOUWVRc1hYNkxrRWl0ZzB4OGxJNFYvQ0VmR2hBeWN4MFRQVmZjbVA4cDd6ZnNtaU83bEt0cmwwK2RXYXZXVXlOUEc5VFNleXZEU1JwWFdPdEdDdz09Cg==",
+      "url": "https://github.com/yyuchenn/bubblefish/releases/download/v0.4.0/Bubblefish_0.4.0_aarch64.app.tar.gz"
     }
   }
 }
