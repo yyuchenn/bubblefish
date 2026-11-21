@@ -172,6 +172,7 @@ jobs:
           if [[ "$MIRROR_ONLY" == 'true' ]]; then args+=(--mirror-only); fi
           node scripts/publish-updater.mjs "${args[@]}"
       - name: Mirror existing official plugin packages to Gitee
+        if: ${{ !inputs.staged || inputs.mirror_only }}
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

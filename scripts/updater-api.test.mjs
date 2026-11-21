@@ -331,7 +331,7 @@ test('unsigned plugin packages publish to both hosts and resume without duplicat
       method === 'POST' &&
       (new URL(url).hostname === 'uploads.github.com' || url.endsWith('/attach_files')),
   );
-  assert.ok(attachments.every(({ timeoutMs }) => timeoutMs === 900_000));
+  assert.ok(attachments.every(({ timeoutMs }) => timeoutMs === 7_200_000));
   for (const [api, asset] of [
     [(values) => server.gh.uploadAssets(release, values), server.github[0]],
     [(values) => server.gt.mirror(release, values), server.gitee[0]],
@@ -402,7 +402,7 @@ test('network failures retry reads but never replay a possibly completed attachm
   assert.equal(calls, 1);
 });
 
-test('installer uploads use fifteen minutes while metadata and downloads use two', async () => {
+test('installer uploads use two hours while metadata and downloads use two minutes', async () => {
   const signer = testSigner(),
     artifacts = testArtifacts(signer),
     release = testRelease(),
@@ -416,11 +416,11 @@ test('installer uploads use fifteen minutes while metadata and downloads use two
         new URL(url).pathname.endsWith('/attach_files')),
   );
   assert.equal(uploads.length, 8);
-  assert.ok(uploads.every(({ timeoutMs }) => timeoutMs === 900_000));
+  assert.ok(uploads.every(({ timeoutMs }) => timeoutMs === 7_200_000));
   for (const { agentOptions } of uploads)
     assert.deepEqual(agentOptions, {
-      headersTimeout: 900_000,
-      bodyTimeout: 900_000,
+      headersTimeout: 7_200_000,
+      bodyTimeout: 7_200_000,
       connectTimeout: 10_000,
     });
   const otherRequests = server.calls.filter((call) => !uploads.includes(call));
@@ -458,16 +458,16 @@ test('HTTP profiles cache owned agents by budget and close them once after use',
   await http.json(
     'https://uploads.github.com/installers',
     { method: 'POST' },
-    { timeoutMs: 900_000 },
+    { timeoutMs: 7_200_000 },
   );
-  await http.json('https://gitee.com/plugins', { method: 'POST' }, { timeoutMs: 900_000 });
+  await http.json('https://gitee.com/plugins', { method: 'POST' }, { timeoutMs: 7_200_000 });
   assert.equal(created.length, 2);
   assert.deepEqual(used, [created[0], created[0], created[1], created[1]]);
   assert.deepEqual(
     created.map(({ options }) => options),
     [
       { headersTimeout: 120_000, bodyTimeout: 120_000, connectTimeout: 10_000 },
-      { headersTimeout: 900_000, bodyTimeout: 900_000, connectTimeout: 10_000 },
+      { headersTimeout: 7_200_000, bodyTimeout: 7_200_000, connectTimeout: 10_000 },
     ],
   );
   await http.close();
@@ -533,7 +533,7 @@ test('both release adapters identify failed installer and plugin uploads without
           assert.equal(detail.phase, 'request');
           assert.equal(detail.attachmentName, name);
           assert.equal(detail.attachmentSize, bytes.length);
-          assert.equal(detail.timeoutMs, 900_000);
+          assert.equal(detail.timeoutMs, 7_200_000);
           assert.equal(detail.attempt, 1);
           assert.equal(detail.maxAttempts, 1);
           assert.ok(detail.causes.some(({ code }) => code === 'ECONNRESET'));
@@ -555,13 +555,13 @@ test('request timeout diagnostics include safe upload context and retain the ori
   const http = fakeHttp({
     now: () => now,
     timeoutSignal: (timeoutMs) => {
-      assert.equal(timeoutMs, 900_000);
+      assert.equal(timeoutMs, 7_200_000);
       return controller.signal;
     },
     fetchImpl: async (_url, options) => {
       calls++;
       assert.equal(options.signal, controller.signal);
-      now = 901_234;
+      now = 7_201_234;
       throw options.signal.reason;
     },
     sleep: async () => assert.fail('Uploads must not retry'),
@@ -574,7 +574,7 @@ test('request timeout diagnostics include safe upload context and retain the ori
         headers: { Authorization: 'Bearer private-authorization' },
         body: 'private-upload-body',
       },
-      { timeoutMs: 900_000, attachmentName: 'Bubblefish_0.4.0_x64.msi', attachmentSize: 123_456 },
+      { timeoutMs: 7_200_000, attachmentName: 'Bubblefish_0.4.0_x64.msi', attachmentSize: 123_456 },
     ),
     (error) => {
       assert.equal(error.cause, timeout);
@@ -585,10 +585,10 @@ test('request timeout diagnostics include safe upload context and retain the ori
         url: 'gitee.com/api/v5/repos/test/bubblefish/releases/93/attach_files',
         attachmentName: 'Bubblefish_0.4.0_x64.msi',
         attachmentSize: 123_456,
-        elapsedMs: 901_234,
-        timeoutMs: 900_000,
-        headersTimeoutMs: 900_000,
-        bodyTimeoutMs: 900_000,
+        elapsedMs: 7_201_234,
+        timeoutMs: 7_200_000,
+        headersTimeoutMs: 7_200_000,
+        bodyTimeoutMs: 7_200_000,
         connectTimeoutMs: 10_000,
         attempt: 1,
         maxAttempts: 1,
