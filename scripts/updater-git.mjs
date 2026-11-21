@@ -107,6 +107,65 @@ export class GitUpdaterStore {
     return this.withCheckout((directory) => this.readReleaseFile(directory, tag));
   }
 
+  async releaseSnapshot(directory, tag) {
+    releaseVersion(tag);
+    let head;
+    try {
+      head = (
+        await this.git(directory, ['rev-parse', '--verify', '--quiet', 'HEAD'])
+      ).stdout.trim();
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      head = null;
+    }
+    const optional = async (path) => {
+      try {
+        return await readFile(join(directory, path), 'utf8');
+      } catch (error) {
+        if (error.code === 'ENOENT') return null;
+        throw error;
+      }
+    };
+    const archiveContent = await optional(`releases/${tag}.json`);
+    const latestContent = await optional('latest.json');
+    const archive =
+      archiveContent === null ? null : validateReleaseMetadata(JSON.parse(archiveContent), tag);
+    const latest = latestContent === null ? null : JSON.parse(latestContent);
+    if (latest) releaseVersion(latest.version);
+    return { head, archive, archiveContent, latest, latestContent };
+  }
+
+  snapshotRelease(tag) {
+    return this.withCheckout((directory) => this.releaseSnapshot(directory, tag));
+  }
+
+  removeRelease(tag, expectedSnapshot) {
+    releaseVersion(tag);
+    assert.ok(
+      expectedSnapshot?.head && expectedSnapshot.archive,
+      'An existing archived snapshot is required',
+    );
+    validateReleaseMetadata(expectedSnapshot.archive, tag);
+    return this.withCheckout(async (directory) => {
+      const current = await this.releaseSnapshot(directory, tag);
+      assert.ok(
+        JSON.stringify(current) === JSON.stringify(expectedSnapshot),
+        `Updater state changed before archive reset: ${tag}`,
+      );
+      await this.git(directory, ['rm', '--', `releases/${tag}.json`]);
+      await this.git(directory, [
+        'commit',
+        '--quiet',
+        '-m',
+        `Reset backed-up unfinished ${tag} release archive`,
+      ]);
+      // One conditional fast-forward push. A concurrent change must abort the
+      // reset rather than retry against a snapshot that was never backed up.
+      await this.git(directory, ['push', '--quiet', 'origin', 'HEAD:refs/heads/updater']);
+      return { status: 'removed', tag, previousHead: current.head };
+    });
+  }
+
   archiveRelease(metadata) {
     validateReleaseMetadata(metadata);
     const content = `${JSON.stringify(metadata, null, 2)}\n`;

@@ -14,6 +14,10 @@ on:
         description: Repair Gitee from an existing signed GitHub release
         type: boolean
         default: false
+      release_commit:
+        description: Source commit pinned by the desktop identity preflight
+        type: string
+        default: ''
     secrets:
       GITEE_TOKEN:
         required: true
@@ -23,9 +27,22 @@ on:
         description: Existing published release tag to verify and repair (for example v0.4.0)
         type: string
         required: true
+      artifact_run_id:
+        description: Optional signed desktop release run to reuse without rebuilding
+        type: string
+        default: ''
+      reset_unpublished:
+        description: Back up and remove only an obsolete archive for an unfinished release
+        type: boolean
+        default: false
+      expected_archived_commit:
+        description: Exact obsolete archive commit required when resetting an unfinished release
+        type: string
+        default: ''
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   publish:
@@ -36,39 +53,122 @@ jobs:
       cancel-in-progress: false
       queue: max
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout publishing tools
+        uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup
         with:
           rust: 'false'
-          dependencies: 'false'
+      - name: Resolve release source commit
+        id: source
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node scripts/check-release.mjs --tag "$RELEASE_TAG" --resolve-only
+      - name: Validate recovery inputs and pinned build source
+        env:
+          RESOLVED_COMMIT: ${{ steps.source.outputs.release_commit }}
+          EXPECTED_COMMIT: ${{ inputs.release_commit || (inputs.staged && github.sha) || '' }}
+          RESET: ${{ inputs.reset_unpublished }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          EXPECTED_ARCHIVED_COMMIT: ${{ inputs.expected_archived_commit }}
+          EVENT_NAME: ${{ github.event_name }}
+          MIRROR_ONLY: ${{ inputs.mirror_only }}
+        shell: bash
+        run: |
+          if [[ -n "$EXPECTED_COMMIT" && "$RESOLVED_COMMIT" != "$EXPECTED_COMMIT" ]]; then
+            echo 'Release tag moved after the desktop build identity preflight.' >&2
+            exit 1
+          fi
+          if [[ "$RESET" == 'true' ]]; then
+            if [[ "$EVENT_NAME" != 'workflow_dispatch' || -z "$ARTIFACT_RUN_ID" || -z "$EXPECTED_ARCHIVED_COMMIT" || "$MIRROR_ONLY" == 'true' ]]; then
+              echo 'Reset requires manual dispatch, a signed artifact run, and the exact old archive commit.' >&2
+              exit 1
+            fi
+          fi
+      - name: Checkout pinned release source
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.source.outputs.release_commit }}
+          path: .cache/release-source
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check release identity and recovery artifact provenance
+        id: preflight
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
+          RESET: ${{ inputs.reset_unpublished }}
+          EXPECTED_ARCHIVED_COMMIT: ${{ inputs.expected_archived_commit }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPOSITORY: yyuchenn/bubblefish
+        shell: bash
+        run: |
+          args=(--tag "$RELEASE_TAG" --source .cache/release-source)
+          if [[ -n "$ARTIFACT_RUN_ID" ]]; then args+=(--artifact-run-id "$ARTIFACT_RUN_ID"); fi
+          if [[ "$RESET" == 'true' ]]; then args+=(--allow-archived-commit "$EXPECTED_ARCHIVED_COMMIT"); fi
+          node scripts/check-release.mjs "${args[@]}"
       - name: Download signed Windows artifacts
-        if: inputs.staged
+        if: inputs.staged || inputs.artifact_run_id
         uses: actions/download-artifact@v8
         with:
           name: bubblefish-windows-x64
           path: .cache/updater-staging/windows/
+          run-id: ${{ steps.preflight.outputs.artifact_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Download signed macOS artifacts
-        if: inputs.staged
+        if: inputs.staged || inputs.artifact_run_id
         uses: actions/download-artifact@v8
         with:
           name: bubblefish-macos-arm64
           path: .cache/updater-staging/macos/
+          run-id: ${{ steps.preflight.outputs.artifact_run_id || github.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare guarded release recovery backup
+        if: inputs.reset_unpublished
+        id: recovery
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          EXPECTED_ARCHIVED_COMMIT: ${{ inputs.expected_archived_commit }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPOSITORY: yyuchenn/bubblefish
+        run: node scripts/release-recovery.mjs prepare --tag "$RELEASE_TAG" --source .cache/release-source --artifacts .cache/updater-staging --expected-archived-commit "$EXPECTED_ARCHIVED_COMMIT" --backup .cache/release-recovery
+      - name: Persist release recovery backup before any reset
+        if: inputs.reset_unpublished
+        id: backup
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.recovery.outputs.backup_name }}
+          path: .cache/release-recovery/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Apply guarded archive reset from the persisted backup
+        if: inputs.reset_unpublished
+        env:
+          BACKUP_ARTIFACT_ID: ${{ steps.backup.outputs.artifact-id }}
+          BACKUP_FINGERPRINT: ${{ steps.recovery.outputs.backup_fingerprint }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITEE_REPOSITORY: yyuchenn/bubblefish
+        run: node scripts/release-recovery.mjs apply --backup .cache/release-recovery --backup-artifact-id "$BACKUP_ARTIFACT_ID" --backup-fingerprint "$BACKUP_FINGERPRINT"
       - name: Publish verified installers and complete update feeds
         env:
           RELEASE_TAG: ${{ inputs.tag }}
           STAGED: ${{ inputs.staged }}
+          ARTIFACT_RUN_ID: ${{ inputs.artifact_run_id }}
           MIRROR_ONLY: ${{ inputs.mirror_only }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_REPOSITORY: yyuchenn/bubblefish
         shell: bash
         run: |
-          args=(--tag "$RELEASE_TAG")
-          if [[ "$STAGED" == 'true' ]]; then args+=(--artifacts .cache/updater-staging); fi
+          args=(--tag "$RELEASE_TAG" --source .cache/release-source)
+          if [[ "$STAGED" == 'true' || -n "$ARTIFACT_RUN_ID" ]]; then args+=(--artifacts .cache/updater-staging); fi
           if [[ "$MIRROR_ONLY" == 'true' ]]; then args+=(--mirror-only); fi
           node scripts/publish-updater.mjs "${args[@]}"
       - name: Mirror existing official plugin packages to Gitee
@@ -77,4 +177,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
           GITEE_REPOSITORY: yyuchenn/bubblefish
-        run: node scripts/publish-plugins.mjs --tag "$RELEASE_TAG" --mirror-only
+        run: node scripts/publish-plugins.mjs --tag "$RELEASE_TAG" --source .cache/release-source --mirror-only

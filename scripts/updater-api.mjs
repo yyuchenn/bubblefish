@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Agent } from 'undici';
 import {
   applyReleaseMetadata,
   sha256,
@@ -10,6 +11,7 @@ import {
 export const giteeAttachmentLimit = 100_000_000;
 const requestTimeoutMs = 120_000;
 const attachmentUploadTimeoutMs = 900_000;
+const connectTimeoutMs = 10_000;
 
 function errorCauses(error) {
   const pending = [{ error, depth: 0 }],
@@ -89,12 +91,34 @@ export class ReleaseHttp {
     sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
     now = () => performance.now(),
     timeoutSignal = (ms) => AbortSignal.timeout(ms),
+    agentFactory = (options) => new Agent(options),
   } = {}) {
     this.fetch = fetchImpl;
     this.sleep = sleep;
     this.now = now;
     this.timeoutSignal = timeoutSignal;
+    this.agentFactory = agentFactory;
+    this.agents = new Map();
     this.contexts = new WeakMap();
+  }
+
+  agent(timeoutMs) {
+    assert.ok(!this.closePromise, 'Release HTTP client is closed');
+    if (!this.agents.has(timeoutMs))
+      this.agents.set(
+        timeoutMs,
+        this.agentFactory({
+          headersTimeout: timeoutMs,
+          bodyTimeout: timeoutMs,
+          connectTimeout: connectTimeoutMs,
+        }),
+      );
+    return this.agents.get(timeoutMs);
+  }
+
+  async close() {
+    this.closePromise ??= Promise.all([...this.agents.values()].map((agent) => agent.close()));
+    await this.closePromise;
   }
 
   failure(message, context, phase, cause) {
@@ -108,6 +132,9 @@ export class ReleaseHttp {
       ...(context.attachmentSize === undefined ? {} : { attachmentSize: context.attachmentSize }),
       elapsedMs: Math.max(0, Math.round(this.now() - context.startedAt)),
       timeoutMs: context.timeoutMs,
+      headersTimeoutMs: context.timeoutMs,
+      bodyTimeoutMs: context.timeoutMs,
+      connectTimeoutMs,
       attempt: context.attempt,
       maxAttempts: context.maxAttempts,
       ...(context.status === undefined ? {} : { status: context.status }),
@@ -142,7 +169,11 @@ export class ReleaseHttp {
       };
       let response;
       try {
-        response = await this.fetch(url, { ...options, signal: this.timeoutSignal(timeoutMs) });
+        response = await this.fetch(url, {
+          ...options,
+          dispatcher: this.agent(timeoutMs),
+          signal: this.timeoutSignal(timeoutMs),
+        });
       } catch (error) {
         if (method === 'GET' && attempt < 3) {
           await this.sleep(500 * 2 ** attempt);
@@ -152,8 +183,14 @@ export class ReleaseHttp {
       }
       context.status = response.status;
       this.contexts.set(response, context);
-      if (missing && response.status === 404) return null;
+      if (missing && response.status === 404) {
+        await response.body?.cancel().catch(() => {});
+        return null;
+      }
       if (response.ok) return response;
+      // Discard bodies that no caller will consume so owned pools can close
+      // promptly after errors, missing releases and transient read retries.
+      await response.body?.cancel().catch(() => {});
       // Retrying writes after an ambiguous response can create duplicate assets.
       // A later run lists and validates the existing release before resuming.
       if (method === 'GET' && [429, 500, 502, 503, 504].includes(response.status) && attempt < 3) {
@@ -193,6 +230,7 @@ export class ReleaseHttp {
       }
       return Buffer.concat(chunks);
     } catch (error) {
+      await response.body?.cancel().catch(() => {});
       throw this.failure(
         error?.message === limitMessage ? limitMessage : 'download body failed',
         this.contexts.get(response),

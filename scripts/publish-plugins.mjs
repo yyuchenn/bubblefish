@@ -5,10 +5,12 @@ import { fileURLToPath } from 'node:url';
 import {
   GithubReleaseApi,
   GiteeReleaseApi,
+  ReleaseHttp,
   giteeAttachmentLimit,
   repositoryPath,
 } from './updater-api.mjs';
 import { releaseVersion, sha256 } from './updater-artifacts.mjs';
+import { readReleaseSource, resolveGithubTag } from './release-source.mjs';
 
 export const pluginPackageNames = Object.freeze([
   'deepseek-translation-plugin.bfplugin',
@@ -138,40 +140,56 @@ async function main() {
   const args = process.argv.slice(2);
   let tag,
     directory,
+    sourceDirectory,
     mirrorOnly = false;
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--tag') tag = args[++index];
     else if (args[index] === '--artifacts') {
       directory = args[++index];
       assert.ok(directory && !directory.startsWith('--'), '--artifacts requires a directory');
+    } else if (args[index] === '--source') {
+      sourceDirectory = args[++index];
+      assert.ok(
+        sourceDirectory && !sourceDirectory.startsWith('--'),
+        '--source requires a directory',
+      );
     } else if (args[index] === '--mirror-only') mirrorOnly = true;
     else throw new Error(`Unknown argument: ${args[index]}`);
   }
   assert.ok(
     tag,
-    'Usage: publish-plugins.mjs --tag <published-tag> [--artifacts <directory>] [--mirror-only]',
+    'Usage: publish-plugins.mjs --tag <published-tag> [--source <directory>] [--artifacts <directory>] [--mirror-only]',
   );
   releaseVersion(tag);
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const repository = repositoryPath(process.env.GITHUB_REPOSITORY);
   const giteeRepository = repositoryPath(process.env.GITEE_REPOSITORY || 'yyuchenn/bubblefish');
-  const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
-  const config = JSON.parse(await readFile(resolve(root, 'src-tauri/tauri.conf.json'), 'utf8'));
-  assert.equal(config.version, manifest.version, 'Tauri and npm versions differ');
-  const github = new GithubReleaseApi({ repository, token: process.env.GITHUB_TOKEN });
-  const gitee = new GiteeReleaseApi({
-    repository: giteeRepository,
-    token: process.env.GITEE_TOKEN,
-  });
-  const result = await publishPlugins({
-    tag,
-    expectedVersion: manifest.version,
-    artifacts: directory ? await readPluginArtifacts(resolve(directory)) : undefined,
-    github,
-    gitee,
-    mirrorOnly,
-  });
-  console.log(JSON.stringify(result));
+  const source = await readReleaseSource(resolve(sourceDirectory ?? root), tag);
+  const http = new ReleaseHttp();
+  try {
+    const github = new GithubReleaseApi({ repository, token: process.env.GITHUB_TOKEN, http });
+    const gitee = new GiteeReleaseApi({
+      repository: giteeRepository,
+      token: process.env.GITEE_TOKEN,
+      http,
+    });
+    assert.equal(
+      await resolveGithubTag(github, tag),
+      source.releaseCommit,
+      `Release tag moved: ${tag}; source commit ${source.releaseCommit}`,
+    );
+    const result = await publishPlugins({
+      tag,
+      expectedVersion: source.version,
+      artifacts: directory ? await readPluginArtifacts(resolve(directory)) : undefined,
+      github,
+      gitee,
+      mirrorOnly,
+    });
+    console.log(JSON.stringify(result));
+  } finally {
+    await http.close();
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))

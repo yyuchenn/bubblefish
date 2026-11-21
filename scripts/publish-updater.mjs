@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
-import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
-import { GithubReleaseApi, GiteeReleaseApi, repositoryPath } from './updater-api.mjs';
+import { GithubReleaseApi, GiteeReleaseApi, ReleaseHttp, repositoryPath } from './updater-api.mjs';
 import { GitUpdaterStore } from './updater-git.mjs';
+import { assertReleaseIdentity, readReleaseSource } from './release-source.mjs';
 import {
   applyReleaseMetadata,
   readLocalArtifacts,
@@ -85,59 +83,68 @@ async function main() {
   const args = process.argv.slice(2);
   let tag,
     directory,
+    sourceDirectory,
     mirrorOnly = false;
   for (let index = 0; index < args.length; index++) {
     if (args[index] === '--tag') tag = args[++index];
-    else if (args[index] === '--artifacts') directory = args[++index];
-    else if (args[index] === '--mirror-only') mirrorOnly = true;
+    else if (args[index] === '--artifacts') {
+      directory = args[++index];
+      assert.ok(directory && !directory.startsWith('--'), '--artifacts requires a directory');
+    } else if (args[index] === '--source') {
+      sourceDirectory = args[++index];
+      assert.ok(
+        sourceDirectory && !sourceDirectory.startsWith('--'),
+        '--source requires a directory',
+      );
+    } else if (args[index] === '--mirror-only') mirrorOnly = true;
     else throw new Error(`Unknown argument: ${args[index]}`);
   }
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
   const repository = repositoryPath(process.env.GITHUB_REPOSITORY);
   const giteeRepository = repositoryPath(process.env.GITEE_REPOSITORY || 'yyuchenn/bubblefish');
-  const manifest = JSON.parse(await readFile(resolve(root, 'package.json'), 'utf8'));
-  const config = JSON.parse(await readFile(resolve(root, 'src-tauri/tauri.conf.json'), 'utf8'));
-  assert.equal(config.version, manifest.version, 'Tauri and npm versions differ');
-  const publicKey = config.plugins?.updater?.pubkey;
-  assert.ok(publicKey, 'Missing updater public key');
   assert.ok(
     tag,
-    'Usage: publish-updater.mjs --tag <published-tag> [--artifacts <directory>] [--mirror-only]',
+    'Usage: publish-updater.mjs --tag <published-tag> [--source <directory>] [--artifacts <directory>] [--mirror-only]',
   );
   releaseVersion(tag);
-  const github = new GithubReleaseApi({ repository, token: process.env.GITHUB_TOKEN });
-  const gitee = new GiteeReleaseApi({
-    repository: giteeRepository,
-    token: process.env.GITEE_TOKEN,
-  });
-  const githubStore = new GitUpdaterStore({
-    remote: `https://github.com/${repository}.git`,
-    token: process.env.GITHUB_TOKEN,
-  });
-  const giteeStore = new GitUpdaterStore({
-    remote: `https://gitee.com/${giteeRepository}.git`,
-    token: process.env.GITEE_TOKEN,
-    username: 'oauth2',
-  });
-  const { stdout } = await promisify(execFile)('git', ['rev-parse', `refs/tags/${tag}^{commit}`], {
-    cwd: root,
-  });
-  const localArtifacts = directory
-    ? await readLocalArtifacts(resolve(directory), releaseVersion(tag), publicKey)
-    : undefined;
-  const result = await publishUpdater({
-    tag,
-    publicKey,
-    expectedVersion: manifest.version,
-    localArtifacts,
-    github,
-    gitee,
-    githubStore,
-    giteeStore,
-    releaseCommit: stdout.trim(),
-    mirrorOnly,
-  });
-  console.log(JSON.stringify(result));
+  const source = await readReleaseSource(resolve(sourceDirectory ?? root), tag);
+  const http = new ReleaseHttp();
+  try {
+    const github = new GithubReleaseApi({ repository, token: process.env.GITHUB_TOKEN, http });
+    const gitee = new GiteeReleaseApi({
+      repository: giteeRepository,
+      token: process.env.GITEE_TOKEN,
+      http,
+    });
+    const githubStore = new GitUpdaterStore({
+      remote: `https://github.com/${repository}.git`,
+      token: process.env.GITHUB_TOKEN,
+    });
+    const giteeStore = new GitUpdaterStore({
+      remote: `https://gitee.com/${giteeRepository}.git`,
+      token: process.env.GITEE_TOKEN,
+      username: 'oauth2',
+    });
+    await assertReleaseIdentity({ tag, source, github, githubStore, giteeStore });
+    const localArtifacts = directory
+      ? await readLocalArtifacts(resolve(directory), source.version, source.publicKey)
+      : undefined;
+    const result = await publishUpdater({
+      tag,
+      publicKey: source.publicKey,
+      expectedVersion: source.version,
+      localArtifacts,
+      github,
+      gitee,
+      githubStore,
+      giteeStore,
+      releaseCommit: source.releaseCommit,
+      mirrorOnly,
+    });
+    console.log(JSON.stringify(result));
+  } finally {
+    await http.close();
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url))

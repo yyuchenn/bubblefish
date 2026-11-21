@@ -9,6 +9,13 @@ import {
 import { releaseMetadata, updateManifest } from './updater-artifacts.mjs';
 import { testArtifacts, testRelease, testSigner } from './updater-test-helpers.mjs';
 
+function fakeHttp(options) {
+  return new ReleaseHttp({
+    agentFactory: (agentOptions) => ({ options: agentOptions, close: async () => {} }),
+    ...options,
+  });
+}
+
 function fakeServer(
   release = testRelease(),
   { onRequest = () => {}, giteeRelease: existingGiteeRelease, ...httpOptions } = {},
@@ -44,6 +51,7 @@ function fakeServer(
       method,
       authorization: new Headers(options.headers).get('Authorization'),
       timeoutMs: signalTimeouts.get(options.signal),
+      agentOptions: options.dispatcher.options,
     });
     await onRequest(url, options);
     if (downloads.has(url.href)) {
@@ -76,7 +84,7 @@ function fakeServer(
     }
     return json({}, 404);
   };
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     fetchImpl,
     sleep: async () => {},
     timeoutSignal: (timeoutMs) => {
@@ -364,7 +372,7 @@ test('Gitee rejects duplicate attachments and oversize installers instead of del
 test('read retries handle transient HTTP failures; writes do not retry ambiguous errors', async () => {
   let calls = 0;
   const sleeps = [];
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     fetchImpl: async () =>
       ++calls < 3 ? new Response('', { status: 429 }) : new Response('{"ok":true}'),
     sleep: async (delay) => sleeps.push(delay),
@@ -378,7 +386,7 @@ test('read retries handle transient HTTP failures; writes do not retry ambiguous
 
 test('network failures retry reads but never replay a possibly completed attachment upload', async () => {
   let calls = 0;
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     fetchImpl: async () => {
       if (++calls < 2) throw new Error('simulated connection reset');
       return new Response('{"ok":true}');
@@ -409,6 +417,12 @@ test('installer uploads use fifteen minutes while metadata and downloads use two
   );
   assert.equal(uploads.length, 8);
   assert.ok(uploads.every(({ timeoutMs }) => timeoutMs === 900_000));
+  for (const { agentOptions } of uploads)
+    assert.deepEqual(agentOptions, {
+      headersTimeout: 900_000,
+      bodyTimeout: 900_000,
+      connectTimeout: 10_000,
+    });
   const otherRequests = server.calls.filter((call) => !uploads.includes(call));
   assert.ok(
     otherRequests.some(({ method }) => method === 'POST'),
@@ -416,6 +430,72 @@ test('installer uploads use fifteen minutes while metadata and downloads use two
   );
   assert.ok(otherRequests.some(({ method }) => method === 'GET'));
   assert.ok(otherRequests.every(({ timeoutMs }) => timeoutMs === 120_000));
+  for (const { agentOptions } of otherRequests)
+    assert.deepEqual(agentOptions, {
+      headersTimeout: 120_000,
+      bodyTimeout: 120_000,
+      connectTimeout: 10_000,
+    });
+});
+
+test('HTTP profiles cache owned agents by budget and close them once after use', async () => {
+  const created = [],
+    used = [],
+    closed = [];
+  const http = new ReleaseHttp({
+    agentFactory: (options) => {
+      const agent = { options, close: async () => closed.push(agent) };
+      created.push(agent);
+      return agent;
+    },
+    fetchImpl: async (_url, { dispatcher }) => {
+      used.push(dispatcher);
+      return new Response('{"ok":true}');
+    },
+  });
+  await http.json('https://api.github.com/metadata');
+  await http.json('https://gitee.com/metadata');
+  await http.json(
+    'https://uploads.github.com/installers',
+    { method: 'POST' },
+    { timeoutMs: 900_000 },
+  );
+  await http.json('https://gitee.com/plugins', { method: 'POST' }, { timeoutMs: 900_000 });
+  assert.equal(created.length, 2);
+  assert.deepEqual(used, [created[0], created[0], created[1], created[1]]);
+  assert.deepEqual(
+    created.map(({ options }) => options),
+    [
+      { headersTimeout: 120_000, bodyTimeout: 120_000, connectTimeout: 10_000 },
+      { headersTimeout: 900_000, bodyTimeout: 900_000, connectTimeout: 10_000 },
+    ],
+  );
+  await http.close();
+  await http.close();
+  assert.deepEqual(closed, created);
+  await assert.rejects(http.json('https://gitee.com/closed', { method: 'POST' }), (error) => {
+    assert.match(error.cause.message, /client is closed/);
+    return true;
+  });
+  assert.equal(used.length, 4);
+});
+
+test('unconsumed error and missing bodies are cancelled before owned agent shutdown', async () => {
+  const cancelled = [];
+  let call = 0;
+  const http = fakeHttp({
+    fetchImpl: async () =>
+      new Response(
+        new ReadableStream({
+          cancel: () => cancelled.push(call),
+        }),
+        { status: ++call === 1 ? 404 : 403 },
+      ),
+  });
+  assert.equal(await http.json('https://gitee.com/missing', {}, { missing: true }), null);
+  await assert.rejects(http.json('https://gitee.com/forbidden'), /HTTP 403/);
+  assert.deepEqual(cancelled, [1, 2]);
+  await http.close();
 });
 
 test('both release adapters identify failed installer and plugin uploads without retrying them', async () => {
@@ -472,7 +552,7 @@ test('request timeout diagnostics include safe upload context and retain the ori
   const timeout = new DOMException('private timeout message with secret-token', 'TimeoutError');
   const controller = new AbortController();
   controller.abort(timeout);
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     now: () => now,
     timeoutSignal: (timeoutMs) => {
       assert.equal(timeoutMs, 900_000);
@@ -507,6 +587,9 @@ test('request timeout diagnostics include safe upload context and retain the ori
         attachmentSize: 123_456,
         elapsedMs: 901_234,
         timeoutMs: 900_000,
+        headersTimeoutMs: 900_000,
+        bodyTimeoutMs: 900_000,
+        connectTimeoutMs: 10_000,
         attempt: 1,
         maxAttempts: 1,
         causes: [{ name: 'TimeoutError' }],
@@ -529,7 +612,7 @@ test('network diagnostics bound aggregate and cyclic causes without printing the
   );
   const failure = new TypeError('private fetch message', { cause: aggregate });
   reset.cause = failure;
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     fetchImpl: async () => {
       throw failure;
     },
@@ -556,7 +639,7 @@ test('network diagnostics bound aggregate and cyclic causes without printing the
 test('HTTP errors report status and timing without exposing response bodies or credentials', async () => {
   let now = 100,
     calls = 0;
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     now: () => now,
     timeoutSignal: () => new AbortController().signal,
     fetchImpl: async () => {
@@ -601,7 +684,7 @@ test('exhausted read retries report the last attempt timing rather than total ba
   const sleeps = [],
     timeouts = [];
   const failure = Object.assign(new Error('private DNS failure'), { code: 'ENOTFOUND' });
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     now: () => now,
     timeoutSignal: (timeoutMs) => {
       timeouts.push(timeoutMs);
@@ -639,7 +722,7 @@ test('exhausted read retries report the last attempt timing rather than total ba
 test('JSON failures retain successful retry context and do not print invalid response content', async () => {
   let now = 0,
     calls = 0;
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     now: () => now,
     timeoutSignal: () => new AbortController().signal,
     sleep: async (delay) => {
@@ -676,7 +759,7 @@ test('download stream failures preserve final response context without replaying
   let now = 0,
     calls = 0;
   const failure = Object.assign(new Error('private body failure'), { code: 'ECONNRESET' });
-  const http = new ReleaseHttp({
+  const http = fakeHttp({
     now: () => now,
     timeoutSignal: () => new AbortController().signal,
     sleep: async (delay) => {
